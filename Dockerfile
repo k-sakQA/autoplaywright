@@ -1,8 +1,20 @@
-FROM node:18-alpine
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
+# ───────────────────────────────────────────
+# Dockerfile (プロジェクト直下に上書き)
+# ───────────────────────────────────────────
+
+# Playwright公式“noble”イメージをベースに
+# ブラウザ本体＆依存ライブラリが最初からプリインストール
+FROM mcr.microsoft.com/playwright:v1-noble  
+# :contentReference[oaicite:0]{index=0}
+
 WORKDIR /app
+
+# 依存定義だけ先コピー (キャッシュ効かせる)
 COPY package*.json ./
 RUN npm ci
+
+# 残りのソースをコピー
 COPY . .
-RUN npx playwright install --with-deps
+
+# デフォルトでCIパイプラインを実行
 CMD ["npm", "run", "ci-pipeline"]
