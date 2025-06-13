@@ -1,0 +1,99 @@
+{
+  "timestamp": "2025-06-13T04:14:32.106Z",
+  "route_id": "test_reserve_001",
+  "total_steps": 14,
+  "success_count": 12,
+  "failed_count": 2,
+  "success": false,
+  "execution_time": 10794,
+  "successful_tests": [
+    {
+      "label": "予約ページを開く",
+      "action": "load",
+      "target": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0",
+      "timestamp": "2025-06-13T04:14:21.873Z"
+    },
+    {
+      "label": "宿泊予約ページが表示されていることを確認する",
+      "action": "assertVisible",
+      "target": "h2:has-text('宿泊予約')",
+      "timestamp": "2025-06-13T04:14:21.920Z"
+    },
+    {
+      "label": "宿泊日入力フィールドが表示されていることを確認する",
+      "action": "assertVisible",
+      "target": "#date",
+      "timestamp": "2025-06-13T04:14:21.925Z"
+    },
+    {
+      "label": "宿泊数入力フィールドが表示されていることを確認する",
+      "action": "assertVisible",
+      "target": "#term",
+      "timestamp": "2025-06-13T04:14:21.926Z"
+    },
+    {
+      "label": "宿泊日を空白のまま送信する",
+      "action": "click",
+      "target": "#reserve-form",
+      "timestamp": "2025-06-13T04:14:22.007Z"
+    },
+    {
+      "label": "宿泊日を3ヶ月以内の日付を入力する",
+      "action": "fill",
+      "target": "#date",
+      "timestamp": "2025-06-13T04:14:27.046Z"
+    },
+    {
+      "label": "宿泊数を1泊入力する",
+      "action": "fill",
+      "target": "#term",
+      "timestamp": "2025-06-13T04:14:27.056Z"
+    },
+    {
+      "label": "正しい情報で予約を送信する",
+      "action": "click",
+      "target": "#reserve-form",
+      "timestamp": "2025-06-13T04:14:27.085Z"
+    },
+    {
+      "label": "宿泊日が保持されていることを確認する",
+      "action": "assertValue",
+      "target": "#date",
+      "timestamp": "2025-06-13T04:14:32.086Z"
+    },
+    {
+      "label": "宿泊数が保持されていることを確認する",
+      "action": "assertValue",
+      "target": "#term",
+      "timestamp": "2025-06-13T04:14:32.086Z"
+    },
+    {
+      "label": "無効な宿泊日を入力して予約を送信する",
+      "action": "fill",
+      "target": "#date",
+      "timestamp": "2025-06-13T04:14:32.102Z"
+    },
+    {
+      "label": "エラーメッセージが表示されることを確認する",
+      "action": "assertVisible",
+      "target": ".invalid-feedback",
+      "timestamp": "2025-06-13T04:14:32.106Z"
+    }
+  ],
+  "failed_tests": [
+    {
+      "label": "エラーメッセージが表示されることを確認する",
+      "action": "assertVisible",
+      "target": ".invalid-feedback",
+      "error": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.invalid-feedback') to be visible\u001b[22m\n\u001b[2m    15 × locator resolved to 8 elements. Proceeding with the first one: <div class=\"invalid-feedback\"></div>\u001b[22m\n",
+      "timestamp": "2025-06-13T04:14:27.010Z"
+    },
+    {
+      "label": "確認ページに遷移することを確認する",
+      "action": "assertVisible",
+      "target": "h1:has-text('確認')",
+      "error": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('h1:has-text(\\'確認\\')') to be visible\u001b[22m\n",
+      "timestamp": "2025-06-13T04:14:32.086Z"
+    }
+  ]
+}

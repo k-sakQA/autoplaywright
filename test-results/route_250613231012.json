@@ -1,0 +1,96 @@
+{
+  "route_id": "test_reserve_001",
+  "steps": [
+    {
+      "label": "予約ページを開く",
+      "action": "load",
+      "target": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0"
+    },
+    {
+      "label": "宿泊日フィールドの表示確認",
+      "action": "assertVisible",
+      "target": "#date"
+    },
+    {
+      "label": "宿泊数フィールドの表示確認",
+      "action": "assertVisible",
+      "target": "#term"
+    },
+    {
+      "label": "宿泊日フィールドに不正な日付を入力",
+      "action": "fill",
+      "target": "#date",
+      "data": "2023/02/30"
+    },
+    {
+      "label": "不正な日付のエラーメッセージ表示確認",
+      "action": "assertVisible",
+      "target": ".invalid-feedback"
+    },
+    {
+      "label": "宿泊日フィールドに正しい日付を入力",
+      "action": "fill",
+      "target": "#date",
+      "data": "2023/12/01"
+    },
+    {
+      "label": "宿泊数フィールドに正しい宿泊数を入力",
+      "action": "fill",
+      "target": "#term",
+      "data": "2"
+    },
+    {
+      "label": "予約フォームを送信",
+      "action": "click",
+      "target": "#reserve-form button[type='submit']"
+    },
+    {
+      "label": "確認ページに遷移確認",
+      "action": "assertURLContains",
+      "target": "confirm.html"
+    },
+    {
+      "label": "入力した宿泊日と宿泊数の表示確認",
+      "action": "assertVisible",
+      "target": "text=宿泊日: 2023/12/01"
+    },
+    {
+      "label": "入力した宿泊数の表示確認",
+      "action": "assertVisible",
+      "target": "text=宿泊数: 2"
+    },
+    {
+      "label": "宿泊日フィールドを空白にしてフォーム送信",
+      "action": "fill",
+      "target": "#date",
+      "data": ""
+    },
+    {
+      "label": "空白の宿泊日でのエラーメッセージ確認",
+      "action": "assertVisible",
+      "target": ".invalid-feedback"
+    },
+    {
+      "label": "宿泊数を最大値に設定しフォーム送信",
+      "action": "fill",
+      "target": "#term",
+      "data": "99"
+    },
+    {
+      "label": "最大値超過でエラーメッセージ確認",
+      "action": "assertVisible",
+      "target": ".invalid-feedback"
+    },
+    {
+      "label": "宿泊日フィールドに未来の日付を入力",
+      "action": "fill",
+      "target": "#date",
+      "data": "2024/01/01"
+    },
+    {
+      "label": "フォーム送信後の状態検証",
+      "action": "assertVisible",
+      "target": "text=予約が完了しました"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "timestamp": "2025-06-13T04:01:21.590Z",
+  "route_id": "test_reserve_001",
+  "total_steps": 17,
+  "failed_count": 3,
+  "success": false,
+  "failed_tests": [
+    {
+      "label": "エラーメッセージの表示確認",
+      "error": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.invalid-feedback') to be visible\u001b[22m\n\u001b[2m    15 × locator resolved to 8 elements. Proceeding with the first one: <div class=\"invalid-feedback\"></div>\u001b[22m\n"
+    },
+    {
+      "label": "確認ページでの宿泊日確認",
+      "error": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=宿泊日: 2023-09-15') to be visible\u001b[22m\n"
+    },
+    {
+      "label": "確認ページでの宿泊数確認",
+      "error": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=宿泊数: 3泊') to be visible\u001b[22m\n"
+    }
+  ],
+  "execution_time": 15880
+}

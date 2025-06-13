@@ -1,0 +1,9 @@
+version: "3.8"
+services:
+  test:
+    build: .
+    volumes:
+      - .:/app
+      - ~/.aws:/root/.aws:ro
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
