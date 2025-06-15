@@ -9,6 +9,11 @@
     "openai": "^5.3.0"
   },
   "scripts": {
-    "ci-pipeline": "node generateTestPoints.js && node generatePlanRoutes.js && node runRoutes.js"
+    "generate:testpoints": "node tests/generateTestPoints.js",
+    "generate:planroutes": "node tests/generatePlanRoutes.js",
+    "generate:routes": "node tests/generateRoutes.js",
+    "run:tests": "node tests/runRoutes.js",
+    "save:results": "node saveResultsToSheet.js",
+    "ci-pipeline": "npm run generate:testpoints && npm run generate:planroutes && npm run generate:routes && npm run run:tests && npm run save:results"
   }
 }
