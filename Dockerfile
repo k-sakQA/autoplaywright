@@ -11,6 +11,7 @@ WORKDIR /app
 # 必要なファイルをコピー
 COPY package*.json ./
 COPY config.json ./
+COPY playwright.config.js ./
 COPY tests/ ./tests/
 COPY test_point/ ./test_point/
 
