@@ -1,6 +1,7 @@
 # AutoPlaywright
 
 Playwrightを使用した自動テスト生成・実行ツールです。OpenAIのGPTモデルを活用して、テスト観点から自動的にテストシナリオを生成し、実行します。
+※「設定」にてご自身のOpenAI API KEYを設定してください。
 
 ## 機能
 
