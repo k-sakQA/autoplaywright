@@ -2,18 +2,29 @@
 # Dockerfile
 # ───────────────────────────────────────────
 
-# Playwright公式"noble"イメージをベースに
-# ブラウザ本体＆依存ライブラリが最初からプリインストール
-FROM mcr.microsoft.com/playwright:v1-noble
+# Node.jsの公式イメージを使用
+FROM node:24.2.0
 
+# 作業ディレクトリを設定
 WORKDIR /app
 
-# 依存定義だけ先コピー (キャッシュ効かせる)
+# 必要なファイルをコピー
 COPY package*.json ./
-RUN npm ci
+COPY config.json ./
+COPY tests/ ./tests/
+COPY test_point/ ./test_point/
 
-# 残りのソースをコピー
-COPY . .
+# 依存パッケージのインストール
+RUN npm install
 
-# デフォルトでCIパイプラインを実行
-CMD ["npm", "run", "ci-pipeline"]
+# Playwrightの依存関係をインストール
+RUN npx playwright install --with-deps
+
+# 環境変数の設定
+ENV NODE_ENV=production
+
+# テスト結果を保存するディレクトリを作成
+RUN mkdir -p test-results
+
+# コンテナ起動時のコマンド
+CMD ["node", "tests/runRoutes.js"]

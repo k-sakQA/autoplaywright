@@ -1,0 +1,8 @@
+{
+  "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/plans.html",
+  "openai": {
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "model": "gpt-4o-mini",
+    "temperature": 0.5
+  }
+}

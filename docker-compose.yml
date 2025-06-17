@@ -7,3 +7,11 @@ services:
       - ~/.aws:/root/.aws:ro
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
+
+  autoplaywright:
+    build: .
+    volumes:
+      - ./test-results:/app/test-results
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: node tests/runRoutes.js
