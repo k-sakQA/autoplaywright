@@ -1,11 +1,11 @@
 {
-  "timestamp": "2025-06-17T06:04:00.329Z",
+  "timestamp": "2025-06-17T15:14:17.992Z",
   "route_id": "test_reserve_001",
   "total_steps": 20,
   "success_count": 17,
   "failed_count": 3,
   "success": false,
-  "execution_time": 12075,
+  "execution_time": 12252,
   "steps": [
     {
       "label": "予約ページを開く",
