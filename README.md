@@ -8,6 +8,7 @@ Playwrightを使用した自動テスト生成・実行ツールです。OpenAI�
 - 生成されたシナリオの自動実行
 - テスト結果の詳細なログ出力と保存
 - 失敗したテストケースの明確な表示
+- テスト実行結果のCSV形式レポート生成
 
 ## 必要条件
 
@@ -54,10 +55,6 @@ cp .env.example .env
 ### 1. テスト観点の生成
 
 ```bash
-# Windows
-node tests/generateTestPoints.js
-
-# Mac
 node tests/generateTestPoints.js
 ```
 
@@ -67,10 +64,6 @@ node tests/generateTestPoints.js
 ### 2. テストルートの生成
 
 ```bash
-# Windows
-node tests/generatePlanRoutes.js
-
-# Mac
 node tests/generatePlanRoutes.js
 ```
 
@@ -80,10 +73,6 @@ node tests/generatePlanRoutes.js
 ### 3. テストの実行
 
 ```bash
-# Windows
-node tests/runRoutes.js
-
-# Mac
 node tests/runRoutes.js
 ```
 
@@ -91,7 +80,16 @@ node tests/runRoutes.js
 - 実行結果は `test-results/result_[timestamp].json` に保存
 - ターミナルに詳細な実行ログを表示
 
-## サポートされているアクション
+### 4. テストレポートの生成
+
+```bash
+node tests/generateTestReport.js
+```
+
+- テスト実行結果を分析し、CSV形式のテストケースを生成
+- 生成されたテストケースは `test-results/test_report_[timestamp].csv` に保存
+
+## サポートされているPlaywrightのアクション
 
 - `goto`/`load`: ページ遷移
 - `waitForSelector`: 要素の待機
