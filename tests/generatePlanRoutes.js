@@ -1,11 +1,58 @@
 // tests/generatePlanRoutes.js
 // テスト観点(testPoints)から自動でテストルートJSONを生成し、ファイル出力まで行うスクリプト
 
-require('dotenv').config();
-const fs   = require('fs');
-const path = require('path');
-const axios = require('axios');
-const { OpenAI } = require('openai');
+import 'dotenv/config';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+import axios from "axios";
+import { z } from "zod";
+import { OpenAI } from "openai";
+
+// configのスキーマ定義
+const ConfigSchema = z.object({
+  openai: z.object({
+    apiKeyEnv: z.string(),
+    model: z.string(),
+    temperature: z.number().min(0).max(2),
+  }),
+  targetUrl: z.string().url(),
+});
+
+// config.json をロード
+const loadConfig = () => {
+  try {
+    const configPath = path.resolve(__dirname, "../config.json");
+    const rawConfig = fs.readFileSync(configPath, "utf-8");
+    const parsedConfig = JSON.parse(rawConfig);
+    return ConfigSchema.parse(parsedConfig);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Failed to load config:", error.message);
+    }
+    process.exit(1);
+  }
+};
+
+// OpenAI クライアントの設定
+const getOpenAIConfig = (config) => {
+  const apiKey = process.env[config.openai.apiKeyEnv];
+  if (!apiKey) {
+    console.error("ERROR: OpenAI API key not set in", config.openai.apiKeyEnv);
+    process.exit(1);
+  }
+
+  return {
+    apiKey,
+    model: config.openai.model,
+    temperature: config.openai.temperature,
+  };
+};
+
+export const config = loadConfig();
+export const openAIConfig = getOpenAIConfig(config);
 
 // ① AI呼び出し用のプロンプト＆関数定義
 async function generateTestRoute(screenInfo, testPoints) {

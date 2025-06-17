@@ -1,14 +1,175 @@
 // tests/runRoutes.js
 
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const { chromium } = require('playwright');
+import 'dotenv/config';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+import { chromium } from 'playwright';
+import { z } from "zod";
+import playwrightConfig from '../playwright.config.js';
 
+// configのスキーマ定義
+const ConfigSchema = z.object({
+  openai: z.object({
+    apiKeyEnv: z.string(),
+    model: z.string(),
+    temperature: z.number().min(0).max(2),
+  }),
+  targetUrl: z.string().url(),
+});
+
+// config.json をロード
+const loadConfig = () => {
+  try {
+    const configPath = path.resolve(__dirname, "../config.json");
+    const rawConfig = fs.readFileSync(configPath, "utf-8");
+    const parsedConfig = JSON.parse(rawConfig);
+    return ConfigSchema.parse(parsedConfig);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Failed to load config:", error.message);
+    }
+    process.exit(1);
+  }
+};
+
+// OpenAI クライアントの設定
+const getOpenAIConfig = (config) => {
+  const apiKey = process.env[config.openai.apiKeyEnv];
+  if (!apiKey) {
+    console.error("ERROR: OpenAI API key not set in", config.openai.apiKeyEnv);
+    process.exit(1);
+  }
+
+  return {
+    apiKey,
+    model: config.openai.model,
+    temperature: config.openai.temperature,
+  };
+};
+
+export const config = loadConfig();
+export const openAIConfig = getOpenAIConfig(config);
+
+// 型定義をJSDocで記述
+/**
+ * @typedef {Object} TestStep
+ * @property {string} target
+ * @property {string} action
+ * @property {string} [value]
+ */
+
+export class PlaywrightRunner {
+  constructor() {
+    this.browser = null;
+    this.page = null;
+  }
+
+  async initialize() {
+    try {
+      this.browser = await chromium.launch({
+        headless: process.env.NODE_ENV === 'production'
+      });
+      this.page = await this.browser.newPage({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://hotel-example-site.takeyaqa.dev'
+      });
+    } catch (error) {
+      console.error('ブラウザの初期化に失敗しました:', error);
+      throw error;
+    }
+  }
+
+  async navigateToTarget() {
+    if (!this.page) throw new Error('ページが初期化されていません');
+    try {
+      await this.page.goto(config.targetUrl);
+    } catch (error) {
+      console.error(`${config.targetUrl} への移動に失敗しました:`, error);
+      throw error;
+    }
+  }
+
+  getFullUrl(relativePath) {
+    return new URL(relativePath, config.targetUrl).toString();
+  }
+
+  async executeStep(step) {
+    if (!this.page) throw new Error('ページが初期化されていません');
+    const targetUrl = step.target.startsWith('http') 
+      ? step.target 
+      : this.getFullUrl(step.target);
+
+    try {
+      switch (step.action) {
+        case 'goto':
+        case 'load':
+          await this.page.goto(step.target, { waitUntil: 'load' });
+          console.log(`✅ ページ遷移成功: ${step.target}`);
+          break;
+        case 'waitForSelector':
+          await this.page.waitForSelector(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ 要素待機完了: ${step.target}`);
+          break;
+        case 'assertVisible':
+          await this.page.waitForSelector(step.target, { state: 'visible', timeout: step.timeout || 5000 });
+          console.log(`✅ 要素表示確認: ${step.target}`);
+          break;
+        case 'assertNotVisible':
+          await this.page.waitForSelector(step.target, { state: 'hidden', timeout: step.timeout || 5000 });
+          console.log(`✅ 要素非表示確認: ${step.target}`);
+          break;
+        case 'click':
+          if (step.expectsNavigation) {
+            await Promise.all([
+              this.page.waitForNavigation({
+                timeout: step.timeout || 30000,
+                waitUntil: 'networkidle'
+              }),
+              this.page.click(step.target, { timeout: step.timeout || 5000 })
+            ]);
+            console.log(`✅ クリック後の画面遷移成功: ${step.target}`);
+          } else {
+            await this.page.click(step.target, { timeout: step.timeout || 5000 });
+            console.log(`✅ クリック成功: ${step.target}`);
+          }
+          break;
+        case 'fill':
+          await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          console.log(`✅ 入力完了: ${step.target} = "${step.value}"`);
+          break;
+        case 'waitForURL':
+          await this.page.waitForURL(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ URL遷移確認: ${step.target}`);
+          break;
+        default:
+          console.log(`⚠️ 未知のアクション: "${step.action}"`);
+      }
+      return true;
+    } catch (error) {
+      console.error(`ステップの実行に失敗しました:`, error);
+      throw error;
+    }
+  }
+
+  async cleanup() {
+    if (this.page) {
+      await this.page.close();
+      this.page = null;
+    }
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+}
+
+// メイン処理
 (async () => {
   const startTime = Date.now();
   let failedTests = [];
-  let successTests = []; // 成功したテストを保存する配列を追加
+  let successTests = [];
 
   try {
     // 1. 最新の route ファイルを取得
@@ -32,10 +193,8 @@ const { chromium } = require('playwright');
     console.log('🛠️ [Debug] Parsed route:', route);
 
     // 3. Playwright 起動
-    const browser = await chromium.launch();
-    const page = await browser.newPage({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://hotel-example-site.takeyaqa.dev'
-    });
+    const runner = new PlaywrightRunner();
+    await runner.initialize();
 
     console.log(`🛠️ [Debug] Running route_id: ${route.route_id || 'undefined'}`);
 
@@ -45,53 +204,8 @@ const { chromium } = require('playwright');
       console.log(`\n📝 テストステップ: ${stepLabel}`);
 
       try {
-        switch (step.action) {
-          case 'goto':
-          case 'load':
-            await page.goto(step.target, { waitUntil: 'load' });
-            console.log(`✅ ページ遷移成功: ${step.target}`);
-            break;
-          case 'waitForSelector':
-            await page.waitForSelector(step.target, { timeout: step.timeout || 5000 });
-            console.log(`✅ 要素待機完了: ${step.target}`);
-            break;
-          case 'assertVisible':
-            await page.waitForSelector(step.target, { state: 'visible', timeout: step.timeout || 5000 });
-            console.log(`✅ 要素表示確認: ${step.target}`);
-            break;
-          case 'assertNotVisible':
-            await page.waitForSelector(step.target, { state: 'hidden', timeout: step.timeout || 5000 });
-            console.log(`✅ 要素非表示確認: ${step.target}`);
-            break;
-          case 'click':
-            if (step.expectsNavigation) {
-              // クリックによるナビゲーションを待機
-              await Promise.all([
-                page.waitForNavigation({
-                  timeout: step.timeout || 30000,
-                  waitUntil: 'networkidle'
-                }),
-                page.click(step.target, { timeout: step.timeout || 5000 })
-              ]);
-              console.log(`✅ クリック後の画面遷移成功: ${step.target}`);
-            } else {
-              // 通常のクリック
-              await page.click(step.target, { timeout: step.timeout || 5000 });
-              console.log(`✅ クリック成功: ${step.target}`);
-            }
-            break;
-          case 'fill':
-            await page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
-            console.log(`✅ 入力完了: ${step.target} = "${step.value}"`);
-            break;
-          case 'waitForURL':
-            await page.waitForURL(step.target, { timeout: step.timeout || 5000 });
-            console.log(`✅ URL遷移確認: ${step.target}`);
-            break;
-          default:
-            console.log(`⚠️ 未知のアクション: "${step.action}"`);
-        }
-        // テスト成功時の処理を追加
+        await runner.executeStep(step);
+        console.log(`✅ ステップ成功: ${stepLabel}`);
         successTests.push({
           label: stepLabel,
           action: step.action,
@@ -99,13 +213,13 @@ const { chromium } = require('playwright');
           timestamp: new Date().toISOString()
         });
       } catch (err) {
-        // エラーをログに記録し、配列に保存
-        console.log(`❌ テスト失敗 [${stepLabel}]: ${err.message}`);
+        const errorMessage = err.message.split('\n')[0]; // エラーメッセージの最初の行のみを使用
+        console.log(`❌ テスト失敗: ${stepLabel}\n   理由: ${errorMessage}`);
         failedTests.push({
           label: stepLabel,
           action: step.action,
           target: step.target,
-          error: err.message,
+          error: errorMessage,
           timestamp: new Date().toISOString()
         });
         continue;
@@ -121,8 +235,17 @@ const { chromium } = require('playwright');
       failed_count: failedTests.length,
       success: failedTests.length === 0,
       execution_time: Date.now() - startTime,
-      successful_tests: successTests,  // 成功したテストの詳細
-      failed_tests: failedTests       // 失敗したテストの詳細
+      steps: route.steps.map((step, index) => {
+        const test = successTests.find(t => t.label === step.label) || 
+                    failedTests.find(t => t.label === step.label);
+        return {
+          label: step.label,
+          action: step.action,
+          target: step.target,
+          status: test ? (test.error ? 'failed' : 'success') : 'unknown',
+          error: test?.error || null
+        };
+      })
     };
 
     // コンソール出力
@@ -142,8 +265,8 @@ const { chromium } = require('playwright');
     }
 
     // 結果をJSONファイルとして保存
-    const timestamp = latestFile.replace('route_', '').replace('.json', ''); // yymmddhhmmssを取得
-    const resultPath = path.join(testResultsDir, `result_${timestamp}.json`); // .json拡張子を追加
+    const timestamp = latestFile.replace('route_', '').replace('.json', '');
+    const resultPath = path.join(testResultsDir, `result_${timestamp}.json`);
     fs.writeFileSync(resultPath, JSON.stringify(testResults, null, 2));
     console.log(`\n📝 テスト結果を保存しました: ${resultPath}`);
 
@@ -153,6 +276,6 @@ const { chromium } = require('playwright');
     console.error('🚨 予期せぬエラーが発生:', err);
     process.exit(1);
   } finally {
-    await browser?.close();
+    await runner?.cleanup();
   }
 })();

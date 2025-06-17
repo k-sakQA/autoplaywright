@@ -1,0 +1,62 @@
+{
+  "route_id": "test_reserve_001",
+  "steps": [
+    {
+      "label": "予約ページを開く",
+      "action": "load",
+      "target": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0"
+    },
+    {
+      "label": "宿泊日入力フィールドが表示されることを確認",
+      "action": "assertVisible",
+      "target": "#date"
+    },
+    {
+      "label": "宿泊数入力フィールドが表示されることを確認",
+      "action": "assertVisible",
+      "target": "#term"
+    },
+    {
+      "label": "宿泊日を空白のまま予約を試みる",
+      "action": "click",
+      "target": "#reserve-form"
+    },
+    {
+      "label": "エラーメッセージが表示されることを確認",
+      "action": "assertVisible",
+      "target": ".invalid-feedback"
+    },
+    {
+      "label": "宿泊日を入力",
+      "action": "fill",
+      "target": "#date",
+      "value": "2023-12-25"
+    },
+    {
+      "label": "宿泊数を入力",
+      "action": "fill",
+      "target": "#term",
+      "value": "2"
+    },
+    {
+      "label": "正常な値で予約を試みる",
+      "action": "click",
+      "target": "#reserve-form"
+    },
+    {
+      "label": "次のページに遷移することを確認",
+      "action": "assertURL",
+      "target": "./confirm.html"
+    },
+    {
+      "label": "宿泊日が正しく表示されることを確認",
+      "action": "assertVisible",
+      "target": "text=宿泊日: 2023-12-25"
+    },
+    {
+      "label": "宿泊数が正しく表示されることを確認",
+      "action": "assertVisible",
+      "target": "text=宿泊数: 2泊"
+    }
+  ]
+}

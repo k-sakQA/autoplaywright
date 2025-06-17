@@ -2,13 +2,64 @@
 // テンプレCSV（test_point/TestPoint_Format.csv）から「テスト観点」列を抽出し、
 // URL画面から「考慮すべき仕様の具体例」をAIで抽出して保存するスクリプト
 
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-const { OpenAI } = require('openai');
-const { parse } = require('csv-parse/sync');
-const crypto = require('crypto');
+import 'dotenv/config';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+import axios from "axios";
+import OpenAI from "openai";
+import { parse } from "csv-parse/sync";
+import crypto from "crypto";
+import { z } from "zod";
+
+// configのスキーマ定義
+const ConfigSchema = z.object({
+  openai: z.object({
+    apiKeyEnv: z.string(),
+    model: z.string(),
+    temperature: z.number().min(0).max(2),
+  }),
+  targetUrl: z.string().url(),
+});
+
+// OpenAI設定を取得する関数
+function createOpenAIConfig(configData) {
+  const apiKey = process.env[configData.openai.apiKeyEnv];
+  if (!apiKey) {
+    console.error("ERROR: OpenAI API key not set in", configData.openai.apiKeyEnv);
+    process.exit(1);
+  }
+
+  return {
+    apiKey,
+    model: configData.openai.model,
+    temperature: configData.openai.temperature,
+  };
+}
+
+// 設定をロードする関数
+function loadAndValidateConfig() {
+  try {
+    const configPath = path.resolve(__dirname, "../config.json");
+    const rawConfig = fs.readFileSync(configPath, "utf-8");
+    const parsedConfig = JSON.parse(rawConfig);
+    return ConfigSchema.parse(parsedConfig);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Failed to load config:", error.message);
+    }
+    process.exit(1);
+  }
+}
+
+// メイン処理
+const loadedConfig = loadAndValidateConfig();
+const aiConfig = createOpenAIConfig(loadedConfig);
+
+// エクスポート
+export { loadedConfig as config, aiConfig as openAIConfig };
 
 // JSTタイムスタンプ取得 (yyMMDDHHmmss 形式)
 function getTimestamp() {
@@ -78,7 +129,7 @@ function saveToCache(cacheKey, data) {
       points = cachedData;
     } else {
       // 4. AI 呼び出し
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const openai = new OpenAI(openAIConfig);
       console.log('🛠️ [Debug] Calling OpenAI Functions API...');
       const res = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
