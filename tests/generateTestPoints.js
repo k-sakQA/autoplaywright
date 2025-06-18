@@ -22,6 +22,10 @@ const ConfigSchema = z.object({
     apiKeyEnv: z.string(),
     model: z.string(),
     temperature: z.number().min(0).max(2),
+    max_tokens: z.number().optional(),
+    top_p: z.number().min(0).max(1).optional(),
+    timeout: z.number().optional(),
+    maxRetries: z.number().optional(),
   }),
   targetUrl: z.string().url(),
 });
@@ -34,11 +38,19 @@ function createOpenAIConfig(configData) {
     process.exit(1);
   }
 
-  return {
+  const config = {
     apiKey,
     model: configData.openai.model,
     temperature: configData.openai.temperature,
   };
+
+  // オプション設定を追加
+  if (configData.openai.max_tokens) config.max_tokens = configData.openai.max_tokens;
+  if (configData.openai.top_p) config.top_p = configData.openai.top_p;
+  if (configData.openai.timeout) config.timeout = configData.openai.timeout;
+  if (configData.openai.maxRetries) config.maxRetries = configData.openai.maxRetries;
+
+  return config;
 }
 
 // 設定をロードする関数

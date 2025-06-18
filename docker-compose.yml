@@ -1,17 +1,11 @@
 version: "3.8"
-services:
-  test:
-    build: .
-    volumes:
-      - .:/app
-      - ~/.aws:/root/.aws:ro
-    environment:
-      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
 
+services:
   autoplaywright:
     build: .
     volumes:
       - ./test-results:/app/test-results
+      - ./specs:/app/specs
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     command: node tests/runRoutes.js

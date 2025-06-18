@@ -1,8 +1,12 @@
 {
-  "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/plans.html",
+  "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0",
   "openai": {
     "apiKeyEnv": "OPENAI_API_KEY",
     "model": "gpt-4o-mini",
-    "temperature": 0.5
+    "temperature": 0.5,
+    "max_tokens": 4000,
+    "top_p": 0.9,
+    "timeout": 60000,
+    "maxRetries": 3
   }
 }

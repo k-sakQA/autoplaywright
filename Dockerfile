@@ -14,6 +14,7 @@ COPY config.json ./
 COPY playwright.config.js ./
 COPY tests/ ./tests/
 COPY test_point/ ./test_point/
+COPY specs/ ./specs/
 
 # 依存パッケージのインストール
 RUN npm install
