@@ -141,7 +141,7 @@ function saveToCache(cacheKey, data) {
     if (url) {
       console.log(`🛠️ [Debug] Fetching URL: ${url}`);
       const { data: html } = await axios.get(url);
-      htmlSnippet = html.slice(0, 2000);
+      htmlSnippet = html.slice(0, 5000);
     }
 
     // 3. プロンプト作成

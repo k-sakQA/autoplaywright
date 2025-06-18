@@ -76,7 +76,7 @@ Playwright用のステップ配列で生成するAIです。
 `;
   
   let user = `
-以下のテスト観点に従い、画面情報（HTMLスニペット）とテストポイントのリストをもとに、
+以下のテスト観点に従い、仕様書や画面情報（HTMLスニペット）とテストポイントのリストをもとに、
 Playwrightで実行可能なsteps配列を含むJSONを返してください。
 
 【画面情報】
@@ -192,7 +192,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
     if (url) {
       console.log(`🛠️ [Debug] Fetching URL: ${url}`);
       const { data: html } = await axios.get(url);
-      screenInfo = html.slice(0, 2000).replace(/\r?\n/g, '\\n');
+      screenInfo = html.slice(0, 5000).replace(/\r?\n/g, '\\n');
       console.log(`🛠️ [Debug] screenInfo length: ${screenInfo.length}`);
     }
 
