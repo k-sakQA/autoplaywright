@@ -1,20 +1,20 @@
 # AutoPlaywright
 
-Playwrightを使用したE2Eテストを自動生成します。OpenAIのGPTモデルを活用して、テスト観点から自動的にテストシナリオを生成し、実行します。 ※「設定」にてご自身のOpenAI API KEYを設定してください。
+Playwrightを使用したE2Eテストを自動生成して実行します。OpenAIのGPTモデルを活用して、テスト観点から自動的にテストシナリオを生成し、実行します。 ※「設定」にてご自身のOpenAI API KEYを設定してください。
 
 ## 機能
 
-- テスト観点のCSVテンプレート ```TestPoint_Format.csv``` からテスト観点を自動生成
+- テスト観点のCSVテンプレート ```TestPoint_Format.csv``` と、テスト対象のURL、仕様書PDFからテスト観点を自動生成
 - テスト観点に基づいたテストシナリオの自動生成
 - Playwrightによるテストの自動実行
 - テスト結果のJSONファイル出力
 - キャッシュ機能によるOpenAI API呼び出しの最適化
+- 仕様書PDFからの詳細なテストケース生成（新機能）
 
-## 必要要件
+## 必要条件
 
 - Node.js v24.2.0以上
-- OpenAI API キー
-- Docker (オプション)
+- OpenAI APIキー
 
 ## セットアップ
 
@@ -59,8 +59,28 @@ cp .env.example .env
 
 ### 1. テスト観点の生成
 
+#### 基本的な使用方法（URLのみ）
 ```bash
 node tests/generateTestPoints.js
+```
+
+#### PDF仕様書を指定する場合
+```bash
+node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
+```
+
+#### URLとPDFの両方を指定する場合
+```bash
+node tests/generateTestPoints.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
+```
+
+#### その他のオプション
+```bash
+# 詳細ログを出力
+node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf --verbose
+
+# 出力ディレクトリを指定
+node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf --output ./custom-output
 ```
 
 - `test_point/TestPoint_Format.csv` からテスト観点を抽出
@@ -68,8 +88,19 @@ node tests/generateTestPoints.js
 
 ### 2. テストシナリオの生成
 
+#### 基本的な使用方法（URLのみ）
 ```bash
 node tests/generatePlanRoutes.js
+```
+
+#### PDF仕様書を指定する場合
+```bash
+node tests/generatePlanRoutes.js --spec-pdf ./specs/requirements.pdf
+```
+
+#### URLとPDFの両方を指定する場合
+```bash
+node tests/generatePlanRoutes.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
 ```
 
 - テスト観点からテストシナリオを生成
@@ -81,7 +112,7 @@ node tests/generatePlanRoutes.js
 node tests/runRoutes.js
 ```
 
-- 生成されたテストを実行
+- 生成されたテストシナリオを実行
 - 実行結果は `test-results/result_[timestamp].json` に保存
 - ターミナルにも実行ログを表示
 
@@ -94,21 +125,43 @@ node tests/generateTestReport.js
 - テスト実行結果を分析し、CSV形式のテストケースを生成
 - 生成されたテストケースは `test-results/test_report_[timestamp].csv` に保存
 
-## Docker での実行
+## CLIオプション
 
+### 共通オプション
+- `-p, --spec-pdf <path>`: 仕様書PDFファイルのパス
+- `-u, --url <url>`: テスト対象のURL（config.jsonの設定を上書き）
+- `-o, --output <path>`: 出力ディレクトリのパス
+- `-v, --verbose`: 詳細なログを出力
+
+### 使用例
 ```bash
-# テスト観点の生成
-docker-compose run --rm autoplaywright node tests/generateTestPoints.js
+# PDF仕様書のみを使用
+node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
 
-# テストルートの生成
-docker-compose run --rm autoplaywright node tests/generatePlanRoutes.js
+# URLのみを使用（config.jsonの設定を上書き）
+node tests/generateTestPoints.js --url "https://example.com"
 
-# テストの実行
-docker-compose run --rm autoplaywright node tests/runRoutes.js
+# PDFとURLの両方を使用
+node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf --url "https://example.com" --verbose
 
-# テストレポートの生成
-docker-compose run --rm autoplaywright node tests/generateTestReport.js
+# 特殊文字を含むURLの場合（引用符で囲む）
+node tests/generateTestPoints.js --url "https://example.com/path?param=value" --spec-pdf ./specs/requirements.pdf
 ```
+
+## PDF仕様書の活用
+
+### 対応ファイル形式
+- PDFファイル（.pdf）
+
+### 活用方法
+1. **仕様書のみ**: PDFファイルからテスト観点を抽出
+2. **URL + 仕様書**: 画面情報と仕様書の両方を考慮したテストケース生成
+3. **詳細なテスト**: 仕様書の要件を反映した包括的なテストシナリオ
+
+### メリット
+- 仕様書の要件を反映したテストケース生成
+- 実装と仕様の整合性確認
+- より詳細で正確なテストシナリオ
 
 ## サポートされているPlaywrightのアクション
 

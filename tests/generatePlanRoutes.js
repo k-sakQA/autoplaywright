@@ -10,6 +10,8 @@ const __dirname = path.dirname(__filename);
 import axios from "axios";
 import { z } from "zod";
 import { OpenAI } from "openai";
+import { parseCLIArgs, validateOptions } from './utils/cliParser.js';
+import { uploadPDFToOpenAI, createPDFPrompt } from './utils/pdfParser.js';
 
 // configのスキーマ定義
 const ConfigSchema = z.object({
@@ -55,12 +57,13 @@ export const config = loadConfig();
 export const openAIConfig = getOpenAIConfig(config);
 
 // ① AI呼び出し用のプロンプト＆関数定義
-async function generateTestRoute(screenInfo, testPoints) {
+async function generateTestRoute(screenInfo, testPoints, pdfFileInfo = null) {
   const system = `
 あなたはWebページの訪問者のハッピーパスに沿ったE2Eテストシナリオを、
 Playwright用のステップ配列で生成するAIです。
 `;
-  const user = `
+  
+  let user = `
 以下のテスト観点に従い、画面情報（HTMLスニペット）とテストポイントのリストをもとに、
 Playwrightで実行可能なsteps配列を含むJSONを返してください。
 
@@ -72,7 +75,14 @@ ${screenInfo}
 【テストポイント】
 \`\`\`json
 ${JSON.stringify(testPoints, null, 2)}
-\`\`\`
+\`\`\``;
+
+  if (pdfFileInfo) {
+    user += `\n\n【仕様書】
+${createPDFPrompt(pdfFileInfo)}`;
+  }
+
+  user += `
 
 === 出力フォーマット ===
 {
@@ -97,13 +107,22 @@ ${JSON.stringify(testPoints, null, 2)}
   ]
 }
 `;
+
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  
+  const messages = [
+    { role: 'system', content: system.trim() },
+    { role: 'user',   content: user.trim() }
+  ];
+
+  // PDFファイルがある場合は、ファイルIDを追加
+  if (pdfFileInfo) {
+    messages[1].content += `\n\n添付ファイルID: ${pdfFileInfo.fileId}`;
+  }
+
   const res = await client.chat.completions.create({
     model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: system.trim() },
-      { role: 'user',   content: user.trim() }
-    ],
+    messages: messages,
     functions: [
       {
         name: 'newTestRoute',
@@ -141,12 +160,29 @@ ${JSON.stringify(testPoints, null, 2)}
   try {
     console.log('🛠️ [Debug] generatePlanRoutes.js start');
 
-    // 1. HTML取得
-    const url = 'https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0';
-    console.log(`🛠️ [Debug] Fetching URL: ${url}`);
-    const { data: html } = await axios.get(url);
-    const screenInfo = html.slice(0, 2000).replace(/\r?\n/g, '\\n');
-    console.log(`🛠️ [Debug] screenInfo length: ${screenInfo.length}`);
+    // CLI引数の解析
+    const cliOptions = parseCLIArgs();
+    validateOptions(cliOptions);
+    
+    console.log('📋 CLIオプション:', cliOptions);
+
+    // 1. データ取得（URLまたはPDF）
+    let url = cliOptions.url || config.targetUrl;
+    let screenInfo = '';
+    let pdfFileInfo = null;
+    let openai = new OpenAI(openAIConfig);
+    
+    if (cliOptions.specPdf) {
+      console.log(`📄 PDF仕様書を処理中: ${cliOptions.specPdf}`);
+      pdfFileInfo = await uploadPDFToOpenAI(cliOptions.specPdf, openai);
+    }
+    
+    if (url) {
+      console.log(`🛠️ [Debug] Fetching URL: ${url}`);
+      const { data: html } = await axios.get(url);
+      screenInfo = html.slice(0, 2000).replace(/\r?\n/g, '\\n');
+      console.log(`🛠️ [Debug] screenInfo length: ${screenInfo.length}`);
+    }
 
     // 2. テストポイント読み込み（最新ファイル）
     const resultsDir = path.resolve(__dirname, '../test-results');
@@ -159,7 +195,7 @@ ${JSON.stringify(testPoints, null, 2)}
     console.log(`🛠️ [Debug] Loaded testPoints from: ${latestTP}`);
 
     // 3. AI呼び出し
-    const routeJson = await generateTestRoute(screenInfo, testPoints);
+    const routeJson = await generateTestRoute(screenInfo, testPoints, pdfFileInfo);
     if (!routeJson) throw new Error('ルート生成に失敗しました');
 
     // 4. 保存

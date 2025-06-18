@@ -1,11 +1,17 @@
 // tests/generateRoutes.js
 // OpenAI Functions APIを使い、テストルートJSONを生成するモジュール（Functionsフロー対応版）
 
-require('dotenv').config();
-const { OpenAI } = require('openai');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+import 'dotenv/config';
+import { OpenAI } from 'openai';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import { parseCLIArgs, validateOptions } from './utils/cliParser.js';
+import { uploadPDFToOpenAI, createPDFPrompt } from './utils/pdfParser.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 console.log('🛠️ [Debug] OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `${process.env.OPENAI_API_KEY.slice(0, 5)}...` : 'undefined');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -13,8 +19,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * 次のテストルートJSONを返す
  */
-function createCacheKey(screenInfo, testPoints) {
-  const data = screenInfo + JSON.stringify(testPoints);
+function createCacheKey(screenInfo, testPoints, pdfFileId = '') {
+  const data = screenInfo + JSON.stringify(testPoints) + pdfFileId;
   return crypto.createHash('md5').update(data).digest('hex');
 }
 
@@ -38,10 +44,10 @@ function saveToCache(cacheKey, data) {
   fs.writeFileSync(cachePath, JSON.stringify(data), 'utf-8');
 }
 
-async function generateRoutes({ screenInfo, testPoints }) {
+async function generateRoutes({ screenInfo, testPoints, pdfFileInfo = null }) {
   try {
     // キャッシュチェック
-    const cacheKey = createCacheKey(screenInfo, testPoints);
+    const cacheKey = createCacheKey(screenInfo, testPoints, pdfFileInfo?.fileId || '');
     const cachedData = getCachedResponse(cacheKey);
     
     if (cachedData) {
@@ -99,23 +105,37 @@ async function generateRoutes({ screenInfo, testPoints }) {
       }
     };
 
-    // OpenAIへのリクエスト部分を修正
-    const callRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { 
-          role: 'system', 
-          content: `あなたはWebサイトのE2Eテストシナリオを生成するAIです。
+    // プロンプト作成
+    let userContent = `screenInfo:\n${screenInfo}\ntestPoints:\n${testPoints.join('\n')}`;
+    
+    if (pdfFileInfo) {
+      userContent += `\n\n${createPDFPrompt(pdfFileInfo)}`;
+    }
+
+    const messages = [
+      { 
+        role: 'system', 
+        content: `あなたはWebサイトのE2Eテストシナリオを生成するAIです。
 特に以下の点に注意してください：
 - クリックで画面遷移が発生する場合は、expectsNavigation: true を設定
 - 画面遷移を伴うアクションの後は、適切なwaitForURLまたはassertVisibleを設定
 - タイムアウトが必要な場合は、明示的にtimeout値を設定（デフォルト5000ms）`
-        },
-        { 
-          role: 'user',   
-          content: `screenInfo:\n${screenInfo}\ntestPoints:\n${testPoints.join('\n')}` 
-        }
-      ],
+      },
+      { 
+        role: 'user',   
+        content: userContent
+      }
+    ];
+
+    // PDFファイルがある場合は、ファイルIDを追加
+    if (pdfFileInfo) {
+      messages[1].content += `\n\n添付ファイルID: ${pdfFileInfo.fileId}`;
+    }
+
+    // OpenAIへのリクエスト部分を修正
+    const callRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: messages,
       functions: [functionDefinition],
       function_call: { name: 'newTestRoute' }
     });
@@ -129,7 +149,7 @@ async function generateRoutes({ screenInfo, testPoints }) {
     const finalRes = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        ...baseMessages,
+        ...messages,
         callRes.choices[0].message,
         { role: 'function', name: functionResponse.name, content: functionResponse.content }
       ]
@@ -158,4 +178,4 @@ async function generateRoutes({ screenInfo, testPoints }) {
   }
 }
 
-module.exports = { generateRoutes };
+export { generateRoutes };

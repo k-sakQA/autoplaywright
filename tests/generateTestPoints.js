@@ -13,6 +13,8 @@ import OpenAI from "openai";
 import { parse } from "csv-parse/sync";
 import crypto from "crypto";
 import { z } from "zod";
+import { parseCLIArgs, validateOptions } from './utils/cliParser.js';
+import { uploadPDFToOpenAI, createPDFPrompt } from './utils/pdfParser.js';
 
 // configのスキーマ定義
 const ConfigSchema = z.object({
@@ -69,8 +71,8 @@ function getTimestamp() {
 }
 
 // キャッシュ関連の関数を追加
-function createCacheKey(url, userLines) {
-  const data = url + JSON.stringify(userLines);
+function createCacheKey(url, userLines, pdfFileId = '') {
+  const data = url + JSON.stringify(userLines) + pdfFileId;
   return crypto.createHash('md5').update(data).digest('hex');
 }
 
@@ -96,6 +98,12 @@ function saveToCache(cacheKey, data) {
 
 (async () => {
   try {
+    // CLI引数の解析
+    const cliOptions = parseCLIArgs();
+    validateOptions(cliOptions);
+    
+    console.log('📋 CLIオプション:', cliOptions);
+
     // 1. CSV 読み込み & パース
     const csvPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
     console.log(`🛠️ [Debug] Loading template from: ${csvPath}`);
@@ -107,21 +115,41 @@ function saveToCache(cacheKey, data) {
     });
     console.log(`🛠️ [Debug] Loaded template points: ${records.length}`);
 
-    // 2. HTML 取得
-    const url = 'https://hotel-example-site.takeyaqa.dev/ja/plans.html';
-    console.log(`🛠️ [Debug] Fetching URL: ${url}`);
-    const { data: html } = await axios.get(url);
-    const snippet = html.slice(0, 2000);
+    // 2. データ取得（URLまたはPDF）
+    let url = cliOptions.url || loadedConfig.targetUrl;
+    let htmlSnippet = '';
+    let pdfFileInfo = null;
+    let openai = new OpenAI(aiConfig);
+    
+    if (cliOptions.specPdf) {
+      console.log(`📄 PDF仕様書を処理中: ${cliOptions.specPdf}`);
+      pdfFileInfo = await uploadPDFToOpenAI(cliOptions.specPdf, openai);
+    }
+    
+    if (url) {
+      console.log(`🛠️ [Debug] Fetching URL: ${url}`);
+      const { data: html } = await axios.get(url);
+      htmlSnippet = html.slice(0, 2000);
+    }
 
     // 3. プロンプト作成
     const system = 'あなたはWebページのテスト観点ごとに「考慮すべき仕様の具体例」を抽出するAIです。';
     const userLines = records.map(r => `${r['No']}. ${r['テスト観点']}`);
-    const user = `以下のテスト観点テンプレートに従い、${url} の画面HTML（一部）を参照して「考慮すべき仕様の具体例」をJSON配列で返してください。\n\n` +
-                 userLines.join('\n') +
-                 `\n\nHTMLスニペット:\n${snippet}`;
+    
+    let user = `以下のテスト観点テンプレートに従い、「考慮すべき仕様の具体例」をJSON配列で返してください。\n\n` +
+               userLines.join('\n');
+    
+    if (url) {
+      user += `\n\n対象URL: ${url}`;
+      user += `\n\nHTMLスニペット:\n${htmlSnippet}`;
+    }
+    
+    if (pdfFileInfo) {
+      user += `\n\n${createPDFPrompt(pdfFileInfo)}`;
+    }
 
     // キャッシュチェック
-    const cacheKey = createCacheKey(url, userLines);
+    const cacheKey = createCacheKey(url, userLines, pdfFileInfo?.fileId || '');
     const cachedData = getCachedResponse(cacheKey);
     
     let points;
@@ -129,14 +157,21 @@ function saveToCache(cacheKey, data) {
       points = cachedData;
     } else {
       // 4. AI 呼び出し
-      const openai = new OpenAI(openAIConfig);
       console.log('🛠️ [Debug] Calling OpenAI Functions API...');
+      
+      const messages = [
+        { role: 'system', content: system },
+        { role: 'user', content: user }
+      ];
+
+      // PDFファイルがある場合は、ファイルIDを追加
+      if (pdfFileInfo) {
+        messages[1].content += `\n\n添付ファイルID: ${pdfFileInfo.fileId}`;
+      }
+
       const res = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user }
-        ],
+        messages: messages,
         functions: [
           {
             name: 'newTestPoints',
