@@ -12,6 +12,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY config.json ./
 COPY playwright.config.js ./
+COPY server.js ./
+COPY public/ ./public/
 COPY tests/ ./tests/
 COPY test_point/ ./test_point/
 COPY specs/ ./specs/
@@ -25,8 +27,11 @@ RUN npx playwright install --with-deps
 # 環境変数の設定
 ENV NODE_ENV=production
 
-# テスト結果を保存するディレクトリを作成
-RUN mkdir -p test-results
+# 必要なディレクトリを作成
+RUN mkdir -p test-results cache
 
-# コンテナ起動時のコマンド
-CMD ["node", "tests/runRoutes.js"]
+# ポートを公開
+EXPOSE 3000
+
+# コンテナ起動時のコマンド（WebUIサーバーを起動）
+CMD ["node", "server.js"]

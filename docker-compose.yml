@@ -3,9 +3,13 @@ version: "3.8"
 services:
   autoplaywright:
     build: .
+    ports:
+      - "3000:3000"
     volumes:
       - ./test-results:/app/test-results
       - ./specs:/app/specs
+      - ./test_point:/app/test_point
+      - ./cache:/app/cache
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-    command: node tests/runRoutes.js
+    command: node server.js
