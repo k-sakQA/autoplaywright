@@ -1,291 +1,247 @@
 # AutoPlaywright
 
-Playwrightを使用したE2Eテストを自動生成して実行します。OpenAIのGPTモデルを活用して、テスト観点から自動的にテストシナリオを生成し、実行します。 ※「設定」にてご自身のOpenAI API KEYを設定してください。
+Playwrightを使用したE2Eテストを自動生成して実行するツールです。OpenAIのGPTモデルを活用して、テスト観点から自動的にテストシナリオを生成し、実行します。
 
-## 機能
+## 🚀 主な機能
 
-- テスト観点のCSVテンプレート ```TestPoint_Format.csv``` と、テスト対象のURL、仕様書PDFからテスト観点を自動生成
-- テスト観点に基づいたテストシナリオの自動生成
-- Playwrightによるテストの自動実行
-- テスト結果のJSONファイル出力
-- キャッシュ機能によるOpenAI API呼び出しの最適化
-- 仕様書PDFからのテスト観点抽出（新機能）
+- 🤖 **AI自動テスト生成**: GPTモデルを使用してテスト観点とシナリオを自動生成
+- 📄 **PDF仕様書対応**: PDF仕様書を読み込んでテスト観点を抽出
+- 📋 **カスタムテスト観点**: プロジェクト固有のテスト観点CSVをアップロード可能
+- 🌐 **WebUI**: ブラウザから簡単操作（推奨）
+- ⚡ **ワンクリック実行**: テスト生成から実行まで自動化
+- 📊 **詳細なレポート**: テスト結果の可視化とファイルダウンロード
+- 🎛️ **AI設定調整**: WebUIからGPTパラメータを調整可能
 
-## ファイル配置
+---
 
-### 仕様書PDFの配置
-仕様書PDFファイルは `specs/` ディレクトリに配置してください：
+## 📋 必要環境
 
-```
-autoplaywright/
-├── specs/
-│   └── requirements.pdf      # AIに参照させたい仕様書（PDF形式）
-├── test_point/
-├── tests/
-└── ...
-```
+- **Node.js** v24.2.0以上
+- **OpenAI APIキー** （有料）
+- **Docker** （オプション）
 
-### 使用例
+---
+
+## ⚡ 初回セットアップ
+
+### 1. プロジェクトの取得
 ```bash
-# specs/requirements.pdfを使用する場合
-node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
-
-# specs/design.pdfを使用する場合
-node tests/generateTestPoints.js --spec-pdf ./specs/design.pdf
-```
-
-## 必要条件
-
-- Node.js v24.2.0以上
-- OpenAI APIキー
-- Docker（オプション）
-
-## セットアップ
-
-### 通常のセットアップ
-
-1. リポジトリのクローン:
-```sh
 git clone https://github.com/k-sakQA/autoplaywright.git
 cd autoplaywright
 ```
 
-2. 依存パッケージのインストール:
-```sh
+### 2. 依存パッケージのインストール
+```bash
 npm install
 ```
 
-3. 環境変数の設定:
-```sh
-# Windows
+### 3. 環境変数の設定（重要）
+
+#### Windows の場合：
+```bash
 copy .env.example .env
+```
 
-# Mac
+#### Mac/Linux の場合：
+```bash
 cp .env.example .env
-
-# .envファイルにOPENAI_API_KEYを設定
 ```
 
-### Dockerを使用する場合
+#### .envファイルを編集：
+作成された `.env` ファイルを開いて、OpenAI APIキーを設定してください：
 
-1. リポジトリのクローン:
-```sh
-git clone https://github.com/k-sakQA/autoplaywright.git
-cd autoplaywright
+```env
+OPENAI_API_KEY=sk-ここにあなたのOpenAI_APIキーを入力
 ```
 
-2. 環境変数の設定:
-```sh
-echo "OPENAI_API_KEY=your-api-key" > .env
-```
+💡 **OpenAI APIキーの取得方法**: [OpenAI Platform](https://platform.openai.com/api-keys) でアカウント作成後、APIキーを生成してください
 
-3. Dockerイメージのビルド:
-```sh
-docker-compose build
-```
-
-## 設定
-
-`config.json` でChat-GPTの初期値は以下のようになっています：
+### 4. 設定ファイルの確認（UI画面からも設定できます）
+`config.json` でデフォルトのテスト対象URLを設定できます：
 
 ```json
 {
-  "targetUrl": "ここにテスト対象のURLを記載してください",
+  "targetUrl": "https://your-test-site.com",
   "openai": {
-    "apiKeyEnv": "OPENAI_API_KEY",
     "model": "gpt-4o-mini",
     "temperature": 0.5,
-    "max_tokens": 4000,
-    "top_p": 0.9,
-    "timeout": 60000,
-    "maxRetries": 3
+    "max_tokens": 4000
   }
 }
 ```
 
-### OpenAI設定オプション
+---
 
-| 設定項目 | 説明 | デフォルト値 | 範囲 |
-|---------|------|-------------|------|
-| `apiKeyEnv` | APIキーの環境変数名 | `OPENAI_API_KEY` | - |
-| `model` | 使用するモデル | `gpt-4o-mini` | `gpt-4o-mini`, `gpt-4o`, `gpt-4-turbo`等 |
-| `temperature` | 創造性（ランダム性） | `0.5` | `0.0` - `2.0` |
-| `max_tokens` | 最大トークン数 | `4000` | `1` - `4096` |
-| `top_p` | 核サンプリング | `0.9` | `0.0` - `1.0` |
-| `timeout` | タイムアウト時間（ミリ秒） | `60000` | - |
-| `maxRetries` | 最大リトライ回数 | `3` | - |
+## 🌐 WebUI使用方法（推奨）
 
-## 使用方法
+### 1. サーバー起動
+⚠️ **重要**: ブラウザでアクセスする**前に**必ずサーバーを起動してください
 
-### 通常の実行
-
-#### 1. テスト観点の生成
-
-##### 基本的な使用方法（URLのみ）
 ```bash
-node tests/generateTestPoints.js
+npm run webui
 ```
 
-##### PDF仕様書を指定する場合
-```bash
-node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
+以下のメッセージが表示されるまで待つ：
+```
+🚀 AutoPlaywright WebUI サーバーが起動しました
+📱 ブラウザで http://localhost:3000 にアクセスしてください
 ```
 
-##### URLとPDFの両方を指定する場合
+### 🛑 テストを終えてサーバーを停止する時
+サーバーを停止する場合は、起動したターミナルで：
 ```bash
+Ctrl + C  # Mac/Linux/Windows共通
+```
+
+### 2. ブラウザでアクセス
+```
+http://localhost:3000
+```
+
+### 3. WebUIの使い方
+
+#### 基本設定セクション
+1. **テスト対象URL**: テストしたいWebサイトのURLを入力
+2. **テスト観点CSV**: カスタムテスト観点を使用する場合はCSVファイルをアップロード
+3. **仕様書PDF**: 必要に応じてPDF仕様書をアップロード
+
+#### テスト実行セクション
+1. **📋 テスト観点生成**: PDF仕様書からテスト観点を生成
+2. **🗺️ テストシナリオ生成**: テスト観点からPlaywrightシナリオを生成
+3. **▶️ テスト実行**: 生成されたシナリオを実行
+4. **📊 レポート生成**: テスト結果をCSV形式で出力
+
+#### AI設定セクション（下部）
+- **モデル選択**: GPT-4o Mini（推奨）、GPT-4o等
+- **創造性調整**: 決定的（0.0）〜創造的（1.0）
+- **トークン数**: 応答の詳細度を調整
+- **💾 設定保存**: 変更内容を永続化
+
+### 4. テスト結果の確認
+- **リアルタイムログ**: 実行状況をブラウザで確認
+- **結果サマリー**: 成功/失敗数、エラーメッセージを表示
+- **ファイルダウンロード**: JSON/CSV結果ファイルをダウンロード
+
+### 5. トラブルシューティング
+
+**🚫 「このサイトにアクセスできません」**
+- サーバーが起動していません → `npm run webui` を実行
+
+**🚫 「EADDRINUSE: address already in use」**
+- ポート3000が使用中です：
+```bash
+pkill -f "node server.js"  # 既存プロセス停止
+npm run webui              # 再起動
+```
+
+**🔄 サーバーの停止方法**
+- 通常停止: `Ctrl + C` (起動したターミナルで)
+- 強制停止: `pkill -f "node server.js"` (別ターミナルから)
+
+**🚫 「API Key Error」**
+- `.env` ファイルのOPENAI_API_KEYを確認してください
+
+---
+
+## 💻 コマンドラインで使いたい方向け
+
+WebUIが推奨ですが、コマンドラインからも実行可能です：
+
+### 基本的な実行フロー
+```bash
+# 1. テスト観点生成
 node tests/generateTestPoints.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
-```
 
-##### その他のオプション
-```bash
-# 出力ディレクトリを指定
-node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf --output ./custom-output
-```
-
-- `test_point/TestPoint_Format.csv` からテスト観点を抽出
-- 生成されたテスト観点は `test-results/testPoints_[timestamp].json` に保存
-
-#### 2. テストシナリオの生成
-
-##### 基本的な使用方法（URLのみ）
-```bash
-node tests/generatePlanRoutes.js
-```
-
-##### PDF仕様書を指定する場合
-```bash
-node tests/generatePlanRoutes.js --spec-pdf ./specs/requirements.pdf
-```
-
-##### URLとPDFの両方を指定する場合
-```bash
+# 2. テストシナリオ生成
 node tests/generatePlanRoutes.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
-```
 
-- テスト観点からテストシナリオを生成
-- 生成されたシナリオは `test-results/route_[timestamp].json` に保存
+# 3. テスト実行
+node tests/runRoutes.js --url "https://example.com"
 
-#### 3. テストの実行
-
-```bash
-node tests/runRoutes.js
-```
-
-- 生成されたテストシナリオを実行
-- 実行結果は `test-results/result_[timestamp].json` に保存
-- ターミナルにも実行ログを表示
-
-#### 4. テスト結果をケース形式で保存
-
-```bash
+# 4. レポート生成
 node tests/generateTestReport.js
 ```
 
-- テスト実行結果を分析し、CSV形式のテストケースを生成
-- 生成されたテストケースは `test-results/test_report_[timestamp].csv` に保存
+### オプション
+- `--url <URL>`: テスト対象URL
+- `--test-csv <path>`: テスト観点CSVファイルのパス
+- `--spec-pdf <path>`: PDF仕様書のパス
+- `--output <path>`: 出力ディレクトリ
 
-### Dockerを使用する場合
+---
 
+## 🐳 Docker使用方法（オプション）
+
+### セットアップ
 ```bash
-# テスト観点の生成（PDF仕様書付き）
+# 環境変数設定
+echo "OPENAI_API_KEY=your-api-key" > .env
+
+# イメージビルド
+docker-compose build
+```
+
+### 実行例
+```bash
+# テスト観点生成
 docker-compose run --rm autoplaywright node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
 
-# テストルートの生成（PDF仕様書付き）
-docker-compose run --rm autoplaywright node tests/generatePlanRoutes.js --spec-pdf ./specs/requirements.pdf
-
-# テストの実行
+# テスト実行
 docker-compose run --rm autoplaywright node tests/runRoutes.js
-
-# テストレポートの生成
-docker-compose run --rm autoplaywright node tests/generateTestReport.js
 ```
 
-## CLIオプション
+---
 
-### 共通オプション
-- `-p, --spec-pdf <path>`: 仕様書PDFファイルのパス
-- `-u, --url <url>`: テスト対象のURL（config.jsonの設定を上書き）
-- `-o, --output <path>`: 出力ディレクトリのパス
-- `-v, --verbose`: 詳細なログを出力（現在は実装されていません）
-
-### 使用例
-```bash
-# PDF仕様書のみを使用
-node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
-
-# URLのみを使用
-node tests/generateTestPoints.js --url "https://example.com"
-
-# PDFとURLの両方を使用
-node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf --url "https://example.com"
-
-# 特殊文字を含むURLの場合（引用符で囲む）
-node tests/generateTestPoints.js --url "https://example.com/path?param=value" --spec-pdf ./specs/requirements.pdf
-```
-
-## PDF仕様書の活用
-
-### 対応ファイル形式
-- PDFファイル（.pdf）
-
-### ファイル配置
-仕様書PDFファイルは `specs/` ディレクトリに配置してください。複数の仕様書を配置することも可能です：
+## 📁 ファイル構造
 
 ```
-specs/
-└── api_spec.pdf         # AIに参照させたい仕様書（PDF形式）
+autoplaywright/
+├── specs/                    # PDF仕様書の配置ディレクトリ
+│   └── requirements.pdf
+├── test_point/              # テスト観点CSVテンプレート
+│   ├── TestPoint_Format.csv      # 標準テスト観点
+│   └── uploaded_TestPoint_Format.csv  # アップロードされたテスト観点
+├── tests/                   # テストスクリプト
+├── test-results/           # 生成されたテスト結果
+├── public/                 # WebUI静的ファイル
+├── server.js               # WebUIサーバー
+├── config.json             # 設定ファイル
+└── .env                    # 環境変数（要作成）
 ```
 
-### 活用方法
-1. **仕様書のみ**: PDFファイルからテスト観点を抽出
-2. **URL + 仕様書**: テスト対象の画面情報と仕様書の両方を考慮したテストケース生成して実行まで行う場合
+---
 
-#### テスト生成の流れ
-1. **テスト観点の生成**: 観点リストのCSVと仕様書から、テスト観点を抽出
-2. **テストシナリオの生成**: 生成されたテスト観点を参照して、Playwrightで実行可能なテストシナリオを作成
-3. **テストの実行**: 生成されたシナリオをPlaywrightで実行（ **観点とシナリオの生成時にURLを付与してください** ）
+## 🔧 AI設定詳細
 
+| 設定項目 | 説明 | 推奨値 | 範囲 |
+|---------|------|-------|------|
+| `model` | GPTモデル | `gpt-4o-mini` | gpt-4o-mini, gpt-4o等 |
+| `temperature` | 創造性 | `0.5` | 0.0-1.0 |
+| `max_tokens` | 最大トークン数 | `4000` | 1000-8000 |
+| `top_p` | 多様性 | `0.9` | 0.1-1.0 |
 
-## サポートされているPlaywrightのアクション
+**設定の目安：**
+- **精度重視**: Temperature 0.3, Top-p 0.8
+- **創造性重視**: Temperature 0.7, Top-p 1.0
+- **バランス型**: Temperature 0.5, Top-p 0.9（デフォルト）
 
-- `goto`/`load`: ページ遷移
-- `waitForSelector`: 要素の待機
-- `assertVisible`: 要素の表示確認
-- `assertNotVisible`: 要素の非表示確認
-- `click`: クリック操作
-- `fill`: フォーム入力
-- `waitForURL`: URL遷移の確認
+---
 
-## ファイル構造
+## 🎯 使用の流れ
 
-- `specs/` - 仕様書PDFファイルの配置ディレクトリ
-- `test_point/` - テストポイントのCSVテンプレート
-- `tests/` - テスト関連スクリプト
-- `test-results/` - テスト結果の出力ディレクトリ
-- `cache/` - APIレスポンスのキャッシュ
+1. **初回セットアップ** → 環境構築とAPIキー設定
+2. **WebUI起動** → `npm run webui`でサーバー開始
+3. **基本設定** → URL・PDF設定
+4. **テスト生成・実行** → ワンクリックで自動化
+5. **結果確認** → ブラウザで結果表示・ダウンロード
 
-## ライセンス
+---
 
-このプロジェクトは以下のライセンスの下で公開されています：
+## 📝 ライセンス
 
-### MIT License
+MIT License - 詳細は [LICENSE](./LICENSE) ファイルを参照
 
-Copyright (c) 2025 k-sakQA
+### 開発者
+- **Original Author**: [k-sakQA](https://github.com/k-sakQA)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+---

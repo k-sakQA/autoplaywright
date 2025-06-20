@@ -7,6 +7,7 @@ export function parseCLIArgs() {
   
   program
     .option('-p, --spec-pdf <path>', '仕様書PDFファイルのパス')
+    .option('-c, --test-csv <path>', 'テスト観点CSVファイルのパス')
     .option('-u, --url <url>', 'テスト対象のURL')
     .option('-o, --output <path>', '出力ディレクトリのパス')
     .option('-v, --verbose', '詳細なログを出力')
@@ -24,6 +25,16 @@ export function parseCLIArgs() {
     options.specPdf = pdfPath;
   }
   
+  // CSVファイルの存在確認
+  if (options.testCsv) {
+    const csvPath = path.resolve(options.testCsv);
+    if (!fs.existsSync(csvPath)) {
+      console.error(`エラー: CSVファイルが見つかりません: ${csvPath}`);
+      process.exit(1);
+    }
+    options.testCsv = csvPath;
+  }
+  
   return options;
 }
 
@@ -38,6 +49,11 @@ export function validateOptions(options) {
   // PDFファイルの拡張子確認
   if (options.specPdf && !options.specPdf.toLowerCase().endsWith('.pdf')) {
     errors.push('指定されたファイルはPDFではありません');
+  }
+  
+  // CSVファイルの拡張子確認
+  if (options.testCsv && !options.testCsv.toLowerCase().endsWith('.csv')) {
+    errors.push('指定されたファイルはCSVではありません');
   }
   
   if (errors.length > 0) {

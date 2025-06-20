@@ -117,8 +117,15 @@ function saveToCache(cacheKey, data) {
     console.log('📋 CLIオプション:', cliOptions);
 
     // 1. CSV 読み込み & パース
-    const csvPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
-    console.log(`🛠️ [Debug] Loading template from: ${csvPath}`);
+    let csvPath;
+    if (cliOptions.testCsv) {
+      csvPath = cliOptions.testCsv;
+      console.log(`🛠️ [Debug] Using uploaded CSV: ${csvPath}`);
+    } else {
+      csvPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
+      console.log(`🛠️ [Debug] Using default CSV: ${csvPath}`);
+    }
+    
     const csvRaw = fs.readFileSync(csvPath, 'utf-8');
     const records = parse(csvRaw, {
       columns: true,
@@ -145,20 +152,61 @@ function saveToCache(cacheKey, data) {
     }
 
     // 3. プロンプト作成
-    const system = 'あなたはWebページのテスト観点ごとに、与えられた仕様や画面情報から「考慮すべき仕様の具体例」を抽出するAIです。';
+    const system = `あなたはWebページのテスト観点ごとに、与えられた仕様や画面情報から「考慮すべき仕様の具体例」を抽出するAIです。
+
+以下のステップで回答してください：
+1. まず与えられたテスト観点を理解し、仕様書やHTMLから関連する情報を抽出
+2. 各観点に対して具体的で実行可能なテスト内容を考案
+3. 最後に結果をJSON配列で出力
+
+出力形式：
+JSON配列で返してください。各要素は以下の構造のオブジェクトです：
+{
+  "No": "観点番号",
+  "考慮すべき仕様の具体例": "具体的なテスト内容"
+}
+
+例:
+[
+  {
+    "No": "1",
+    "考慮すべき仕様の具体例": "ユーザー名は必須入力項目で、空の場合はエラーメッセージを表示すること"
+  },
+  {
+    "No": "5",
+    "考慮すべき仕様の具体例": "パスワードは8文字以上で、条件を満たさない場合は赤色でエラー表示すること"
+  }
+]`;
+
     const userLines = records.map(r => `${r['No']}. ${r['テスト観点']}`);
     
-    let user = `以下のテスト観点テンプレートに従い、「考慮すべき仕様の具体例」をJSON配列で返してください。\n\n` +
-               userLines.join('\n');
+    let user = `以下のテスト観点について、仕様書や画面情報を参考に具体的なテスト内容を抽出してください。
+
+【テスト観点リスト】
+${userLines.join('\n')}`;
     
     if (url) {
-      user += `\n\n対象URL: ${url}`;
-      user += `\n\nHTMLスニペット:\n${htmlSnippet}`;
+      user += `\n\n【対象URL】
+${url}
+
+【HTMLスニペット】
+${htmlSnippet}`;
     }
     
     if (pdfFileInfo) {
-      user += `\n\n${createPDFPrompt(pdfFileInfo)}`;
+      user += `\n\n【仕様書】
+${createPDFPrompt(pdfFileInfo)}`;
     }
+
+    user += `\n\n考慮すべき仕様のない観点は省略してください。
+テスト観点の「No」を必ず含めて、以下の形式でJSON配列として返してください：
+
+[
+  {
+    "No": "観点番号",
+    "考慮すべき仕様の具体例": "具体的な仕様内容"
+  }
+]`;
 
     // キャッシュチェック
     const cacheKey = createCacheKey(url, userLines, pdfFileInfo?.fileId || '');
@@ -182,32 +230,43 @@ function saveToCache(cacheKey, data) {
       }
 
       const res = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: aiConfig.model || 'gpt-4o-mini',
         messages: messages,
-        functions: [
-          {
-            name: 'newTestPoints',
-            description: 'テスト観点ごとの具体例を返す',
-            parameters: {
-              type: 'object',
-              properties: {
-                testPoints: {
-                  type: 'array',
-                  items: { type: 'string' }
-                }
-              },
-              required: ['testPoints']
-            }
-          }
-        ],
-        function_call: { name: 'newTestPoints' }
+        temperature: aiConfig.temperature || 0.5,
+        max_tokens: aiConfig.max_tokens || 4000,
+        top_p: aiConfig.top_p || 0.9,
       });
 
       // 5. JSON パース
-      const fnCall = res.choices[0].message.function_call;
-      if (!fnCall || !fnCall.arguments) throw new Error('関数レスポンスにargumentsがありません');
-      const args = JSON.parse(fnCall.arguments);
-      points = args.testPoints;
+      const content = res.choices[0].message.content.trim();
+      console.log('🛠️ [Debug] AI Response:', content);
+      
+      // JSON配列部分を抽出
+      const jsonMatch = content.match(/\[([\s\S]*?)\]/);
+      if (!jsonMatch) {
+        throw new Error('AI応答からJSON配列を抽出できませんでした');
+      }
+      
+      try {
+        points = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(points)) {
+          throw new Error('返された値が配列ではありません');
+        }
+        
+        // 各要素が正しい構造を持っているか確認
+        for (let i = 0; i < points.length; i++) {
+          const point = points[i];
+          if (!point.No || !point['考慮すべき仕様の具体例']) {
+            console.warn(`要素 ${i} の構造が不正です:`, point);
+          }
+        }
+        
+        console.log(`🛠️ [Debug] 抽出されたテスト観点数: ${points.length}`);
+      } catch (parseError) {
+        console.error('JSON解析エラー:', parseError);
+        console.error('AI応答:', content);
+        throw new Error('AI応答のJSON解析に失敗しました');
+      }
       
       // キャッシュに保存
       saveToCache(cacheKey, points);
@@ -220,8 +279,11 @@ function saveToCache(cacheKey, data) {
     const outPath = path.join(outDir, `testPoints_${getTimestamp()}.json`);
     fs.writeFileSync(outPath, JSON.stringify(points, null, 2), 'utf-8');
     console.log(`💾 Test points saved: ${outPath}`);
-
+    
+    console.log('✅ テスト観点生成が完了しました');
+    process.exit(0);
   } catch (err) {
     console.error('❌ エラーが発生しました:', err);
+    process.exit(1);
   }
 })();

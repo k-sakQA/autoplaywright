@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPlaywright - テスト自動生成ツール</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 25px;
+            border: 2px solid #ecf0f1;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .section h2::before {
+            content: "⚙️";
+            margin-right: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+        
+        input[type="url"], input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #bdc3c7;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+        
+        input[type="url"]:focus, input[type="file"]:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .buttons-section h2::before {
+            content: "🚀";
+        }
+        
+        .button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 15px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #1abc9c, #16a085);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(26, 188, 156, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #27ae60, #229954);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(39, 174, 96, 0.4);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(243, 156, 18, 0.4);
+        }
+        
+        .log-area {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: 600;
+            text-align: center;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        /* テスト実行結果サマリーのスタイル */
+        .test-summary {
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            border: 2px solid #28a745;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.2);
+        }
+        
+        .test-summary h3 {
+            margin: 0 0 15px 0;
+            color: #155724;
+            font-size: 1.2rem;
+            text-align: center;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #6c757d;
+        }
+        
+        .summary-item.success {
+            border-left-color: #28a745;
+        }
+        
+        .summary-item.error {
+            border-left-color: #dc3545;
+        }
+        
+        .summary-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .summary-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #2c3e50;
+        }
+        
+        .failed-tests {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .failed-tests h4 {
+            margin: 0 0 10px 0;
+            color: #721c24;
+            font-size: 1rem;
+        }
+        
+        .failed-tests ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        
+        .failed-tests li {
+            background: white;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 8px;
+            color: #721c24;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .failed-tests li:last-child {
+            margin-bottom: 0;
+        }
+        
+        .failed-tests li::before {
+            content: "❌ ";
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        
+        /* AI設定パネル用のスタイル */
+        .ai-config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .ai-config-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .ai-config-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 15px;
+        }
+        
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+        
+        .form-group input[type="range"] {
+            width: 100%;
+            margin: 8px 0;
+        }
+        
+        .form-group input[type="number"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
+            font-size: 1rem;
+            background-color: white;
+        }
+        
+        .form-group select:focus,
+        .form-group input[type="number"]:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AutoPlaywright</h1>
+            <p>Playwrightを使用したE2Eテスト自動生成ツール</p>
+        </div>
+        
+        <div class="content">
+            <!-- 設定セクション -->
+            <div class="section">
+                <h2>基本設定</h2>
+                
+                <div class="form-group">
+                    <label for="testUrl">テスト対象URL:</label>
+                    <input type="url" id="testUrl" placeholder="https://example.com" value="">
+                </div>
+                
+                <div class="form-group">
+                    <label for="csvFile">テスト観点CSV (オプション):</label>
+                    <input type="file" id="csvFile" accept=".csv">
+                    <small>指定しない場合は標準のテスト観点を使用します</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="pdfFile">仕様書PDF (オプション):</label>
+                    <input type="file" id="pdfFile" accept=".pdf">
+                </div>
+            </div>
+            
+            <!-- 実行ボタンセクション -->
+            <div class="section buttons-section">
+                <h2>テスト実行</h2>
+                
+                <div class="button-grid">
+                    <button class="btn-primary" onclick="executeCommand('generateTestPoints')">
+                        📋 テスト観点生成
+                    </button>
+                    
+                    <button class="btn-secondary" onclick="executeCommand('generatePlanRoutes')">
+                        🗺️ テストシナリオ生成
+                    </button>
+                    
+                    <button class="btn-success" onclick="executeCommand('runRoutes')">
+                        ▶️ テスト実行
+                    </button>
+                    
+                    <button class="btn-warning" onclick="executeCommand('generateTestReport')">
+                        📊 レポート生成
+                    </button>
+                </div>
+                
+                <div id="status" class="status" style="display: none;"></div>
+                
+                <!-- テスト実行結果サマリー -->
+                <div id="testSummary" class="test-summary" style="display: none;">
+                    <h3>📊 テスト実行結果</h3>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-label">🔷 テストID:</span>
+                            <span id="testId" class="summary-value">-</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">🔷 総ステップ数:</span>
+                            <span id="totalSteps" class="summary-value">-</span>
+                        </div>
+                        <div class="summary-item success">
+                            <span class="summary-label">✅ 成功数:</span>
+                            <span id="successCount" class="summary-value">-</span>
+                        </div>
+                        <div class="summary-item error">
+                            <span class="summary-label">❌ 失敗数:</span>
+                            <span id="failureCount" class="summary-value">-</span>
+                        </div>
+                    </div>
+                    <div id="failedTests" class="failed-tests" style="display: none;">
+                        <h4>❌ 失敗したテストケース:</h4>
+                        <ul id="failedTestsList"></ul>
+                    </div>
+                </div>
+                
+                <div class="log-area" id="logArea">
+                    実行ログがここに表示されます...
+                </div>
+            </div>
+            
+            <!-- AI設定セクション -->
+            <div class="section">
+                <h2>🤖 AI設定</h2>
+                
+                <div class="ai-config-grid">
+                    <div class="form-group">
+                        <label for="aiModel">モデル:</label>
+                        <select id="aiModel">
+                            <option value="gpt-4o-mini">GPT-4o Mini (推奨)</option>
+                            <option value="gpt-4o">GPT-4o</option>
+                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="aiTemperature">創造性 (Temperature): <span id="temperatureValue">0.5</span></label>
+                        <input type="range" id="aiTemperature" min="0" max="1" step="0.1" value="0.5">
+                        <small>0.0: 決定的, 1.0: 創造的</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="aiMaxTokens">最大トークン数:</label>
+                        <input type="number" id="aiMaxTokens" min="1000" max="8000" step="500" value="4000">
+                        <small>1000-8000 (多いほど詳細な回答)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="aiTopP">Top-p: <span id="topPValue">0.9</span></label>
+                        <input type="range" id="aiTopP" min="0.1" max="1" step="0.1" value="0.9">
+                        <small>0.1: 集中的, 1.0: 多様性</small>
+                    </div>
+                </div>
+                
+                <div class="ai-config-actions">
+                    <button type="button" class="btn-secondary" onclick="resetAIConfig()">
+                        🔄 デフォルトに戻す
+                    </button>
+                    <button type="button" class="btn-primary" onclick="saveAIConfig()">
+                        💾 設定を保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ログエリアに追加する関数
+        function addLog(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}\n`;
+            logArea.textContent += logMessage;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        // ステータス表示関数
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+        }
+
+        // コマンド実行関数
+        async function executeCommand(command) {
+            const url = document.getElementById('testUrl').value;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            const csvFile = document.getElementById('csvFile').files[0];
+            
+            // URL入力チェック
+            if (!url && command !== 'runRoutes' && command !== 'generateTestReport') {
+                showStatus('テスト対象URLを入力してください', 'error');
+                return;
+            }
+            
+            addLog(`🚀 ${getCommandName(command)} を開始しています...`);
+            showStatus(`${getCommandName(command)} 実行中...`, 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('command', command);
+                if (url) formData.append('url', url);
+                if (pdfFile) formData.append('pdf', pdfFile);
+                if (csvFile) formData.append('csv', csvFile);
+                
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    if (result.output) {
+                        addLog(result.output);
+                        
+                        // runRoutesコマンドの場合、テスト結果を解析
+                        if (command === 'runRoutes') {
+                            console.log('🛠️ [Debug] Full output for parsing:', result.output);
+                            parseTestResults(result.output);
+                        }
+                    }
+                    showStatus(`${getCommandName(command)} 完了`, 'success');
+                } else {
+                    addLog(`❌ エラー: ${result.error}`);
+                    if (result.output) {
+                        addLog(result.output);
+                        
+                        // エラーでもrunRoutesの場合は結果を解析
+                        if (command === 'runRoutes') {
+                            console.log('🛠️ [Debug] Error output for parsing:', result.output);
+                            parseTestResults(result.output);
+                        }
+                    }
+                    // showStatus(`エラーが発生しました: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ 通信エラー: ${error.message}`);
+                showStatus(`通信エラーが発生しました`, 'error');
+            }
+        }
+        
+        // コマンド名取得
+        function getCommandName(command) {
+            const names = {
+                'generateTestPoints': 'テスト観点生成',
+                'generatePlanRoutes': 'テストシナリオ生成',
+                'runRoutes': 'テスト実行',
+                'generateTestReport': 'レポート生成'
+            };
+            return names[command] || command;
+        }
+
+        // テスト結果解析関数
+        function parseTestResults(output) {
+            try {
+                console.log('🛠️ [Debug] Parsing test results...');
+                const lines = output.split('\n');
+                let testId = '-';
+                let totalSteps = '-';
+                let successCount = '-';
+                let failureCount = '-';
+                const failedTests = [];
+                let resultFilePath = '';
+                
+                let inFailedSection = false;
+                
+                console.log('🛠️ [Debug] Total lines to parse:', lines.length);
+                
+                for (const line of lines) {
+                    // テストIDの抽出
+                    const testIdMatch = line.match(/🔷 テストID:\s*(.+)/);
+                    if (testIdMatch) {
+                        testId = testIdMatch[1].trim();
+                    }
+                    
+                    // 総ステップ数の抽出
+                    const totalStepsMatch = line.match(/🔷 総ステップ数:\s*(\d+)/);
+                    if (totalStepsMatch) {
+                        totalSteps = totalStepsMatch[1];
+                    }
+                    
+                    // 成功数の抽出
+                    const successMatch = line.match(/🔷 成功数:\s*(\d+)/);
+                    if (successMatch) {
+                        successCount = successMatch[1];
+                    }
+                    
+                    // 失敗数の抽出
+                    const failureMatch = line.match(/🔷 失敗数:\s*(\d+)/);
+                    if (failureMatch) {
+                        failureCount = failureMatch[1];
+                    }
+                    
+                    // 結果ファイルパスの抽出
+                    const resultFileMatch = line.match(/📝 テスト結果を保存しました:\s*(.+\.json)/);
+                    if (resultFileMatch) {
+                        resultFilePath = resultFileMatch[1].trim();
+                    }
+                    
+                    // 失敗したテストケースセクション開始
+                    if (line.includes('❌ 失敗したテストケース:')) {
+                        inFailedSection = true;
+                        continue;
+                    }
+                    
+                    // 失敗したテストケースの抽出（より正確な解析）
+                    if (inFailedSection) {
+                        // "  - " で始まる行を抽出
+                        const failedTestMatch = line.match(/^\s*-\s*(.+)/);
+                        if (failedTestMatch) {
+                            const failedTest = cleanErrorMessage(failedTestMatch[1].trim());
+                            if (failedTest.trim()) {
+                                failedTests.push(failedTest);
+                            }
+                        }
+                        
+                        // セクション終了判定（空行または次のセクション開始）
+                        if (line.trim() === '' || line.includes('📝 テスト結果を保存しました')) {
+                            inFailedSection = false;
+                        }
+                    }
+                }
+                
+                // サマリー表示
+                console.log('🛠️ [Debug] Extracted data:', {testId, totalSteps, successCount, failureCount, failedTestsCount: failedTests.length, resultFilePath});
+                displayTestSummary(testId, totalSteps, successCount, failureCount, failedTests, resultFilePath);
+                
+            } catch (error) {
+                console.error('テスト結果解析エラー:', error);
+                addLog(`⚠️ テスト結果の解析に失敗しました: ${error.message}`);
+            }
+        }
+
+        // エラーメッセージを整理する関数
+        function cleanErrorMessage(message) {
+            console.log('🛠️ [Debug] Original message:', message); // デバッグ用
+            
+            // 改行を含む長いメッセージを整理
+            let cleanedMessage = message;
+            
+            // まず、コロンでテスト名とエラーメッセージを分離
+            const colonIndex = cleanedMessage.indexOf(':');
+            let testName = '';
+            let errorPart = cleanedMessage;
+            
+            if (colonIndex > 0 && colonIndex < 100) {
+                testName = cleanedMessage.substring(0, colonIndex).trim();
+                errorPart = cleanedMessage.substring(colonIndex + 1).trim();
+            }
+            
+            // エラー部分をクリーニング
+            // 長いファイルパスを削除
+            errorPart = errorPart.replace(/\/Users\/[^\s]*\/autoplaywright\/[^\s]*/g, '');
+            
+            // PlaywrightRunner.executeStep の部分を削除
+            errorPart = errorPart.replace(/\s*at\s+PlaywrightRunner\.executeStep[\s\S]*$/g, '');
+            
+            // Call log の部分を削除
+            errorPart = errorPart.replace(/Call\s+log:\s*[\s\S]*$/g, '');
+            
+            // ANSI カラーコードを削除
+            errorPart = errorPart.replace(/\[\d+m/g, '');
+            
+            // スタックトレースの at xxx 部分を削除
+            errorPart = errorPart.replace(/\s*at\s+[^\n]*/g, '');
+            
+            // { name: 'TimeoutError' } の部分を削除
+            errorPart = errorPart.replace(/\s*\{\s*name:\s*['"][^'"]*['"]\s*\}/g, '');
+            
+            // 複数のスペースや改行を単一スペースに
+            errorPart = errorPart.replace(/\s+/g, ' ').trim();
+            
+            // 主要なエラータイプに基づいて簡潔なメッセージに変換
+            const errorPatterns = [
+                {
+                    pattern: /page\.waitForSelector:\s*Timeout\s+(\d+)ms\s+exceeded/i,
+                    replacement: '⏱️ 要素待機タイムアウト ($1ms)'
+                },
+                {
+                    pattern: /page\.click:\s*Timeout\s+(\d+)ms\s+exceeded/i,
+                    replacement: '⏱️ クリックタイムアウト ($1ms)'
+                },
+                {
+                    pattern: /page\.fill:\s*Timeout\s+(\d+)ms\s+exceeded/i,
+                    replacement: '⏱️ 入力タイムアウト ($1ms)'
+                },
+                {
+                    pattern: /page\.fill:\s*Error:\s*Element\s+is\s+not\s+an\s+<input>/i,
+                    replacement: '🚫 入力要素ではありません'
+                },
+                {
+                    pattern: /page\.waitForURL:\s*Timeout\s+(\d+)ms\s+exceeded/i,
+                    replacement: '⏱️ URL遷移タイムアウト ($1ms)'
+                },
+                {
+                    pattern: /element\s+is\s+not\s+visible/i,
+                    replacement: '👁️ 要素が表示されていません'
+                },
+                {
+                    pattern: /element\s+is\s+disabled/i,
+                    replacement: '🚫 要素が無効化されています'
+                },
+                {
+                    pattern: /waiting\s+for\s+element\s+to\s+be\s+visible,\s+enabled\s+and\s+editable/i,
+                    replacement: '⏳ 要素が編集可能になるまで待機中'
+                }
+            ];
+            
+            // エラーパターンをチェックして置換
+            let finalError = errorPart;
+            for (const {pattern, replacement} of errorPatterns) {
+                if (pattern.test(errorPart)) {
+                    finalError = errorPart.replace(pattern, replacement);
+                    break;
+                }
+            }
+            
+            // パターンにマッチしない場合の一般的なクリーニング
+            if (finalError === errorPart) {
+                if (finalError.includes('Timeout') && finalError.includes('exceeded')) {
+                    finalError = '⏱️ タイムアウトエラー';
+                } else if (finalError.includes('Error:')) {
+                    const errorIndex = finalError.indexOf('Error:');
+                    finalError = '❌ ' + finalError.substring(errorIndex + 6).trim();
+                }
+            }
+            
+            // 最終的なメッセージを構築
+            let result = testName ? `${testName}: ${finalError}` : finalError;
+            
+            // 長すぎる場合は短縮
+            if (result.length > 150) {
+                result = result.substring(0, 147) + '...';
+            }
+            
+            console.log('🛠️ [Debug] Cleaned message:', result); // デバッグ用
+            return result;
+        }
+
+        // テストサマリー表示関数
+        function displayTestSummary(testId, totalSteps, successCount, failureCount, failedTests, resultFilePath) {
+            // 値を設定
+            document.getElementById('testId').textContent = testId;
+            document.getElementById('totalSteps').textContent = totalSteps;
+            document.getElementById('successCount').textContent = successCount;
+            document.getElementById('failureCount').textContent = failureCount;
+            
+            // 失敗したテストケースの表示
+            const failedTestsSection = document.getElementById('failedTests');
+            const failedTestsList = document.getElementById('failedTestsList');
+            
+            if (failedTests.length > 0) {
+                failedTestsList.innerHTML = '';
+                failedTests.forEach(test => {
+                    const li = document.createElement('li');
+                    li.textContent = test;
+                    failedTestsList.appendChild(li);
+                });
+                failedTestsSection.style.display = 'block';
+            } else {
+                failedTestsSection.style.display = 'none';
+            }
+            
+            // 既存の結果ファイルリンクを削除
+            const existingLink = document.getElementById('resultFileLink');
+            if (existingLink) {
+                existingLink.remove();
+            }
+            
+            // 結果ファイルリンクを表示
+            if (resultFilePath) {
+                const filename = resultFilePath.split('/').pop();
+                const resultFileContainer = document.createElement('div');
+                resultFileContainer.id = 'resultFileLink';
+                resultFileContainer.style.marginTop = '15px';
+                resultFileContainer.style.padding = '15px';
+                resultFileContainer.style.background = 'linear-gradient(135deg, #f8f9fa, #e9ecef)';
+                resultFileContainer.style.border = '2px solid #007bff';
+                resultFileContainer.style.borderRadius = '10px';
+                resultFileContainer.style.textAlign = 'center';
+                
+                const linkTitle = document.createElement('h4');
+                linkTitle.textContent = '📄 テスト結果ファイル';
+                linkTitle.style.margin = '0 0 10px 0';
+                linkTitle.style.color = '#0056b3';
+                linkTitle.style.fontSize = '1rem';
+                
+                const resultFileLink = document.createElement('a');
+                resultFileLink.href = `/api/results/${filename}`;
+                resultFileLink.textContent = `📝 ${filename}`;
+                resultFileLink.style.display = 'inline-block';
+                resultFileLink.style.marginTop = '5px';
+                resultFileLink.style.textDecoration = 'none';
+                resultFileLink.style.color = 'white';
+                resultFileLink.style.padding = '10px 20px';
+                resultFileLink.style.background = 'linear-gradient(135deg, #007bff, #0056b3)';
+                resultFileLink.style.borderRadius = '8px';
+                resultFileLink.style.transition = 'all 0.3s ease';
+                resultFileLink.style.fontWeight = '600';
+                
+                resultFileLink.addEventListener('mouseenter', function() {
+                    this.style.transform = 'scale(1.05)';
+                    this.style.boxShadow = '0 4px 12px rgba(0, 123, 255, 0.3)';
+                });
+                
+                resultFileLink.addEventListener('mouseleave', function() {
+                    this.style.transform = 'scale(1)';
+                    this.style.boxShadow = 'none';
+                });
+                
+                resultFileContainer.appendChild(linkTitle);
+                resultFileContainer.appendChild(resultFileLink);
+                document.getElementById('testSummary').appendChild(resultFileContainer);
+                
+                addLog(`📁 結果ファイル: ${filename} へのリンクを表示しました`);
+            }
+            
+            // サマリーセクションを表示
+            document.getElementById('testSummary').style.display = 'block';
+            
+            addLog(`📊 テスト結果サマリーが表示されました`);
+        }
+
+        // AI設定関数
+        function updateTemperatureDisplay() {
+            const temperature = document.getElementById('aiTemperature').value;
+            document.getElementById('temperatureValue').textContent = temperature;
+        }
+        
+        function updateTopPDisplay() {
+            const topP = document.getElementById('aiTopP').value;
+            document.getElementById('topPValue').textContent = topP;
+        }
+        
+        function loadAIConfig(config) {
+            if (config.openai) {
+                document.getElementById('aiModel').value = config.openai.model || 'gpt-4o-mini';
+                document.getElementById('aiTemperature').value = config.openai.temperature || 0.5;
+                document.getElementById('aiMaxTokens').value = config.openai.max_tokens || 4000;
+                document.getElementById('aiTopP').value = config.openai.top_p || 0.9;
+                updateTemperatureDisplay();
+                updateTopPDisplay();
+            }
+        }
+        
+        async function saveAIConfig() {
+            const aiConfig = {
+                model: document.getElementById('aiModel').value,
+                temperature: parseFloat(document.getElementById('aiTemperature').value),
+                max_tokens: parseInt(document.getElementById('aiMaxTokens').value),
+                top_p: parseFloat(document.getElementById('aiTopP').value)
+            };
+            
+            try {
+                const response = await fetch('/api/config/ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(aiConfig)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog('💾 AI設定を保存しました');
+                    showStatus('AI設定を保存しました', 'success');
+                } else {
+                    addLog(`❌ AI設定保存エラー: ${result.error}`);
+                    showStatus('AI設定の保存に失敗しました', 'error');
+                }
+            } catch (error) {
+                addLog(`❌ AI設定保存エラー: ${error.message}`);
+                showStatus('AI設定の保存に失敗しました', 'error');
+            }
+        }
+        
+        function resetAIConfig() {
+            document.getElementById('aiModel').value = 'gpt-4o-mini';
+            document.getElementById('aiTemperature').value = 0.5;
+            document.getElementById('aiMaxTokens').value = 4000;
+            document.getElementById('aiTopP').value = 0.9;
+            updateTemperatureDisplay();
+            updateTopPDisplay();
+            addLog('🔄 AI設定をデフォルトに戻しました');
+            showStatus('AI設定をデフォルトに戻しました', 'info');
+        }
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('🎉 AutoPlaywright WebUI が準備完了しました');
+            
+            // スライダーのイベントリスナー追加
+            document.getElementById('aiTemperature').addEventListener('input', updateTemperatureDisplay);
+            document.getElementById('aiTopP').addEventListener('input', updateTopPDisplay);
+            
+            // config.jsonからデフォルト設定を読み込み
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(config => {
+                    if (config.targetUrl) {
+                        document.getElementById('testUrl').value = config.targetUrl;
+                        addLog(`📋 デフォルトURL読み込み: ${config.targetUrl}`);
+                    }
+                    
+                    // AI設定を読み込み
+                    loadAIConfig(config);
+                    addLog(`🤖 AI設定を読み込みました`);
+                })
+                .catch(error => {
+                    addLog(`⚠️ 設定読み込みエラー: ${error.message}`);
+                });
+        });
+    </script>
+</body>
+</html> 

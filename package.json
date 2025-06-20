@@ -8,11 +8,15 @@
     "commander": "^14.0.0",
     "csv-parse": "^5.6.0",
     "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
     "openai": "^5.3.0",
     "playwright": "^1.53.0",
     "zod": "^3.25.67"
   },
   "scripts": {
+    "start": "node server.js",
+    "webui": "node server.js",
     "generate:testpoints": "node tests/generateTestPoints.js",
     "generate:planroutes": "node tests/generatePlanRoutes.js",
     "generate:routes": "node tests/generateRoutes.js",
