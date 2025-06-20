@@ -69,7 +69,7 @@ export const config = loadConfig();
 export const openAIConfig = getOpenAIConfig(config);
 
 // ① AI呼び出し用のプロンプト
-async function generateTestRoute(screenInfo, testPoints, pdfFileInfo = null) {
+async function generateTestRoute(screenInfo, testPoints, url, pdfFileInfo = null) {
   const system = `あなたはWebページのE2Eテストシナリオを生成するAIです。
 
 以下のステップで思考してください：
@@ -130,7 +130,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
     {
       "label": "ページを開く",
       "action": "load",
-      "target": "https://example.com"
+      "target": "${url}"
     },
     {
       "label": "タイトル確認",
@@ -160,10 +160,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
     { role: 'user',   content: user.trim() }
   ];
 
-  // PDFファイルがある場合は、ファイルIDを追加
-  if (pdfFileInfo) {
-    messages[1].content += `\n\n添付ファイルID: ${pdfFileInfo.fileId}`;
-  }
+  // 特に追加処理は不要（createPDFPromptで既に処理済み）
 
   const res = await client.chat.completions.create({
     model: openAIConfig.model || 'gpt-4o-mini',
@@ -249,7 +246,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
     console.log(`🛠️ [Debug] Loaded testPoints from: ${latestTP}`);
 
     // 3. AI呼び出し
-    const routeJson = await generateTestRoute(screenInfo, testPoints, pdfFileInfo);
+    const routeJson = await generateTestRoute(screenInfo, testPoints, url, pdfFileInfo);
     if (!routeJson) throw new Error('ルート生成に失敗しました');
 
     // 4. 保存

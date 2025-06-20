@@ -224,10 +224,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
         { role: 'user', content: user }
       ];
 
-      // PDFファイルがある場合は、ファイルIDを追加
-      if (pdfFileInfo) {
-        messages[1].content += `\n\n添付ファイルID: ${pdfFileInfo.fileId}`;
-      }
+      // 特に追加処理は不要（createPDFPromptで既に処理済み）
 
       const res = await openai.chat.completions.create({
         model: aiConfig.model || 'gpt-4o-mini',
