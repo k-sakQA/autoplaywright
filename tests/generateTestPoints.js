@@ -145,7 +145,7 @@ function saveToCache(cacheKey, data) {
     }
 
     // 3. プロンプト作成
-    const system = 'あなたはWebページのテスト観点ごとに「考慮すべき仕様の具体例」を抽出するAIです。';
+    const system = 'あなたはWebページのテスト観点ごとに、与えられた仕様や画面情報から「考慮すべき仕様の具体例」を抽出するAIです。';
     const userLines = records.map(r => `${r['No']}. ${r['テスト観点']}`);
     
     let user = `以下のテスト観点テンプレートに従い、「考慮すべき仕様の具体例」をJSON配列で返してください。\n\n` +
