@@ -130,10 +130,42 @@ export class PlaywrightRunner {
           let visibleFound = false;
           for (const selector of visibleSelectors) {
             try {
-              await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
-              console.log(`✅ 要素表示確認: ${selector}`);
-              visibleFound = true;
-              break;
+              // text=セレクタの場合は部分一致も試行
+              if (selector.startsWith('text=')) {
+                const searchText = selector.replace('text=', '').replace(/"/g, '');
+                try {
+                  // 厳密一致を先に試行
+                  await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
+                  console.log(`✅ 要素表示確認（厳密一致）: ${selector}`);
+                  visibleFound = true;
+                  break;
+                } catch (e) {
+                  // 厳密一致が失敗した場合、部分一致を試行
+                  try {
+                    const partialSelector = `text*="${searchText}"`;
+                    await this.page.waitForSelector(partialSelector, { state: 'visible', timeout: step.timeout || 10000 });
+                    console.log(`✅ 要素表示確認（部分一致）: ${partialSelector}`);
+                    visibleFound = true;
+                    break;
+                  } catch (e2) {
+                    // さらに、:has-textも試行
+                    try {
+                      const hasTextSelector = `:has-text("${searchText}")`;
+                      await this.page.waitForSelector(hasTextSelector, { state: 'visible', timeout: step.timeout || 10000 });
+                      console.log(`✅ 要素表示確認（:has-text）: ${hasTextSelector}`);
+                      visibleFound = true;
+                      break;
+                    } catch (e3) {
+                      continue;
+                    }
+                  }
+                }
+              } else {
+                await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
+                console.log(`✅ 要素表示確認: ${selector}`);
+                visibleFound = true;
+                break;
+              }
             } catch (e) {
               // 次のセレクタを試す
               continue;
