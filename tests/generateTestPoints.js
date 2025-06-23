@@ -146,8 +146,8 @@ function saveToCache(cacheKey, data) {
     }
     
     if (url) {
-      console.log(`🛠️ [Debug] Fetching URL: ${url}`);
-      const { data: html } = await axios.get(url);
+    console.log(`🛠️ [Debug] Fetching URL: ${url}`);
+    const { data: html } = await axios.get(url);
       htmlSnippet = html.slice(0, 5000);
     }
 
@@ -282,7 +282,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
     const outPath = path.join(outDir, `testPoints_${getTimestamp()}.json`);
     fs.writeFileSync(outPath, JSON.stringify(points, null, 2), 'utf-8');
     console.log(`💾 Test points saved: ${outPath}`);
-    
+
     console.log('✅ テスト観点生成が完了しました');
     process.exit(0);
   } catch (err) {

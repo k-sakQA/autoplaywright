@@ -29,4 +29,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+
+# PDF specification files (private)
+specs/*.pdf 
