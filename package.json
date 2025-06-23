@@ -23,6 +23,6 @@
           "generate:smartroutes": "node tests/generateSmartRoutes.js",
     "run:tests": "node tests/runRoutes.js",
     "save:results": "node saveResultsToSheet.js",
-    "ci-pipeline": "npm run generate:testpoints && npm run generate:planroutes && npm run generate:routes && npm run run:tests && npm run save:results"
+    "ci-pipeline": "npm run generate:testpoints && npm run generate:smartroutes && npm run run:tests && npm run save:results"
   }
 }
