@@ -178,11 +178,20 @@ export class PlaywrightRunner {
           }
           break;
         case 'fill':
-          await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
-          console.log(`✅ 入力完了: ${step.target} = "${step.value}"`);
+          // select要素の場合はselectOptionを使用
+          const element = await this.page.locator(step.target).first();
+          const tagName = await element.evaluate(el => el.tagName.toLowerCase());
+          
+          if (tagName === 'select') {
+            await this.page.selectOption(step.target, step.value || '', { timeout: step.timeout || 5000 });
+            console.log(`✅ 選択完了: ${step.target} = "${step.value}"`);
+          } else {
+            await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
+            console.log(`✅ 入力完了: ${step.target} = "${step.value}"`);
+          }
           break;
         case 'waitForURL':
-          await this.page.waitForURL(step.target, { timeout: step.timeout || 5000 });
+          await this.page.waitForURL(step.target, { timeout: step.timeout || 10000 });
           console.log(`✅ URL遷移確認: ${step.target}`);
           break;
         default:
@@ -264,6 +273,11 @@ export class PlaywrightRunner {
           error: errorMessage,
           timestamp: new Date().toISOString()
         });
+        
+        // 画面遷移系のアクションが失敗した場合、後続のassertは信頼性が低いため警告
+        if (step.action === 'waitForURL' || step.action === 'click' && step.expectsNavigation) {
+          console.log(`⚠️  注意: 画面遷移が失敗しているため、後続のassertの結果は信頼性が低い可能性があります`);
+        }
         continue;
       }
     }

@@ -513,8 +513,8 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="testGoal">テストの目的・意図:</label>
-                    <textarea id="testGoal" rows="3" placeholder="例：ロゴをクリックして、ページ内テキストを確認したい&#10;例：『チームから探す > 国内サッカー > 鹿島アントラーズ』のリンクをクリックし、遷移後に『鹿島アントラーズ』と表示されることを確認したい"></textarea>
+                    <label for="testGoal">テスト対象のユーザーストーリーと主なルート:</label>
+                    <textarea id="testGoal" rows="3" placeholder="ストーリー：宿泊予約の入力・選択ができる&#10;ルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する"></textarea>
                     <small>具体的なテスト手順や確認したい内容を記述してください</small>
                 </div>
                 
@@ -529,12 +529,7 @@
                     <input type="file" id="pdfFile" accept=".pdf">
                 </div>
                 
-                <div class="form-group">
-                    <button type="button" class="btn-info manual-guide-btn" onclick="showManualGuide()">
-                        📋 手動でテストシナリオを作成する方法
-                    </button>
-                    <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
-                </div>
+
             </div>
             
             <!-- 実行ボタンセクション -->
@@ -544,10 +539,6 @@
                 <div class="button-grid">
                     <button class="btn-primary" onclick="executeCommand('generateTestPoints')">
                         📋 テスト観点生成
-                    </button>
-                    
-                    <button class="btn-secondary" onclick="executeCommand('generatePlanRoutes')">
-                        🗺️ テストシナリオ生成
                     </button>
                     
                     <button class="btn-info" onclick="executeCommand('generateSmartRoutes')">
@@ -638,6 +629,18 @@
                     <button type="button" class="btn-primary" onclick="saveAIConfig()">
                         💾 設定を保存
                     </button>
+                </div>
+            </div>
+            
+            <!-- 手動ガイドセクション -->
+            <div class="section">
+                <h2>📋 手動テストシナリオ作成</h2>
+                
+                <div class="form-group">
+                    <button type="button" class="btn-info manual-guide-btn" onclick="showManualGuide()">
+                        📋 手動でテストシナリオを作成する方法
+                    </button>
+                    <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
                 </div>
             </div>
         </div>
@@ -849,7 +852,6 @@
         function getCommandName(command) {
             const names = {
                 'generateTestPoints': 'テスト観点生成',
-                'generatePlanRoutes': 'テストシナリオ生成',
                 'generateSmartRoutes': 'スマートシナリオ生成',
                 'runRoutes': 'テスト実行',
                 'generateTestReport': 'レポート生成'
