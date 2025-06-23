@@ -80,18 +80,24 @@
             color: #34495e;
         }
         
-        input[type="url"], input[type="file"] {
+        input[type="url"], input[type="file"], textarea {
             width: 100%;
             padding: 12px;
             border: 2px solid #bdc3c7;
             border-radius: 8px;
             font-size: 16px;
             transition: border-color 0.3s ease;
+            font-family: inherit;
         }
         
-        input[type="url"]:focus, input[type="file"]:focus {
+        input[type="url"]:focus, input[type="file"]:focus, textarea:focus {
             outline: none;
             border-color: #3498db;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
         }
         
         .buttons-section h2::before {
@@ -159,6 +165,21 @@
             box-shadow: 0 5px 15px rgba(243, 156, 18, 0.4);
         }
         
+        .btn-info {
+            background: linear-gradient(135deg, #17a2b8, #138496);
+            color: white;
+        }
+        
+        .btn-info:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(23, 162, 184, 0.4);
+        }
+        
+        .manual-guide-btn {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
         .log-area {
             background: #2c3e50;
             color: #ecf0f1;
@@ -192,6 +213,132 @@
         .status.info {
             background: #d1ecf1;
             color: #0c5460;
+        }
+        
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        /* ポップアップのスタイル */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        
+        .modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+            z-index: 1001;
+        }
+        
+        .modal-header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 15px 15px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.3s ease;
+        }
+        
+        .close-btn:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .modal-body {
+            padding: 30px;
+            line-height: 1.6;
+        }
+        
+        .modal-body h3 {
+            color: #2c3e50;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+        
+        .modal-body h3:first-child {
+            margin-top: 0;
+        }
+        
+        .modal-body pre {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            overflow-x: auto;
+            font-size: 14px;
+            margin: 15px 0;
+        }
+        
+        .modal-body code {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .modal-body ul, .modal-body ol {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        
+        .modal-body li {
+            margin-bottom: 8px;
+        }
+        
+        .highlight-box {
+            background: #e8f5e8;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
         }
         
         /* テスト実行結果サマリーのスタイル */
@@ -366,6 +513,12 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="testGoal">テストの目的・意図:</label>
+                    <textarea id="testGoal" rows="3" placeholder="例：ロゴをクリックして、ページ内テキストを確認したい&#10;例：『チームから探す > 国内サッカー > 鹿島アントラーズ』のリンクをクリックし、遷移後に『鹿島アントラーズ』と表示されることを確認したい"></textarea>
+                    <small>具体的なテスト手順や確認したい内容を記述してください</small>
+                </div>
+                
+                <div class="form-group">
                     <label for="csvFile">テスト観点CSV (オプション):</label>
                     <input type="file" id="csvFile" accept=".csv">
                     <small>指定しない場合は標準のテスト観点を使用します</small>
@@ -374,6 +527,13 @@
                 <div class="form-group">
                     <label for="pdfFile">仕様書PDF (オプション):</label>
                     <input type="file" id="pdfFile" accept=".pdf">
+                </div>
+                
+                <div class="form-group">
+                    <button type="button" class="btn-info manual-guide-btn" onclick="showManualGuide()">
+                        📋 手動でテストシナリオを作成する方法
+                    </button>
+                    <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
                 </div>
             </div>
             
@@ -388,6 +548,10 @@
                     
                     <button class="btn-secondary" onclick="executeCommand('generatePlanRoutes')">
                         🗺️ テストシナリオ生成
+                    </button>
+                    
+                    <button class="btn-info" onclick="executeCommand('generateSmartRoutes')">
+                        🧠 スマートシナリオ生成
                     </button>
                     
                     <button class="btn-success" onclick="executeCommand('runRoutes')">
@@ -479,6 +643,118 @@
         </div>
     </div>
 
+    <!-- 手動ガイドポップアップ -->
+    <div id="manualGuideModal" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>📋 手動でテストシナリオを作成する方法</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>🎯 概要</h3>
+                <p>AIが生成するテストシナリオに満足できない場合、手動でJSONファイルを作成してより精密なテストを実行できます。</p>
+                
+                <div class="highlight-box">
+                    <strong>💡 ヒント:</strong> 手動作成により、AIでは対応できない複雑なユーザーフローや特定の要素を正確にテストできます。
+                </div>
+
+                <h3>📁 ファイルの配置場所</h3>
+                <p>以下のディレクトリに手動でJSONファイルを作成してください：</p>
+                <pre><code>test-results/route_yymmddhhmmss.json</code></pre>
+                <p>ファイル名の形式：<code>route_</code> + 年月日時分秒 + <code>.json</code></p>
+                <p>例：<code>route_250623145230.json</code> (2025年06月23日 14時52分30秒)</p>
+
+                <h3>📝 JSON構造</h3>
+                <p>以下の構造でJSONファイルを作成してください：</p>
+                <pre><code>{
+  "route_id": "manual_test_001",
+  "steps": [
+    {
+      "label": "ステップの説明",
+      "action": "アクション名",
+      "target": "セレクタまたはURL",
+      "value": "入力値（オプション）"
+    }
+  ]
+}</code></pre>
+
+                <h3>🔧 利用可能なアクション</h3>
+                <ul>
+                    <li><code>load</code> - ページを読み込む</li>
+                    <li><code>click</code> - 要素をクリックする</li>
+                    <li><code>fill</code> - 入力フィールドに値を入力する</li>
+                    <li><code>assertVisible</code> - 要素が表示されていることを確認する</li>
+                    <li><code>assertNotVisible</code> - 要素が表示されていないことを確認する</li>
+                    <li><code>waitForSelector</code> - 要素が現れるまで待機する</li>
+                    <li><code>waitForURL</code> - 特定のURLに遷移するまで待機する</li>
+                </ul>
+
+                <h3>📋 完全な例</h3>
+                <pre><code>{
+  "route_id": "manual_login_test",
+  "steps": [
+    {
+      "label": "ログインページを開く",
+      "action": "load",
+      "target": "https://example.com/login"
+    },
+    {
+      "label": "ユーザー名を入力",
+      "action": "fill",
+      "target": "input[name='username']",
+      "value": "testuser"
+    },
+    {
+      "label": "パスワードを入力",
+      "action": "fill",
+      "target": "input[name='password']",
+      "value": "testpass123"
+    },
+    {
+      "label": "ログインボタンをクリック",
+      "action": "click",
+      "target": "button[type='submit']"
+    },
+    {
+      "label": "ダッシュボードページに遷移確認",
+      "action": "waitForURL",
+      "target": "**/dashboard**"
+    },
+    {
+      "label": "ようこそメッセージが表示されることを確認",
+      "action": "assertVisible",
+      "target": ".welcome-message"
+    }
+  ]
+}</code></pre>
+
+                <h3>⚠️ 注意事項</h3>
+                <div class="warning-box">
+                    <ul>
+                        <li>JSONの構文エラーがないよう注意してください</li>
+                        <li>セレクタは実際にページに存在する要素を指定してください</li>
+                        <li>複数の候補セレクタをカンマ区切りで指定できます（例：<code>"h1, .title, #main-title"</code>）</li>
+                        <li>ファイル保存後、テスト実行ボタンで自動的に最新ファイルが読み込まれます</li>
+                    </ul>
+                </div>
+
+                <h3>🔍 セレクタのコツ</h3>
+                <ul>
+                    <li><strong>ID選択:</strong> <code>#element-id</code></li>
+                    <li><strong>クラス選択:</strong> <code>.class-name</code></li>
+                    <li><strong>属性選択:</strong> <code>input[type="email"]</code></li>
+                    <li><strong>テキスト選択:</strong> <code>text=ログイン</code></li>
+                    <li><strong>複合選択:</strong> <code>form input[type="submit"]</code></li>
+                    <li><strong>複数候補:</strong> <code>button, .btn, [type="submit"]</code></li>
+                </ul>
+
+                <div class="highlight-box">
+                    <strong>🚀 プロのコツ:</strong> ブラウザの開発者ツール（F12キー）でセレクタをテストしてから使用すると確実です！
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ログエリアに追加する関数
         function addLog(message, type = 'info') {
@@ -500,6 +776,7 @@
         // コマンド実行関数
         async function executeCommand(command) {
             const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
             const pdfFile = document.getElementById('pdfFile').files[0];
             const csvFile = document.getElementById('csvFile').files[0];
             
@@ -516,6 +793,7 @@
                 const formData = new FormData();
                 formData.append('command', command);
                 if (url) formData.append('url', url);
+                if (testGoal) formData.append('goal', testGoal);
                 if (pdfFile) formData.append('pdf', pdfFile);
                 if (csvFile) formData.append('csv', csvFile);
                 
@@ -535,9 +813,14 @@
                         if (command === 'runRoutes') {
                             console.log('🛠️ [Debug] Full output for parsing:', result.output);
                             parseTestResults(result.output);
+                            // テスト実行の場合は特別なメッセージを表示
+                            showStatus(`テストを実行しました！`, 'success');
+                        } else {
+                            showStatus(`${getCommandName(command)} 完了`, 'success');
                         }
+                    } else {
+                        showStatus(`${getCommandName(command)} 完了`, 'success');
                     }
-                    showStatus(`${getCommandName(command)} 完了`, 'success');
                 } else {
                     addLog(`❌ エラー: ${result.error}`);
                     if (result.output) {
@@ -547,9 +830,14 @@
                         if (command === 'runRoutes') {
                             console.log('🛠️ [Debug] Error output for parsing:', result.output);
                             parseTestResults(result.output);
+                            // テスト実行の場合は特別なメッセージを表示
+                            showStatus(`テストを実行しました！（一部エラーあり）`, 'warning');
+                        } else {
+                            showStatus(`エラーが発生しました: ${result.error}`, 'error');
                         }
+                    } else {
+                        showStatus(`エラーが発生しました: ${result.error}`, 'error');
                     }
-                    // showStatus(`エラーが発生しました: ${result.error}`, 'error');
                 }
             } catch (error) {
                 addLog(`❌ 通信エラー: ${error.message}`);
@@ -562,6 +850,7 @@
             const names = {
                 'generateTestPoints': 'テスト観点生成',
                 'generatePlanRoutes': 'テストシナリオ生成',
+                'generateSmartRoutes': 'スマートシナリオ生成',
                 'runRoutes': 'テスト実行',
                 'generateTestReport': 'レポート生成'
             };
@@ -903,6 +1192,27 @@
             addLog('🔄 AI設定をデフォルトに戻しました');
             showStatus('AI設定をデフォルトに戻しました', 'info');
         }
+
+        // 手動ガイドポップアップ表示
+        function showManualGuide() {
+            document.getElementById('manualGuideModal').style.display = 'block';
+            addLog('📋 手動テストシナリオ作成ガイドを表示しました');
+        }
+        
+        // ポップアップを閉じる
+        function closeModal(event) {
+            if (!event || event.target === event.currentTarget) {
+                document.getElementById('manualGuideModal').style.display = 'none';
+                addLog('📋 ガイドを閉じました');
+            }
+        }
+        
+        // ESCキーでポップアップを閉じる
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
 
         // 初期化
         document.addEventListener('DOMContentLoaded', function() {

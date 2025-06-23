@@ -125,26 +125,56 @@ export class PlaywrightRunner {
           console.log(`✅ 要素待機完了: ${step.target}`);
           break;
         case 'assertVisible':
-          await this.page.waitForSelector(step.target, { state: 'visible', timeout: step.timeout || 5000 });
-          console.log(`✅ 要素表示確認: ${step.target}`);
+          // 複数セレクタの場合は最初に見つかったものを使用
+          const visibleSelectors = step.target.split(',').map(s => s.trim());
+          let visibleFound = false;
+          for (const selector of visibleSelectors) {
+            try {
+              await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
+              console.log(`✅ 要素表示確認: ${selector}`);
+              visibleFound = true;
+              break;
+            } catch (e) {
+              // 次のセレクタを試す
+              continue;
+            }
+          }
+          if (!visibleFound) {
+            throw new Error(`いずれの要素も見つかりませんでした: ${step.target}`);
+          }
           break;
         case 'assertNotVisible':
           await this.page.waitForSelector(step.target, { state: 'hidden', timeout: step.timeout || 5000 });
           console.log(`✅ 要素非表示確認: ${step.target}`);
           break;
         case 'click':
-          if (step.expectsNavigation) {
-            await Promise.all([
-              this.page.waitForNavigation({
-                timeout: step.timeout || 30000,
-                waitUntil: 'networkidle'
-              }),
-              this.page.click(step.target, { timeout: step.timeout || 5000 })
-            ]);
-            console.log(`✅ クリック後の画面遷移成功: ${step.target}`);
-          } else {
-            await this.page.click(step.target, { timeout: step.timeout || 5000 });
-            console.log(`✅ クリック成功: ${step.target}`);
+          // 複数セレクタの場合は最初に見つかったものをクリック
+          const clickSelectors = step.target.split(',').map(s => s.trim());
+          let clickFound = false;
+          for (const selector of clickSelectors) {
+            try {
+              if (step.expectsNavigation) {
+                await Promise.all([
+                  this.page.waitForNavigation({
+                    timeout: step.timeout || 30000,
+                    waitUntil: 'networkidle'
+                  }),
+                  this.page.click(selector, { timeout: step.timeout || 10000 })
+                ]);
+                console.log(`✅ クリック後の画面遷移成功: ${selector}`);
+              } else {
+                await this.page.click(selector, { timeout: step.timeout || 10000 });
+                console.log(`✅ クリック成功: ${selector}`);
+              }
+              clickFound = true;
+              break;
+            } catch (e) {
+              // 次のセレクタを試す
+              continue;
+            }
+          }
+          if (!clickFound) {
+            throw new Error(`いずれの要素もクリックできませんでした: ${step.target}`);
           }
           break;
         case 'fill':

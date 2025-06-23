@@ -245,7 +245,13 @@ ${createPDFPrompt(pdfFileInfo)}`;
       }
       
       try {
-        points = JSON.parse(jsonMatch[0]);
+        let jsonText = jsonMatch[0];
+        
+        // 最小限の安全なクリーニングのみ実行
+        // 1. 末尾のカンマのみ除去（コメント除去は行わない）
+        jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1');
+        
+        points = JSON.parse(jsonText);
         if (!Array.isArray(points)) {
           throw new Error('返された値が配列ではありません');
         }

@@ -101,7 +101,7 @@ app.post('/api/config/ai', (req, res) => {
 
 // コマンド実行API
 app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv', maxCount: 1}]), async (req, res) => {
-  const { command, url } = req.body;
+  const { command, url, goal } = req.body;
   const files = req.files || {};
   const pdfFile = files.pdf ? files.pdf[0] : null;
   const csvFile = files.csv ? files.csv[0] : null;
@@ -114,6 +114,11 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
     // URLパラメータの追加
     if (url && url.trim()) {
       args.push('--url', url.trim());
+    }
+    
+    // テスト意図パラメータの追加
+    if (goal && goal.trim()) {
+      args.push('--goal', goal.trim());
     }
     
     // PDFパラメータの追加

@@ -9,6 +9,7 @@ export function parseCLIArgs() {
     .option('-p, --spec-pdf <path>', '仕様書PDFファイルのパス')
     .option('-c, --test-csv <path>', 'テスト観点CSVファイルのパス')
     .option('-u, --url <url>', 'テスト対象のURL')
+    .option('-g, --goal <text>', 'テストの目的・意図')
     .option('-o, --output <path>', '出力ディレクトリのパス')
     .option('-v, --verbose', '詳細なログを出力')
     .parse(process.argv);
