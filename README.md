@@ -102,12 +102,13 @@ http://localhost:3000
 
 #### 基本設定セクション
 1. **テスト対象URL**: テストしたいWebサイトのURLを入力
-2. **テスト観点CSV**: カスタムテスト観点を使用する場合はCSVファイルをアップロード
-3. **仕様書PDF**: 必要に応じてPDF仕様書をアップロード
+2. **テスト対象のユーザーストーリーと主なルート**: 具体的なテスト手順や確認したい内容を記述してください
+3. **テスト観点CSV**: カスタムテスト観点を使用する場合はCSVファイルをアップロードします
+4. **仕様書PDF**: 必要に応じてPDF仕様書をアップロード
 
 #### テスト実行セクション
 1. **📋 テスト観点生成**: PDF仕様書からテスト観点を生成
-2. **🗺️ テストシナリオ生成**: テスト観点からPlaywrightシナリオを生成
+2. **🧠 スマートシナリオ生成**: 動的DOM取得+AI分析によるPlaywrightシナリオ生成
 3. **▶️ テスト実行**: 生成されたシナリオを実行
 4. **📊 レポート生成**: テスト結果をCSV形式で出力
 
@@ -152,11 +153,11 @@ WebUIが推奨ですが、コマンドラインからも実行可能です：
 # 1. テスト観点生成
 node tests/generateTestPoints.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
 
-# 2. テストシナリオ生成
-node tests/generatePlanRoutes.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
+# 2. スマートシナリオ生成
+node tests/generateSmartRoutes.js --url "https://example.com" --goal "宿泊予約フローのテスト" --spec-pdf ./specs/requirements.pdf
 
 # 3. テスト実行
-node tests/runRoutes.js --url "https://example.com"
+node tests/runRoutes.js
 
 # 4. レポート生成
 node tests/generateTestReport.js
@@ -164,6 +165,7 @@ node tests/generateTestReport.js
 
 ### オプション
 - `--url <URL>`: テスト対象URL
+- `--goal <text>`: テストの目的・ユーザーストーリー（スマートシナリオ生成用）
 - `--test-csv <path>`: テスト観点CSVファイルのパス
 - `--spec-pdf <path>`: PDF仕様書のパス
 - `--output <path>`: 出力ディレクトリ
