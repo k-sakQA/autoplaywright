@@ -252,18 +252,38 @@ AutoPlaywright テスト結果（スプレッドシートブック）
 # 環境変数設定
 echo "OPENAI_API_KEY=your-api-key" > .env
 
+# Google Sheets連携を使用する場合は認証ファイルを配置
+cp ~/Downloads/your-service-account-key.json ./credentials.json
+
 # イメージビルド
 docker-compose build
 ```
 
-### 実行例
+### WebUI起動（推奨）
+```bash
+# WebUIサーバーを起動
+docker-compose up
+
+# ブラウザで http://localhost:3000 にアクセス
+```
+
+### コマンドライン実行例
 ```bash
 # テスト観点生成
 docker-compose run --rm autoplaywright node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
 
 # テスト実行
 docker-compose run --rm autoplaywright node tests/runRoutes.js
+
+# Google Sheetsアップロード（認証ファイルが必要）
+docker-compose run --rm autoplaywright npm run upload:sheets
 ```
+
+### Docker環境での注意点
+- ✅ **config.json**: 設定変更が永続化されます
+- ✅ **credentials.json**: Google Sheets API認証ファイルが自動マウント
+- ✅ **test-results**: テスト結果がホストに保存されます
+- ⚠️ **認証ファイル**: `credentials.json`が存在しない場合、Google Sheets機能は無効になります
 
 ---
 

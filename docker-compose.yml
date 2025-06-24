@@ -8,6 +8,8 @@ services:
       - ./specs:/app/specs
       - ./test_point:/app/test_point
       - ./cache:/app/cache
+      - ./config.json:/app/config.json
+      - ./credentials.json:/app/credentials.json:ro  # Google Sheets API認証ファイル（読み取り専用）
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     command: node server.js
