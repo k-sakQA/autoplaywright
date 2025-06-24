@@ -215,6 +215,51 @@ class GoogleSheetsUploader {
   }
 
   /**
+   * トレーサブルCSVファイルを直接スプレッドシートにアップロード
+   * @param {string} csvFilePath - CSVファイルのパス
+   * @param {string} title - スプレッドシートのタイトル
+   * @param {string} shareEmail - 共有するメールアドレス（オプション）
+   * @param {string} folderId - 保存先フォルダID（オプション）
+   * @returns {string} - 使用されたスプレッドシートのID
+   */
+  async uploadTraceableCSV(csvFilePath, title, shareEmail = null, folderId = null) {
+    try {
+      // 既存スプレッドシートを検索
+      let spreadsheetId = await this.findExistingSpreadsheet(title, folderId);
+      
+      if (spreadsheetId) {
+        console.log(`📊 既存スプレッドシートを使用: ${title}`);
+        
+        // 既存スプレッドシートに新しいシートを追加
+        const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+        const sheetName = `TestResults_${timestamp}`;
+        
+        await this.createSheet(spreadsheetId, sheetName);
+        await this.uploadCSV(csvFilePath, spreadsheetId, sheetName);
+        
+        console.log(`📊 既存スプレッドシートに新しいシートを追加: ${sheetName}`);
+      } else {
+        console.log(`📊 新しいスプレッドシートを作成: ${title}`);
+        
+        // 新しいスプレッドシートを作成
+        spreadsheetId = await this.createSpreadsheet(title, shareEmail, folderId);
+        
+        // 最初のシートにCSVをアップロード
+        const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+        const sheetName = `TestResults_${timestamp}`;
+        
+        await this.createSheet(spreadsheetId, sheetName);
+        await this.uploadCSV(csvFilePath, spreadsheetId, sheetName);
+      }
+      
+      return spreadsheetId;
+    } catch (error) {
+      console.error('トレーサブルCSVアップロードエラー:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * 既存スプレッドシートにテスト結果をアップロード（新しいシート作成）
    * @param {Object} testResults - テスト結果データ
    * @param {string} spreadsheetId - アップロード先のスプレッドシートID
@@ -268,16 +313,16 @@ class GoogleSheetsUploader {
    */
   async uploadTestResults(testResults, spreadsheetId, sheetName = 'TestResults') {
     try {
-      // ヘッダー行を作成
+      // ヘッダー行を作成（階層的トレーサビリティ対応）
       const headers = [
         '実行日時',
-        'テストケースID',
+        'ID',
         'ユーザーストーリー',
+        '機能',
+        '観点',
         'テスト手順',
         '実行結果',
         'エラー詳細',
-        '実行時間(ms)',
-        'カバレッジ',
         'URL'
       ];
 

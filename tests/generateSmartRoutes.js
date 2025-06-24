@@ -180,7 +180,7 @@ async function extractDynamicPageInfo(url) {
 }
 
 // スマートテストルート生成
-async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null) {
+async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null) {
   const system = `あなたはWebページのE2Eテストシナリオを生成する専門AIです。
 
 重要原則：
@@ -237,7 +237,8 @@ ${JSON.stringify(pageInfo, null, 2)}
 出力形式：
 \`\`\`json
 {
-  "route_id": "smart_test_001",
+  "route_id": "route_${getTimestamp()}",
+  "user_story_id": ${userStoryInfo ? userStoryInfo.currentId : 'null'},
   "steps": [
     {
       "label": "ステップ説明",
@@ -302,6 +303,13 @@ ${createPDFPrompt(pdfFileInfo)}`;
     if (!routeJson.route_id || !routeJson.steps || !Array.isArray(routeJson.steps)) {
       throw new Error('JSONの形式が正しくありません');
     }
+    
+    // 動的なrouteIDとユーザーストーリーIDを設定（トレーサビリティ確保）
+    const timestamp = getTimestamp();
+    routeJson.route_id = `route_${timestamp}`;
+    routeJson.user_story_id = userStoryInfo ? userStoryInfo.currentId : null;
+    routeJson.generated_at = new Date().toISOString();
+    
     return routeJson;
   } catch (parseError) {
     console.error('JSON解析エラー:', parseError);
@@ -327,6 +335,17 @@ ${createPDFPrompt(pdfFileInfo)}`;
     
     if (!url) {
       throw new Error('テスト対象URLが指定されていません');
+    }
+    
+    // config.jsonからユーザーストーリー情報を読み取り（トレーサビリティ確保）
+    let userStoryInfo = null;
+    try {
+      if (config.userStory) {
+        userStoryInfo = config.userStory;
+        console.log(`📝 ユーザーストーリーID ${userStoryInfo.currentId} を使用してrouteを生成します`);
+      }
+    } catch (error) {
+      console.log('⚠️ ユーザーストーリー情報を読み取れませんでした');
     }
 
     // PDF処理
@@ -356,7 +375,7 @@ ${createPDFPrompt(pdfFileInfo)}`;
 
     // 3. スマートAI呼び出し
     console.log('🤖 AI分析開始...');
-    const routeJson = await generateSmartTestRoute(url, testGoal, pageInfo, testPoints, pdfFileInfo);
+    const routeJson = await generateSmartTestRoute(url, testGoal, pageInfo, testPoints, pdfFileInfo, userStoryInfo);
     if (!routeJson) throw new Error('ルート生成に失敗しました');
 
     // 4. 保存

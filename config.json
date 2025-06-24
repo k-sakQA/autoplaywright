@@ -8,5 +8,28 @@
     "top_p": 0.2,
     "timeout": 60000,
     "maxRetries": 3
+  },
+  "googleSheets": {
+    "shareEmail": "sakata1977@gmail.com",
+    "driveFolder": "1yx5b2egdjrtB4LTIruSatikTcTW7KOSD",
+    "spreadsheetTitle": "AutoPlaywright テスト結果",
+    "autoUpload": true
+  },
+  "userStory": {
+    "currentId": 2,
+    "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する",
+    "timestamp": "2025-06-24T08:35:41.803Z",
+    "history": [
+      {
+        "id": 1,
+        "content": "ユーザーストーリー1: 宿泊予約システムで顧客が必要な情報を入力して予約確認ページに進める",
+        "timestamp": "2025-06-24T08:34:01.327Z"
+      },
+      {
+        "id": 2,
+        "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する",
+        "timestamp": "2025-06-24T08:35:41.803Z"
+      }
+    ]
   }
 }

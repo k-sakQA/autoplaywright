@@ -192,6 +192,21 @@
             margin-top: 20px;
         }
         
+        .user-story-info {
+            margin-top: 5px;
+        }
+        
+        .user-story-id {
+            background: linear-gradient(135deg, #e8f5e8, #d1edcc);
+            border: 2px solid #4caf50;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 8px;
+            color: #2e7d32;
+            font-weight: 600;
+            text-align: center;
+        }
+        
         .status {
             margin-top: 15px;
             padding: 10px;
@@ -515,7 +530,12 @@
                 <div class="form-group">
                     <label for="testGoal">テスト対象のユーザーストーリーと主なルート:</label>
                     <textarea id="testGoal" rows="3" placeholder="ストーリー：宿泊予約の入力・選択ができる&#10;ルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する"></textarea>
-                    <small>具体的なテスト手順や確認したい内容を記述してください</small>
+                    <div class="user-story-info">
+                        <small>具体的なテスト手順や確認したい内容を記述してください</small>
+                        <div id="userStoryId" class="user-story-id" style="display: none;">
+                            🔗 <strong>トレーサビリティID:</strong> <span id="currentUserStoryId">-</span>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -827,6 +847,11 @@
                 return;
             }
             
+            // ユーザーストーリーが入力されている場合、トレーサビリティIDを表示
+            if (testGoal && testGoal.trim()) {
+                showUserStoryId();
+            }
+            
             addLog(`🚀 ${getCommandName(command)} を開始しています...`);
             showStatus(`${getCommandName(command)} 実行中...`, 'info');
             
@@ -895,6 +920,26 @@
                 'generateTestReport': 'レポート生成'
             };
             return names[command] || command;
+        }
+        
+        // ユーザーストーリーID表示
+        async function showUserStoryId() {
+            try {
+                const response = await fetch('/api/config/user-story');
+                const result = await response.json();
+                
+                if (result.success && result.userStory && result.userStory.currentId) {
+                    document.getElementById('currentUserStoryId').textContent = `US-${result.userStory.currentId}`;
+                    document.getElementById('userStoryId').style.display = 'block';
+                    console.log(`🔗 トレーサビリティID US-${result.userStory.currentId} を表示しました`);
+                } else {
+                    // IDが未採番の場合は非表示
+                    document.getElementById('userStoryId').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('ユーザーストーリーID取得エラー:', error);
+                document.getElementById('userStoryId').style.display = 'none';
+            }
         }
 
         // テスト結果解析関数
@@ -1366,6 +1411,9 @@
                     // Google Sheets設定を読み込み
                     loadGoogleSheetsConfig(config);
                     addLog(`📈 Google Sheets設定を読み込みました`);
+                    
+                    // ユーザーストーリーID表示（トレーサビリティ確保）
+                    showUserStoryId();
                 })
                 .catch(error => {
                     addLog(`⚠️ 設定読み込みエラー: ${error.message}`);

@@ -38,7 +38,10 @@ function getLatestTestResultCSV() {
   }
 
   const csvFiles = fs.readdirSync(testResultsDir)
-    .filter(file => file.startsWith('test_report_') && file.endsWith('.csv'))
+    .filter(file => (
+      file.startsWith('test_report_') || 
+      file.startsWith('AutoPlaywright テスト結果')
+    ) && file.endsWith('.csv'))
     .map(file => ({
       name: file,
       path: path.join(testResultsDir, file),
@@ -68,11 +71,34 @@ function parseTestResultCSV(csvFilePath) {
       return { routes: [] };
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    // 改良されたCSVパース（カンマ区切りだが引用符内のカンマは無視）
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      
+      result.push(current.trim());
+      return result.map(cell => cell.replace(/^"|"$/g, ''));
+    }
+
+    const headers = parseCSVLine(lines[0]);
     const routes = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+      const values = parseCSVLine(lines[i]);
       const route = {};
       
       headers.forEach((header, index) => {
@@ -136,12 +162,29 @@ async function main() {
     let spreadsheetId = options.spreadsheetId;
     if (!spreadsheetId) {
       console.log('📊 スプレッドシートを検索または作成中...');
-      spreadsheetId = await uploader.uploadTestResultsToExistingOrNew(
-        testResults,
-        options.title,
-        options.shareEmail,
-        options.driveFolder
-      );
+      
+      // トレーサブルCSVファイルかどうかを判定
+      const isTraceableCSV = path.basename(csvFilePath).startsWith('AutoPlaywright テスト結果');
+      
+      if (isTraceableCSV) {
+        // トレーサブルCSVの場合は直接アップロード（フォーマットが最適化されている）
+        console.log('🔗 トレーサブルCSVを直接アップロード中...');
+        spreadsheetId = await uploader.uploadTraceableCSV(
+          csvFilePath,
+          options.title,
+          options.shareEmail,
+          options.driveFolder
+        );
+      } else {
+        // 従来のCSVファイルの場合は構造化してアップロード
+        console.log('📊 従来のCSVを構造化してアップロード中...');
+        spreadsheetId = await uploader.uploadTestResultsToExistingOrNew(
+          testResults,
+          options.title,
+          options.shareEmail,
+          options.driveFolder
+        );
+      }
     } else {
       // 指定されたスプレッドシートIDを使用
       console.log('📊 指定されたスプレッドシートを使用中...');
@@ -149,7 +192,15 @@ async function main() {
       const sheetName = `TestResults_${timestamp}`;
       
       await uploader.createSheet(spreadsheetId, sheetName);
-      await uploader.uploadTestResults(testResults, spreadsheetId, sheetName);
+      
+      // トレーサブルCSVファイルかどうかを判定
+      const isTraceableCSV = path.basename(csvFilePath).startsWith('AutoPlaywright テスト結果');
+      
+      if (isTraceableCSV) {
+        await uploader.uploadCSV(csvFilePath, spreadsheetId, sheetName);
+      } else {
+        await uploader.uploadTestResults(testResults, spreadsheetId, sheetName);
+      }
     }
 
     if (options.verbose) {

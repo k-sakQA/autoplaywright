@@ -99,6 +99,28 @@ app.post('/api/config/ai', (req, res) => {
   }
 });
 
+// ユーザーストーリー情報取得API
+app.get('/api/config/user-story', (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      return res.json({ success: true, userStory: null });
+    }
+    
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    res.json({
+      success: true,
+      userStory: config.userStory || null
+    });
+  } catch (error) {
+    console.error('ユーザーストーリー情報取得エラー:', error);
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Google Sheets設定保存API
 app.post('/api/config/sheets', (req, res) => {
   try {
@@ -217,6 +239,58 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
   const csvFile = files.csv ? files.csv[0] : null;
   
   try {
+    // 設定ファイルにユーザーストーリー情報を保存（トレーサビリティのため）
+    if (url || goal) {
+      const configPath = path.join(__dirname, 'config.json');
+      let config = {};
+      
+      try {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      } catch (error) {
+        console.log('設定ファイルを新規作成します');
+      }
+      
+      // URL更新
+      if (url && url.trim()) {
+        config.targetUrl = url.trim();
+      }
+      
+      // ユーザーストーリー情報の保存（トレーサビリティ確保のため）
+      if (goal && goal.trim()) {
+        if (!config.userStory) {
+          config.userStory = {};
+        }
+        
+        // 新しいユーザーストーリーの場合、IDを採番
+        const currentStory = goal.trim();
+        if (config.userStory.content !== currentStory) {
+          // ユーザーストーリーが変更された場合、新しいIDを採番
+          const newId = config.userStory.currentId ? config.userStory.currentId + 1 : 1;
+          
+          config.userStory = {
+            currentId: newId,
+            content: currentStory,
+            timestamp: new Date().toISOString(),
+            history: config.userStory.history || []
+          };
+          
+          // 履歴に追加（最新10件まで保持）
+          if (config.userStory.history.length >= 10) {
+            config.userStory.history.shift();
+          }
+          config.userStory.history.push({
+            id: newId,
+            content: currentStory,
+            timestamp: new Date().toISOString()
+          });
+          
+          console.log(`📝 ユーザーストーリーID ${newId} を採番しました: ${currentStory.substring(0, 50)}...`);
+        }
+      }
+      
+      // 設定ファイルを保存
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    }
     // コマンドの構築
     let args = [];
     const scriptPath = path.join(__dirname, 'tests', `${command}.js`);
