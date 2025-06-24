@@ -10,6 +10,8 @@
     "csv-parse": "^5.6.0",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
+    "google-auth-library": "^10.1.0",
+    "googleapis": "^150.0.1",
     "multer": "^1.4.5-lts.1",
     "openai": "^5.3.0",
     "playwright": "^1.53.0",
@@ -19,10 +21,10 @@
     "start": "node server.js",
     "webui": "node server.js",
     "generate:testpoints": "node tests/generateTestPoints.js",
-
-          "generate:smartroutes": "node tests/generateSmartRoutes.js",
+    "generate:smartroutes": "node tests/generateSmartRoutes.js",
     "run:tests": "node tests/runRoutes.js",
+    "upload:sheets": "node tests/uploadToGoogleSheets.js",
     "save:results": "node saveResultsToSheet.js",
-    "ci-pipeline": "npm run generate:testpoints && npm run generate:smartroutes && npm run run:tests && npm run save:results"
+    "ci-pipeline": "npm run generate:testpoints && npm run generate:smartroutes && npm run run:tests && npm run upload:sheets"
   }
 }

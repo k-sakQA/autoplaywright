@@ -10,6 +10,7 @@ Playwrightを使用したE2Eテストを自動生成して実行するツール�
 - 🌐 **WebUI**: ブラウザから簡単操作（推奨）
 - ⚡ **ワンクリック実行**: テスト生成から実行まで自動化
 - 📊 **詳細なレポート**: テスト結果の可視化とファイルダウンロード
+- 📈 **Google Sheets連携**: テスト結果を自動でスプレッドシートにアップロード
 - 🎛️ **AI設定調整**: WebUIからGPTパラメータを調整可能
 
 ---
@@ -144,31 +145,103 @@ npm run webui              # 再起動
 
 ---
 
-## 💻 コマンドラインで使いたい方向け
 
-WebUIが推奨ですが、コマンドラインからも実行可能です：
 
-### 基本的な実行フロー
+## 📈 Google Sheets連携機能
+
+テスト結果を自動でGoogle Spreadsheetsにアップロードできます。
+
+### 1. Google Sheets API設定
+
+#### Google Cloud Console設定
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成
+2. Google Sheets APIを有効化
+3. サービスアカウントを作成
+4. サービスアカウントキー（JSON）をダウンロード
+
+#### 認証ファイル設置
 ```bash
-# 1. テスト観点生成
-node tests/generateTestPoints.js --url "https://example.com" --spec-pdf ./specs/requirements.pdf
-
-# 2. スマートシナリオ生成
-node tests/generateSmartRoutes.js --url "https://example.com" --goal "宿泊予約フローのテスト" --spec-pdf ./specs/requirements.pdf
-
-# 3. テスト実行
-node tests/runRoutes.js
-
-# 4. レポート生成
-node tests/generateTestReport.js
+# ダウンロードしたJSONファイルを credentials.json として保存
+cp ~/Downloads/your-service-account-key.json ./credentials.json
 ```
 
-### オプション
-- `--url <URL>`: テスト対象URL
-- `--goal <text>`: テストの目的・ユーザーストーリー（スマートシナリオ生成用）
-- `--test-csv <path>`: テスト観点CSVファイルのパス
-- `--spec-pdf <path>`: PDF仕様書のパス
-- `--output <path>`: 出力ディレクトリ
+### 2. WebUIでのGoogle Sheets設定（推奨）
+
+#### 📈 Google Sheets設定セクション
+WebUIの「📈 Google Sheets設定」で以下を設定できます：
+
+- **共有メールアドレス**: 作成されたスプレッドシートを共有するGoogleアカウント
+- **保存フォルダID**: Google DriveのフォルダIDを指定すると、そのフォルダに保存されます
+- **スプレッドシートタイトル**: 作成されるスプレッドシートの名前
+- **自動アップロード**: ✅ チェックすると、レポート生成時に自動でGoogle Sheetsにアップロード
+
+#### 🔗 接続テスト
+- **接続テストボタン**: Google Sheets APIの接続確認とテストスプレッドシート作成
+- **設定を保存ボタン**: 設定内容を永続化
+
+#### 📊 スプレッドシート履歴管理機能（NEW!）
+**重要**: 同じタイトルのスプレッドシートが既に存在する場合、**新しいブックを作成せず、既存スプレッドシートに新しいシートを追加**します。
+
+**動作例**:
+1. **初回実行**: 「AutoPlaywright テスト結果」スプレッドシートを新規作成
+2. **2回目以降**: 既存の「AutoPlaywright テスト結果」スプレッドシートに `TestResults_2025-06-24_04-39` のような新しいシートを追加
+
+**メリット**:
+- 📈 **テスト履歴の一元管理**: 全てのテスト結果が一つのブック内に保存
+- 🕒 **時系列での比較**: 各シートで実行日時を確認可能
+- 📁 **整理された構造**: フォルダ内でスプレッドシートが増殖しない
+- 🚀 **自動化**: UIからの実行で全て自動処理
+
+### 3. Google Driveフォルダ設定（オプション）
+
+Google Driveの特定フォルダにスプレッドシートを保存したい場合：
+
+1. **Google Drive**で保存先フォルダを作成
+2. **フォルダのURLを取得**: `https://drive.google.com/drive/folders/1yx5b2egdjrtB4LTIruSatikTcTW7KOSD`
+3. **フォルダIDを抽出**: URLの最後の部分 `1yx5b2egdjrtB4LTIruSatikTcTW7KOSD`
+4. **WebUIの「保存フォルダID」欄**に入力
+5. **🔗 接続テスト**で設定確認
+
+### 4. スプレッドシート構造
+
+#### 📊 ブック・シート構造
+```
+AutoPlaywright テスト結果（スプレッドシートブック）
+├── TestResults_2025-06-24_04-39（実行日時付きシート）
+├── TestResults_2025-06-24_10-15（次回実行時のシート）
+└── TestResults_2025-06-25_09-30（さらに次回実行時のシート）
+```
+
+#### 📋 データ構造
+各シートにアップロードされるデータ：
+
+| 列名 | 説明 | 例 |
+|-----|------|-----|
+| **実行日時** | テスト実行のタイムスタンプ | 2025-06-24T04:39:15.234Z |
+| **テストケースID** | 各テストの識別子 | TC001, TC002 |
+| **ユーザーストーリー** | テストの目的・背景 | ユーザーがログインできる |
+| **テスト手順** | 実行されたステップ | メール入力 → パスワード入力 → ログインボタンクリック |
+| **実行結果** | 成功/失敗 | SUCCESS, FAILED |
+| **エラー詳細** | 失敗時のエラー情報 | Element not found: #login-btn |
+| **実行時間(ms)** | テスト実行にかかった時間 | 1250 |
+| **カバレッジ** | テストでカバーした機能 | ログイン機能, バリデーション |
+| **URL** | テスト対象のURL | https://example.com/login |
+
+#### 🔄 履歴管理の仕組み
+1. **初回**: 新しいスプレッドシートブック作成
+2. **2回目以降**: 同じブック内に日時付きの新しいシート追加
+3. **自動共有**: 設定されたメールアドレスに共有
+4. **フォルダ保存**: 指定されたGoogle Driveフォルダに保存
+
+### 5. 使用の流れ
+
+1. **Google Sheets API設定** → Google Cloud Consoleで認証設定
+2. **WebUI設定** → 📈 Google Sheets設定で共有メール・フォルダ設定
+3. **接続テスト** → 🔗 接続テストで動作確認
+4. **テスト実行** → 通常通りテスト実行
+5. **📊 レポート生成** → レポート生成ボタンで自動的にGoogle Sheetsにアップロード ✨
+
+**🎉 完了！** 指定したGoogle Driveフォルダに、テスト履歴が自動的に蓄積されます。
 
 ---
 

@@ -99,6 +99,116 @@ app.post('/api/config/ai', (req, res) => {
   }
 });
 
+// Google Sheets設定保存API
+app.post('/api/config/sheets', (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    
+    // Google Sheets設定を更新
+    config.googleSheets = {
+      shareEmail: req.body.shareEmail,
+      driveFolder: req.body.driveFolder,
+      spreadsheetTitle: req.body.spreadsheetTitle,
+      autoUpload: req.body.autoUpload
+    };
+    
+    // config.jsonに保存
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    
+    console.log('📈 Google Sheets設定を更新しました:', {
+      shareEmail: req.body.shareEmail,
+      driveFolder: req.body.driveFolder || '(未指定)',
+      spreadsheetTitle: req.body.spreadsheetTitle,
+      autoUpload: req.body.autoUpload
+    });
+    
+    res.json({ success: true, message: 'Google Sheets設定を保存しました' });
+  } catch (error) {
+    console.error('Google Sheets設定保存エラー:', error);
+    res.status(500).json({ success: false, error: 'Google Sheets設定保存エラー' });
+  }
+});
+
+// Google Sheets接続テストAPI
+app.post('/api/sheets/test', (req, res) => {
+  const { shareEmail, driveFolder } = req.body;
+  
+  try {
+    // Google Sheetsアップロードスクリプトを実行
+    let args = ['tests/uploadToGoogleSheets.js', '--verbose'];
+    
+    if (shareEmail) {
+      args.push('--share-email', shareEmail);
+    }
+    
+    if (driveFolder) {
+      args.push('--drive-folder', driveFolder);
+    }
+    
+    // テスト用のタイトル
+    args.push('--title', 'AutoPlaywright 接続テスト');
+    
+    console.log(`Google Sheets接続テスト実行: node ${args.join(' ')}`);
+    
+    const child = spawn('node', args, {
+      cwd: __dirname,
+      env: { ...process.env }
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      output += text;
+      console.log('SHEETS TEST STDOUT:', text);
+    });
+    
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      errorOutput += text;
+      console.error('SHEETS TEST STDERR:', text);
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        // スプレッドシートURLを出力から抽出
+        const urlMatch = output.match(/🔗 スプレッドシートURL: (https:\/\/docs\.google\.com\/spreadsheets\/d\/[^\/]+\/edit)/);
+        const spreadsheetUrl = urlMatch ? urlMatch[1] : null;
+        
+        res.json({
+          success: true,
+          message: 'Google Sheets接続テスト成功',
+          output: output.trim(),
+          spreadsheetUrl: spreadsheetUrl
+        });
+      } else {
+        res.json({
+          success: false,
+          error: errorOutput || `接続テストがエラーコード${code}で終了しました`,
+          output: output.trim()
+        });
+      }
+    });
+    
+    child.on('error', (error) => {
+      console.error('Google Sheets接続テストエラー:', error);
+      res.json({
+        success: false,
+        error: `接続テストエラー: ${error.message}`
+      });
+    });
+    
+  } catch (error) {
+    console.error('Google Sheets接続テストAPI実行エラー:', error);
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // コマンド実行API
 app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv', maxCount: 1}]), async (req, res) => {
   const { command, url, goal } = req.body;
@@ -154,11 +264,106 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
       console.error('STDERR:', text);
     });
     
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       if (code === 0) {
+        let finalOutput = output.trim();
+        
+        // テストレポート生成後、Google Sheets自動アップロードを確認
+        if (command === 'generateTestReport') {
+          try {
+            const configPath = path.join(__dirname, 'config.json');
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            
+            // Google Sheets自動アップロード設定が有効な場合
+            if (config.googleSheets && config.googleSheets.autoUpload) {
+              console.log('📈 Google Sheets自動アップロードを開始します...');
+              
+              // Google Sheetsアップロードスクリプトを実行
+              let uploadArgs = ['tests/uploadToGoogleSheets.js', '--verbose'];
+              
+              if (config.googleSheets.shareEmail) {
+                uploadArgs.push('--share-email', config.googleSheets.shareEmail);
+              }
+              
+              if (config.googleSheets.driveFolder) {
+                uploadArgs.push('--drive-folder', config.googleSheets.driveFolder);
+              }
+              
+              if (config.googleSheets.spreadsheetTitle) {
+                uploadArgs.push('--title', config.googleSheets.spreadsheetTitle);
+              }
+              
+              console.log(`Google Sheets自動アップロード実行: node ${uploadArgs.join(' ')}`);
+              
+              const uploadChild = spawn('node', uploadArgs, {
+                cwd: __dirname,
+                env: { ...process.env }
+              });
+              
+              let uploadOutput = '';
+              let uploadError = '';
+              
+              uploadChild.stdout.on('data', (data) => {
+                const text = data.toString();
+                uploadOutput += text;
+                console.log('SHEETS AUTO UPLOAD STDOUT:', text);
+              });
+              
+              uploadChild.stderr.on('data', (data) => {
+                const text = data.toString();
+                uploadError += text;
+                console.error('SHEETS AUTO UPLOAD STDERR:', text);
+              });
+              
+              uploadChild.on('close', (uploadCode) => {
+                if (uploadCode === 0) {
+                  // スプレッドシートURLを出力から抽出
+                  const urlMatch = uploadOutput.match(/🔗 スプレッドシートURL: (https:\/\/docs\.google\.com\/spreadsheets\/d\/[^\/]+\/edit)/);
+                  const spreadsheetUrl = urlMatch ? urlMatch[1] : null;
+                  
+                  finalOutput += '\n\n📈 Google Sheets自動アップロード完了\n' + uploadOutput.trim();
+                  
+                  res.json({
+                    success: true,
+                    output: finalOutput,
+                    command: command,
+                    spreadsheetUrl: spreadsheetUrl
+                  });
+                } else {
+                  finalOutput += '\n\n❌ Google Sheets自動アップロード失敗\n' + (uploadError || uploadOutput);
+                  
+                  res.json({
+                    success: true,
+                    output: finalOutput,
+                    command: command,
+                    uploadError: uploadError || `アップロードがエラーコード${uploadCode}で終了しました`
+                  });
+                }
+              });
+              
+              uploadChild.on('error', (uploadErr) => {
+                console.error('Google Sheets自動アップロードエラー:', uploadErr);
+                finalOutput += '\n\n❌ Google Sheets自動アップロードエラー\n' + uploadErr.message;
+                
+                res.json({
+                  success: true,
+                  output: finalOutput,
+                  command: command,
+                  uploadError: uploadErr.message
+                });
+              });
+              
+              return; // 非同期処理のため、ここでreturn
+            }
+          } catch (configError) {
+            console.error('Google Sheets設定読み込みエラー:', configError);
+            finalOutput += '\n\n⚠️ Google Sheets設定読み込みエラー: ' + configError.message;
+          }
+        }
+        
         res.json({
           success: true,
-          output: output.trim(),
+          output: finalOutput,
           command: command
         });
       } else {

@@ -32,4 +32,7 @@ Thumbs.db
 *.swo
 
 # PDF specification files (private)
-specs/*.pdf 
+specs/*.pdf
+
+# Google Sheets API credentials (private)
+credentials.json 

@@ -632,6 +632,44 @@
                 </div>
             </div>
             
+            <!-- Google Sheets設定セクション -->
+            <div class="section">
+                <h2>📈 Google Sheets設定</h2>
+                
+                <div class="form-group">
+                    <label for="shareEmail">共有メールアドレス:</label>
+                    <input type="email" id="shareEmail" placeholder="your-email@gmail.com" value="sakata1977@gmail.com">
+                    <small>作成されたスプレッドシートを共有するGoogleアカウント</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="driveFolder">保存フォルダID (オプション):</label>
+                    <input type="text" id="driveFolder" placeholder="1yx5b2egdjrtB4LTIruSatikTcTW7KOSD">
+                    <small>Google DriveのフォルダIDを指定すると、そのフォルダに保存されます</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="spreadsheetTitle">スプレッドシートタイトル:</label>
+                    <input type="text" id="spreadsheetTitle" value="AutoPlaywright テスト結果" placeholder="スプレッドシート名">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="autoUpload" checked>
+                        レポート生成後に自動でGoogle Sheetsにアップロード
+                    </label>
+                </div>
+                
+                <div class="ai-config-actions">
+                    <button type="button" class="btn-info" onclick="testGoogleSheetsConnection()">
+                        🔗 接続テスト
+                    </button>
+                    <button type="button" class="btn-primary" onclick="saveGoogleSheetsConfig()">
+                        💾 設定を保存
+                    </button>
+                </div>
+            </div>
+            
             <!-- 手動ガイドセクション -->
             <div class="section">
                 <h2>📋 手動テストシナリオ作成</h2>
@@ -1195,6 +1233,94 @@
             showStatus('AI設定をデフォルトに戻しました', 'info');
         }
 
+        // Google Sheets設定関数
+        async function saveGoogleSheetsConfig() {
+            const sheetsConfig = {
+                shareEmail: document.getElementById('shareEmail').value,
+                driveFolder: document.getElementById('driveFolder').value,
+                spreadsheetTitle: document.getElementById('spreadsheetTitle').value,
+                autoUpload: document.getElementById('autoUpload').checked
+            };
+            
+            try {
+                const response = await fetch('/api/config/sheets', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(sheetsConfig)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog('💾 Google Sheets設定を保存しました');
+                    showStatus('Google Sheets設定を保存しました', 'success');
+                } else {
+                    addLog(`❌ Google Sheets設定保存エラー: ${result.error}`);
+                    showStatus('Google Sheets設定の保存に失敗しました', 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Google Sheets設定保存エラー: ${error.message}`);
+                showStatus('Google Sheets設定の保存に失敗しました', 'error');
+            }
+        }
+        
+        async function testGoogleSheetsConnection() {
+            const shareEmail = document.getElementById('shareEmail').value;
+            const driveFolder = document.getElementById('driveFolder').value;
+            
+            if (!shareEmail) {
+                showStatus('共有メールアドレスを入力してください', 'error');
+                return;
+            }
+            
+            try {
+                addLog('🔗 Google Sheets接続テスト中...');
+                showStatus('Google Sheets接続テスト中...', 'info');
+                
+                const response = await fetch('/api/sheets/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        shareEmail: shareEmail,
+                        driveFolder: driveFolder
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog(`✅ Google Sheets接続テスト成功`);
+                    addLog(`📊 テストスプレッドシート: ${result.spreadsheetUrl}`);
+                    showStatus('Google Sheets接続テスト成功！', 'success');
+                    
+                    // ポップアップでURLを表示
+                    const openSheet = confirm(`Google Sheets接続テスト成功！\n\nテストスプレッドシートを開きますか？\n${result.spreadsheetUrl}`);
+                    if (openSheet) {
+                        window.open(result.spreadsheetUrl, '_blank');
+                    }
+                } else {
+                    addLog(`❌ Google Sheets接続テストエラー: ${result.error}`);
+                    showStatus('Google Sheets接続テストに失敗しました', 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Google Sheets接続テストエラー: ${error.message}`);
+                showStatus('Google Sheets接続テストに失敗しました', 'error');
+            }
+        }
+        
+        function loadGoogleSheetsConfig(config) {
+            if (config.googleSheets) {
+                document.getElementById('shareEmail').value = config.googleSheets.shareEmail || 'sakata1977@gmail.com';
+                document.getElementById('driveFolder').value = config.googleSheets.driveFolder || '';
+                document.getElementById('spreadsheetTitle').value = config.googleSheets.spreadsheetTitle || 'AutoPlaywright テスト結果';
+                document.getElementById('autoUpload').checked = config.googleSheets.autoUpload !== false;
+            }
+        }
+
         // 手動ガイドポップアップ表示
         function showManualGuide() {
             document.getElementById('manualGuideModal').style.display = 'block';
@@ -1236,6 +1362,10 @@
                     // AI設定を読み込み
                     loadAIConfig(config);
                     addLog(`🤖 AI設定を読み込みました`);
+                    
+                    // Google Sheets設定を読み込み
+                    loadGoogleSheetsConfig(config);
+                    addLog(`📈 Google Sheets設定を読み込みました`);
                 })
                 .catch(error => {
                     addLog(`⚠️ 設定読み込みエラー: ${error.message}`);
