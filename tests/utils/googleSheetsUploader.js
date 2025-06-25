@@ -183,6 +183,24 @@ class GoogleSheetsUploader {
         return;
       }
 
+      // デバッグ情報：CSVの構造をチェック
+      console.log(`🛠️ [Debug] CSV構造チェック:`);
+      console.log(`  総行数: ${rows.length}`);
+      if (rows.length > 0) {
+        console.log(`  ヘッダー列数: ${rows[0].length}`);
+        console.log(`  ヘッダー: [${rows[0].join(', ')}]`);
+        
+        if (rows.length > 1) {
+          console.log(`  データ行1列数: ${rows[1].length}`);
+          
+          // 列数の不一致をチェック
+          if (rows[0].length !== rows[1].length) {
+            console.log(`⚠️ 警告: ヘッダーとデータの列数が不一致です`);
+            console.log(`    ヘッダー: ${rows[0].length}列, データ: ${rows[1].length}列`);
+          }
+        }
+      }
+
       // アップロード範囲を決定
       let range;
       if (appendMode) {
@@ -205,11 +223,11 @@ class GoogleSheetsUploader {
         }
       });
 
-      console.log(`CSVアップロード完了: ${csvFilePath} → ${spreadsheetId}`);
-      console.log(`範囲: ${range}, 行数: ${rows.length}`);
+      console.log(`✅ CSVアップロード完了: ${path.basename(csvFilePath)} → ${spreadsheetId}`);
+      console.log(`📊 範囲: ${range}, 行数: ${rows.length}`);
 
     } catch (error) {
-      console.error('CSVアップロードエラー:', error.message);
+      console.error('❌ CSVアップロードエラー:', error.message);
       throw error;
     }
   }
@@ -415,16 +433,41 @@ class GoogleSheetsUploader {
   }
 
   /**
-   * CSVコンテンツをパース
+   * CSVコンテンツをパース（改良版：引用符内のカンマを正しく処理）
    * @param {string} csvContent - CSVの文字列
    * @returns {Array} - パースされた2次元配列
    */
   parseCSV(csvContent) {
     const lines = csvContent.trim().split('\n');
-    return lines.map(line => {
-      // 簡単なCSVパース（カンマ区切り）
-      return line.split(',').map(cell => cell.trim().replace(/^"|"$/g, ''));
-    });
+    
+    /**
+     * 1行をパースする（引用符内のカンマを正しく処理）
+     * @param {string} line - パースする行
+     * @returns {Array} - パースされた列の配列
+     */
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim().replace(/^"|"$/g, ''));
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      
+      result.push(current.trim().replace(/^"|"$/g, ''));
+      return result;
+    }
+    
+    return lines.map(line => parseCSVLine(line));
   }
 
   /**
@@ -443,12 +486,18 @@ class GoogleSheetsUploader {
         return;
       }
 
-      // ヘッダー行を取得
-      const headers = existingData[0];
+      // ヘッダー行を取得（空の要素を除去して正確な列数を取得）
+      const headers = existingData[0].filter(header => header && header.trim() !== '');
       
-      // 新しい列の位置を決定（既存の列の右端）
+      console.log(`🛠️ [Debug] ヘッダー情報:`);
+      console.log(`  既存ヘッダー数: ${headers.length}`);
+      console.log(`  ヘッダー内容: [${headers.join(', ')}]`);
+      
+      // 新しい列の位置を決定（既存の有効な列の右端）
       const newColumnIndex = headers.length;
       const newColumnLetter = this.columnIndexToLetter(newColumnIndex);
+      
+      console.log(`  新しい列位置: ${newColumnIndex} (${newColumnLetter})`);
       
       // ヘッダーに新しい列名を追加
       const headerRange = `${sheetName}!${newColumnLetter}1`;
@@ -461,7 +510,7 @@ class GoogleSheetsUploader {
         }
       });
 
-      console.log(`新しい列を追加: ${columnTitle} (列${newColumnLetter})`);
+      console.log(`✅ 新しい列を追加: ${columnTitle} (列${newColumnLetter})`);
 
       // テスト結果をIDに基づいてマッピング
       const resultMap = {};
@@ -479,13 +528,52 @@ class GoogleSheetsUploader {
         const row = existingData[i];
         const rowIndex = i + 1;
         
-        // テストケース名またはIDを取得（通常は最初の列またはテスト手順列）
-        const testCaseName = row[5] || row[0] || ''; // 「テスト手順」列または最初の列
-        const result = resultMap[testCaseName] || this.findMatchingResult(testCaseName, testResults);
+        // データ行の構造チェックとデバッグ情報
+        if (i === 1) {
+          console.log(`🛠️ [Debug] データ行の構造確認:`);
+          console.log(`  データ行列数: ${row.length}`);
+          console.log(`  ヘッダー数: ${headers.length}`);
+          console.log(`  行[0] (実行日時): "${row[0] || '空'}"`);
+          console.log(`  行[1] (ID): "${row[1] || '空'}"`);
+          console.log(`  行[2] (ユーザーストーリー): "${(row[2] || '空').substring(0, 50)}${row[2] && row[2].length > 50 ? '...' : ''}"`);
+          console.log(`  行[3] (機能): "${row[3] || '空'}"`);
+          console.log(`  行[4] (観点): "${row[4] || '空'}"`);
+          console.log(`  行[5] (テスト手順): "${(row[5] || '空').substring(0, 50)}${row[5] && row[5].length > 50 ? '...' : ''}"`);
+          
+          // 列数不一致の警告
+          if (row.length !== headers.length) {
+            console.log(`⚠️ 警告: データ行とヘッダーの列数が不一致です`);
+            console.log(`    ヘッダー: ${headers.length}列, データ行: ${row.length}列`);
+          }
+        }
+        
+        // より正確な列マッピング：
+        // 0: 実行日時, 1: ID, 2: ユーザーストーリー, 3: 機能, 4: 観点, 5: テスト手順, 6: 実行結果, 7: エラー詳細, 8: URL
+        
+        // IDベースでマッチング（最も確実）
+        let testCaseKey = row[1] || '';  // ID列
+        let result = resultMap[testCaseKey];
+        
+        // IDでマッチしない場合は観点でマッチング
+        if (!result && row[4]) {
+          testCaseKey = row[4];  // 観点列
+          result = resultMap[testCaseKey] || this.findMatchingResult(testCaseKey, testResults);
+        }
+        
+        // それでもマッチしない場合はテスト手順でマッチング
+        if (!result && row[5]) {
+          testCaseKey = row[5];  // テスト手順列
+          result = this.findMatchingResult(testCaseKey, testResults);
+        }
+        
+        // 最終的にマッチしない場合は未実行とする
+        if (!result) {
+          result = '未実行';
+        }
         
         updates.push({
           range: `${sheetName}!${newColumnLetter}${rowIndex}`,
-          values: [[result || '未実行']]
+          values: [[result]]
         });
       }
 
@@ -515,12 +603,29 @@ class GoogleSheetsUploader {
    * @returns {string} - マッチした結果のステータス
    */
   findMatchingResult(testCaseName, testResults) {
+    if (!testCaseName || testCaseName.trim() === '') {
+      return '未実行';
+    }
+    
     for (const result of testResults) {
       const label = result.label || '';
       
-      // 部分一致でテストケースを特定
-      if (label.includes(testCaseName) || testCaseName.includes(label)) {
-        return result.status === 'success' ? '✅' : (result.status === 'failed' ? '❌' : result.status || '不明');
+      // より厳密なマッチング条件を追加
+      if (label === testCaseName || 
+          label.includes(testCaseName) || 
+          testCaseName.includes(label)) {
+        
+        // ステータスを分かりやすい形式に変換
+        switch (result.status) {
+          case 'success':
+            return 'success';
+          case 'failed':
+            return 'failed';
+          case 'skipped':
+            return 'skipped';
+          default:
+            return result.status || '不明';
+        }
       }
     }
     return '未実行';

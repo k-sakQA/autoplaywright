@@ -35,7 +35,31 @@ async function readCsvFile(filePath) {
 
 function createTraceableTestReport(testPoints, route, result, userStoryInfo = null) {
   const executionTime = new Date().toISOString();
-  const testUrl = route.url || result.url || '';
+  
+  // URL取得の優先順位を改善：ルート、結果、実行ステップのloadアクションから取得
+  let testUrl = route.url || result.url || '';
+  
+  // ルートのステップから最初のload URLを取得
+  if (!testUrl && route.steps && Array.isArray(route.steps)) {
+    const loadStep = route.steps.find(step => 
+      step.action === 'load' || step.action === 'goto'
+    );
+    if (loadStep) {
+      testUrl = loadStep.target || loadStep.value || '';
+    }
+  }
+  
+  // 結果のステップから最初のload URLを取得
+  if (!testUrl && result.steps && Array.isArray(result.steps)) {
+    const loadStep = result.steps.find(step => 
+      step.action === 'load' || step.action === 'goto'
+    );
+    if (loadStep) {
+      testUrl = loadStep.target || loadStep.value || '';
+    }
+  }
+  
+  console.log(`🔗 テストURL: ${testUrl || '未設定'}`);
   
   // config.jsonからのユーザーストーリー情報を優先使用（完全なトレーサビリティ）
   let userStory, userStoryId;
@@ -382,23 +406,45 @@ function generateTraceableCSVReport(reportData) {
     'URL'
   ];
   
+  /**
+   * CSV用の文字列をエスケープ
+   * @param {string} str - エスケープする文字列
+   * @returns {string} - エスケープされた文字列
+   */
+  function escapeCSVField(str) {
+    if (str == null) return '""';
+    
+    const stringValue = String(str);
+    
+    // 改行文字、カンマ、ダブルクォートが含まれている場合はエスケープが必要
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+      // ダブルクォートを2つのダブルクォートに置換してからクォートで囲む
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    
+    return stringValue;
+  }
+  
   // CSVデータ行を作成
   const csvRows = [headers.join(',')];
   
   reportData.forEach(data => {
     const row = [
-      data.executionTime,
-      data.id,
-      `"${data.userStory}"`,
-      `"${data.function || ''}"`,
-      `"${data.viewpoint}"`,
-      `"${data.testSteps}"`,
-      data.executionResult,
-      `"${data.errorDetail}"`,
-      data.url
+      escapeCSVField(data.executionTime),
+      escapeCSVField(data.id),
+      escapeCSVField(data.userStory),
+      escapeCSVField(data.function || ''),
+      escapeCSVField(data.viewpoint),
+      escapeCSVField(data.testSteps),
+      escapeCSVField(data.executionResult),
+      escapeCSVField(data.errorDetail),
+      escapeCSVField(data.url || '')
     ];
     csvRows.push(row.join(','));
   });
+  
+  console.log(`📊 CSV生成完了: ${reportData.length}行のデータ`);
+  console.log(`📋 ヘッダー: ${headers.join(', ')}`);
   
   return csvRows.join('\n');
 }
@@ -431,7 +477,31 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
   console.log('🔄 フォールバックレポートを生成中...');
   
   const executionTime = new Date().toISOString();
-  const testUrl = route.url || result.url || '';
+  
+  // URL取得の優先順位を改善（フォールバック版）
+  let testUrl = route.url || result.url || '';
+  
+  // ルートのステップから最初のload URLを取得
+  if (!testUrl && route.steps && Array.isArray(route.steps)) {
+    const loadStep = route.steps.find(step => 
+      step.action === 'load' || step.action === 'goto'
+    );
+    if (loadStep) {
+      testUrl = loadStep.target || loadStep.value || '';
+    }
+  }
+  
+  // 結果のステップから最初のload URLを取得
+  if (!testUrl && result.steps && Array.isArray(result.steps)) {
+    const loadStep = result.steps.find(step => 
+      step.action === 'load' || step.action === 'goto'
+    );
+    if (loadStep) {
+      testUrl = loadStep.target || loadStep.value || '';
+    }
+  }
+  
+  console.log(`🔄 フォールバックテストURL: ${testUrl || '未設定'}`);
   
   // config.jsonからのユーザーストーリー情報を優先使用（フォールバックでも完全なトレーサビリティ）
   let userStory, userStoryId;
@@ -447,6 +517,25 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
     console.log(`⚠️ フォールバック: 推定ユーザーストーリーID ${userStoryId}`);
   }
   
+  /**
+   * CSV用の文字列をエスケープ（フォールバック版）
+   * @param {string} str - エスケープする文字列
+   * @returns {string} - エスケープされた文字列
+   */
+  function escapeCSVField(str) {
+    if (str == null) return '""';
+    
+    const stringValue = String(str);
+    
+    // 改行文字、カンマ、ダブルクォートが含まれている場合はエスケープが必要
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+      // ダブルクォートを2つのダブルクォートに置換してからクォートで囲む
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    
+    return stringValue;
+  }
+
   const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', '実行結果', 'エラー詳細', 'URL'];
   const csvRows = [headers.join(',')];
   
@@ -458,15 +547,15 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
       const uniqueTestCaseId = `${userStoryId}.F.${viewpointId}-${testCaseId}`;
       
       const row = [
-        executionTime,
-        uniqueTestCaseId,
-        `"${userStory}"`,
-        '"汎用機能"',
-        `"${step.label || `ステップ${viewpointId}`}"`,
-        `"${formatTestSteps(step)}"`,
-        step.status === 'success' ? 'success' : 'failed',
-        `"${step.error || ''}"`,
-        testUrl
+        escapeCSVField(executionTime),
+        escapeCSVField(uniqueTestCaseId),
+        escapeCSVField(userStory),
+        escapeCSVField('汎用機能'),
+        escapeCSVField(step.label || `ステップ${viewpointId}`),
+        escapeCSVField(formatTestSteps(step)),
+        escapeCSVField(step.status === 'success' ? 'success' : 'failed'),
+        escapeCSVField(step.error || ''),
+        escapeCSVField(testUrl || '')
       ];
       csvRows.push(row.join(','));
     });
@@ -475,15 +564,15 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
     const uniqueTestCaseId = `${userStoryId}.F.1-1`;
     
     const row = [
-      executionTime,
-      uniqueTestCaseId,
-      `"${userStory}"`,
-      '"汎用機能"',
-      '"テスト実行"',
-      '"テストシナリオの実行"',
-      'completed',
-      '""',
-      testUrl
+      escapeCSVField(executionTime),
+      escapeCSVField(uniqueTestCaseId),
+      escapeCSVField(userStory),
+      escapeCSVField('汎用機能'),
+      escapeCSVField('テスト実行'),
+      escapeCSVField('テストシナリオの実行'),
+      escapeCSVField('completed'),
+      escapeCSVField(''),
+      escapeCSVField(testUrl || '')
     ];
     csvRows.push(row.join(','));
   }
