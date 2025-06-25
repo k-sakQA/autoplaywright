@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -724,10 +725,92 @@ app.post('/api/config/user-story/reset', (req, res) => {
   }
 });
 
+// 修正ルートチェックAPI
+app.get('/api/check-fixed-routes', (req, res) => {
+  try {
+    const resultsDir = path.join(__dirname, 'test-results');
+    
+    if (!fs.existsSync(resultsDir)) {
+      return res.json({ success: true, hasFixedRoutes: false });
+    }
+    
+    const files = fs.readdirSync(resultsDir);
+    const fixedRouteFiles = files.filter(file => file.startsWith('fixed_route_'));
+    
+    if (fixedRouteFiles.length === 0) {
+      return res.json({ success: true, hasFixedRoutes: false });
+    }
+    
+    // 最新の修正ルートファイルを取得
+    fixedRouteFiles.sort((a, b) => {
+      const aPath = path.join(resultsDir, a);
+      const bPath = path.join(resultsDir, b);
+      const aStats = fs.statSync(aPath);
+      const bStats = fs.statSync(bPath);
+      return bStats.mtime - aStats.mtime;
+    });
+    
+    const latestFile = fixedRouteFiles[0];
+    const routeId = latestFile.replace('.json', '');
+    
+    res.json({ 
+      success: true, 
+      hasFixedRoutes: true,
+      latestFixedRoute: routeId,
+      totalFixedRoutes: fixedRouteFiles.length
+    });
+    
+  } catch (error) {
+    console.error('修正ルートチェックエラー:', error);
+    res.json({ success: false, error: '修正ルートチェックエラー' });
+  }
+});
+
+// IPアドレス取得関数
+function getLocalIPAddress() {
+  const networkInterfaces = os.networkInterfaces();
+  
+  for (const name of Object.keys(networkInterfaces)) {
+    for (const net of networkInterfaces[name]) {
+      // IPv4でローカルネットワークアドレス (プライベートIP) を取得
+      if (net.family === 'IPv4' && !net.internal) {
+        if (net.address.startsWith('192.168.') || 
+            net.address.startsWith('10.') || 
+            net.address.startsWith('172.')) {
+          return net.address;
+        }
+      }
+    }
+  }
+  return '127.0.0.1'; // フォールバック
+}
+
+// セキュリティ設定
+const ALLOW_EXTERNAL_ACCESS = process.env.ALLOW_EXTERNAL_ACCESS === 'true';
+const HOST = ALLOW_EXTERNAL_ACCESS ? '0.0.0.0' : 'localhost';
+const LOCAL_IP = getLocalIPAddress();
+
+// 外部アクセス許可時の警告
+if (ALLOW_EXTERNAL_ACCESS) {
+  console.log('⚠️  警告: 外部アクセスが有効になっています');
+  console.log('⚠️  この設定は開発環境でのみ使用してください');
+  console.log('⚠️  本番環境では適切な認証とファイアウォールを設定してください');
+}
+
 // サーバー起動
-app.listen(port, () => {
+app.listen(port, HOST, () => {
   console.log(`🚀 AutoPlaywright WebUI サーバーが起動しました`);
-  console.log(`📱 ブラウザで http://localhost:${port} にアクセスしてください`);
+  console.log(`📱 ローカルアクセス: http://localhost:${port}`);
+  
+  if (ALLOW_EXTERNAL_ACCESS) {
+    console.log(`📱 外部アクセス: http://${LOCAL_IP}:${port}`);
+    console.log(`🔒 セキュリティ: 外部アクセス許可モード（要注意）`);
+    console.log(`📱 同一ネットワーク内のデバイスからアクセス可能`);
+  } else {
+    console.log(`🔒 セキュリティ: ローカルのみアクセス許可`);
+    console.log(`📱 スマートフォンからアクセスする場合は: ALLOW_EXTERNAL_ACCESS=true node server.js`);
+    console.log(`📱 その場合のアクセスURL: http://${LOCAL_IP}:${port}`);
+  }
   console.log(`📁 作業ディレクトリ: ${__dirname}`);
 });
 

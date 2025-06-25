@@ -724,6 +724,122 @@
         textarea::-ms-input-placeholder {
             color: #c6c6c6 !important;
         }
+
+        /* 一括実行ボタンのスタイル */
+        .bulk-execution-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-bulk-execution {
+            background: linear-gradient(135deg, #ff6b6b, #feca57);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+            margin-bottom: 10px;
+        }
+
+        .btn-bulk-execution:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn-bulk-execution:active {
+            transform: translateY(0);
+        }
+
+        .bulk-execution-description {
+            color: white;
+            font-size: 14px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+
+        .bulk-status {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .bulk-progress {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        .progress-step {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .progress-step.active {
+            background: #feca57;
+            color: #333;
+            transform: scale(1.05);
+        }
+
+        .progress-step.completed {
+            background: #2ecc71;
+            color: white;
+        }
+
+        .progress-step.error {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .bulk-current-action {
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        /* 一括実行のレスポンシブ対応 */
+        @media (max-width: 768px) {
+            .bulk-execution-section {
+                margin: 15px 0;
+                padding: 15px;
+            }
+            
+            .btn-bulk-execution {
+                padding: 12px 20px;
+                font-size: 16px;
+            }
+            
+            .bulk-execution-description {
+                font-size: 12px;
+            }
+            
+            .bulk-progress {
+                gap: 8px;
+            }
+            
+            .progress-step {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            
+            .bulk-current-action {
+                font-size: 14px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -766,6 +882,30 @@
                 <div class="form-group">
                     <label for="pdfFile">仕様書PDF (オプション):</label>
                     <input type="file" id="pdfFile" accept=".pdf">
+                </div>
+            </div>
+            
+            <!-- 一括実行ボタン -->
+            <div class="bulk-execution-section">
+                <button class="btn-bulk-execution" onclick="executeBulkWorkflow()">
+                    🚀 自動で一括実行する
+                </button>
+                <div class="bulk-execution-description">
+                    観点生成 → シナリオ生成 → テスト実行 → レポート生成 → 失敗分析 → 再トライ → 新ストーリー発見を自動実行
+                </div>
+                
+                <!-- 一括実行ステータス -->
+                <div id="bulkStatus" class="bulk-status" style="display: none;">
+                    <div class="bulk-progress">
+                        <div class="progress-step" id="step-testpoints">📋 観点生成</div>
+                        <div class="progress-step" id="step-routes">🧠 シナリオ生成</div>
+                        <div class="progress-step" id="step-run">▶️ テスト実行</div>
+                        <div class="progress-step" id="step-report">📊 レポート生成</div>
+                        <div class="progress-step" id="step-analyze">🔧 失敗分析</div>
+                        <div class="progress-step" id="step-retry">🚀 再トライ</div>
+                        <div class="progress-step" id="step-stories">🔍 新ストーリー発見</div>
+                    </div>
+                    <div class="bulk-current-action" id="bulkCurrentAction">準備中...</div>
                 </div>
             </div>
             
@@ -1555,6 +1695,161 @@
                 alert(`❌ 通信エラーが発生しました: ${error.message}`);
                 console.error('トレーサビリティIDリセット通信エラー:', error);
             }
+        }
+
+        // 一括実行ワークフロー
+        async function executeBulkWorkflow() {
+            const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
+            
+            // 基本的な入力チェック
+            if (!url || !url.trim()) {
+                alert('⚠️ テスト対象URLを入力してください');
+                return;
+            }
+            
+            if (!testGoal || !testGoal.trim()) {
+                alert('⚠️ ユーザーストーリーを入力してください');
+                return;
+            }
+            
+            // 確認ダイアログ
+            if (!confirm('🚀 以下のワークフローを自動実行します：\n\n' +
+                '1. 📋 テスト観点生成\n' +
+                '2. 🧠 スマートシナリオ生成\n' +
+                '3. ▶️ テスト実行\n' +
+                '4. 📊 レポート生成\n' +
+                '5. 🔧 失敗分析（失敗がある場合）\n' +
+                '6. 🚀 再トライ（修正ルートがある場合）\n' +
+                '7. 🔍 新ストーリー発見\n\n' +
+                '実行しますか？（処理に数分かかる場合があります）')) {
+                return;
+            }
+            
+            // 一括実行UI表示
+            showBulkStatus();
+            
+            // 各タブのログエリアをクリア
+            clearAllLogs();
+            
+            try {
+                let hasFailures = false;
+                let fixedRouteId = null;
+                
+                // 1. テスト観点生成
+                updateBulkProgress('step-testpoints', 'active', '📋 テスト観点を生成中...');
+                await executeCommand('generateTestPoints');
+                await delay(1000);
+                updateBulkProgress('step-testpoints', 'completed', '✅ テスト観点生成完了');
+                
+                // 2. スマートシナリオ生成
+                updateBulkProgress('step-routes', 'active', '🧠 スマートシナリオを生成中...');
+                await executeCommand('generateSmartRoutes');
+                await delay(1000);
+                updateBulkProgress('step-routes', 'completed', '✅ スマートシナリオ生成完了');
+                
+                // 3. テスト実行
+                updateBulkProgress('step-run', 'active', '▶️ テストを実行中...');
+                await executeCommand('runRoutes');
+                await delay(1000);
+                updateBulkProgress('step-run', 'completed', '✅ テスト実行完了');
+                
+                // 失敗数をチェック
+                const failureCountElement = document.getElementById('failureCount');
+                if (failureCountElement && failureCountElement.textContent !== '-' && parseInt(failureCountElement.textContent) > 0) {
+                    hasFailures = true;
+                }
+                
+                // 4. レポート生成
+                updateBulkProgress('step-report', 'active', '📊 レポートを生成中...');
+                await executeCommand('generateTestReport');
+                await delay(1000);
+                updateBulkProgress('step-report', 'completed', '✅ レポート生成完了');
+                
+                // 5. 失敗分析（失敗がある場合）
+                if (hasFailures) {
+                    updateBulkProgress('step-analyze', 'active', '🔧 失敗テストを分析中...');
+                    await executeCommand('analyzeFailures');
+                    await delay(2000); // 分析は時間がかかるため少し長めに待機
+                    
+                    // 修正ルートが生成されたかチェック
+                    const response = await fetch('/api/check-fixed-routes');
+                    const result = await response.json();
+                    if (result.success && result.hasFixedRoutes) {
+                        fixedRouteId = result.latestFixedRoute;
+                        updateBulkProgress('step-analyze', 'completed', '✅ 失敗分析完了（修正ルート生成済み）');
+                    } else {
+                        updateBulkProgress('step-analyze', 'completed', '✅ 失敗分析完了');
+                    }
+                } else {
+                    updateBulkProgress('step-analyze', 'completed', '⏭️ 失敗なしのためスキップ');
+                }
+                
+                // 6. 再トライ（修正ルートがある場合）
+                if (fixedRouteId) {
+                    updateBulkProgress('step-retry', 'active', '🚀 修正ルートで再トライ中...');
+                    await runFixedRoute(fixedRouteId);
+                    await delay(1000);
+                    updateBulkProgress('step-retry', 'completed', '✅ 再トライ完了');
+                } else {
+                    updateBulkProgress('step-retry', 'completed', '⏭️ 修正ルートなしのためスキップ');
+                }
+                
+                // 7. 新ストーリー発見
+                updateBulkProgress('step-stories', 'active', '🔍 新ストーリーを発見中...');
+                await executeCommand('discoverNewStories');
+                await delay(1000);
+                updateBulkProgress('step-stories', 'completed', '✅ 新ストーリー発見完了');
+                
+                // 完了メッセージ
+                updateBulkCurrentAction('🎉 すべてのワークフローが完了しました！');
+                
+                setTimeout(() => {
+                    alert('🎉 一括実行が完了しました！\n\n' +
+                        '各タブで詳細な結果を確認してください：\n' +
+                        '• 🧪 テスト実行: 実行結果とサマリー\n' +
+                        '• 🤖 自動改善・学習機能: 失敗分析と修正結果\n' +
+                        '• 📖 新しいストーリー: 発見された新ストーリー');
+                }, 1000);
+                
+            } catch (error) {
+                console.error('一括実行エラー:', error);
+                updateBulkCurrentAction(`❌ エラーが発生しました: ${error.message}`);
+                alert(`❌ 一括実行中にエラーが発生しました:\n${error.message}\n\n各タブで詳細を確認してください。`);
+            }
+        }
+        
+        // 一括実行用のユーティリティ関数
+        function showBulkStatus() {
+            document.getElementById('bulkStatus').style.display = 'block';
+            // すべてのステップを初期状態にリセット
+            const steps = ['step-testpoints', 'step-routes', 'step-run', 'step-report', 'step-analyze', 'step-retry', 'step-stories'];
+            steps.forEach(stepId => {
+                const element = document.getElementById(stepId);
+                element.className = 'progress-step';
+            });
+            updateBulkCurrentAction('🚀 ワークフローを開始します...');
+        }
+        
+        function updateBulkProgress(stepId, status, message) {
+            const element = document.getElementById(stepId);
+            element.className = `progress-step ${status}`;
+            updateBulkCurrentAction(message);
+        }
+        
+        function updateBulkCurrentAction(message) {
+            document.getElementById('bulkCurrentAction').textContent = message;
+        }
+        
+        function clearAllLogs() {
+            // 各タブのログエリアをクリア
+            document.getElementById('logArea').textContent = '実行ログがここに表示されます...';
+            document.getElementById('logAreaAI').textContent = '実行ログがここに表示されます...';
+            document.getElementById('logAreaNewStories').textContent = '実行ログがここに表示されます...';
+        }
+        
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
 
         // 新ストーリー用コマンド実行関数
