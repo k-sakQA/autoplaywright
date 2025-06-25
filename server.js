@@ -231,9 +231,85 @@ app.post('/api/sheets/test', (req, res) => {
   }
 });
 
-// コマンド実行API
+// JSONコマンド実行API（修正ルート実行用）
+app.post('/api/execute-json', express.json(), async (req, res) => {
+  const { command, routeId } = req.body;
+  
+  try {
+    console.log('📋 JSON API リクエスト受信:', { command, routeId });
+    
+    // コマンドの実行
+    let args = [];
+    
+    switch (command) {
+        case 'runFixedRoute':
+            args = ['tests/runRoutes.js'];
+            if (routeId) args.push('--route-file', `${routeId}.json`);
+            break;
+            
+        default:
+            return res.status(400).json({ success: false, error: '未知のコマンドです' });
+    }
+    
+    console.log(`実行コマンド: node ${args.join(' ')}`);
+    
+    // Node.jsプロセスを実行
+    const child = spawn('node', args, {
+      cwd: __dirname,
+      env: { ...process.env }
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      output += text;
+      console.log('STDOUT:', text);
+    });
+    
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      errorOutput += text;
+      console.error('STDERR:', text);
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        res.json({
+          success: true,
+          output: output.trim(),
+          command: command
+        });
+      } else {
+        res.json({
+          success: false,
+          error: errorOutput || `コマンドがエラーコード${code}で終了しました`,
+          output: output.trim()
+        });
+      }
+    });
+    
+    child.on('error', (error) => {
+      console.error('プロセス実行エラー:', error);
+      res.json({
+        success: false,
+        error: `プロセス実行エラー: ${error.message}`
+      });
+    });
+    
+  } catch (error) {
+    console.error('JSON API実行エラー:', error);
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// コマンド実行API（従来のFormData用）
 app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv', maxCount: 1}]), async (req, res) => {
-  const { command, url, goal } = req.body;
+  const { command, url, goal, routeId } = req.body;
   const files = req.files || {};
   const pdfFile = files.pdf ? files.pdf[0] : null;
   const csvFile = files.csv ? files.csv[0] : null;
@@ -325,11 +401,20 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
 
         case 'analyzeFailures':
             args = ['tests/analyzeFailures.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            if (csvFile) args.push('--test-csv', csvFile.path);
             break;
 
         case 'discoverNewStories':
             args = ['tests/discoverNewStories.js'];
             if (url) args.push('--url', url);
+            break;
+
+        case 'runFixedRoute':
+            args = ['tests/runRoutes.js'];
+            if (routeId) args.push('--route-file', `${routeId}.json`);
             break;
 
         default:

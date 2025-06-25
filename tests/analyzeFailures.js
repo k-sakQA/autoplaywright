@@ -3,18 +3,26 @@
 import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
+import { parseArguments } from './utils/cliParser.js';
 
 /**
  * 失敗したテストケースを分析して自動修正・再テストを実行
  */
 class FailureAnalyzer {
-  constructor() {
+  constructor(options = {}) {
     this.browser = null;
     this.page = null;
+    this.options = options;
+    
+    // 分析時に参照する情報
+    this.userStory = options.userStory || null;
+    this.targetUrl = options.targetUrl || null;
+    this.specPdf = options.specPdf || null;
+    this.testCsv = options.testCsv || null;
   }
 
   async init() {
-    this.browser = await chromium.launch({ headless: false });
+    this.browser = await chromium.launch({ headless: true });
     this.page = await this.browser.newPage();
   }
 
@@ -370,7 +378,7 @@ class FailureAnalyzer {
   }
 
   /**
-   * 要素の修正提案を生成（学習機能付き）
+   * 要素の修正提案を生成（学習機能付き、ユーザーストーリー考慮）
    */
   generateElementFix(step, verificationResult) {
     const { exists, isVisible, isEnabled, isClickable } = verificationResult;
@@ -398,8 +406,20 @@ class FailureAnalyzer {
       };
     }
 
+    // 🎯 ユーザーストーリーを考慮した修正判定
+    const userStoryGuidance = this.getFixGuidanceFromUserStory(step, errorType);
+    
     // 従来の修正ロジック
     if (!exists) {
+      // ユーザーストーリーでこの要素が重要視されている場合は代替手段を模索
+      if (userStoryGuidance.isImportant) {
+        return { 
+          type: 'alternative_selector', 
+          reason: `ユーザーストーリーで重要とされる要素のため代替セレクタを模索: ${userStoryGuidance.reason}`,
+          confidence: 0.7,
+          requiresAlternativeSearch: true
+        };
+      }
       return { type: 'skip', reason: '要素が存在しない', confidence: 0.8 };
     }
 
@@ -451,6 +471,74 @@ class FailureAnalyzer {
     }
 
     return { type: 'no_fix_needed', reason: '要素は正常に操作可能', confidence: 1.0 };
+  }
+
+  /**
+   * ユーザーストーリーから修正ガイダンスを取得
+   */
+  getFixGuidanceFromUserStory(step, errorType) {
+    if (!this.userStory) {
+      return { isImportant: false, reason: 'ユーザーストーリーなし' };
+    }
+
+    const stepLabel = step.label.toLowerCase();
+    const userStoryLower = this.userStory.toLowerCase();
+    
+    // ユーザーストーリー内で言及されているキーワードを検索
+    const keywords = [
+      '予約', 'booking', 'reserve',
+      '申込', 'apply', 'application',
+      '登録', 'register', 'signup',
+      'ログイン', 'login', 'signin',
+      '送信', 'submit', 'send',
+      '確認', 'confirm', 'verification',
+      '選択', 'select', 'choose',
+      '入力', 'input', 'fill',
+      '連絡', 'contact', 'communication',
+      '支払', 'payment', 'pay',
+      '決済', 'checkout',
+      '完了', 'complete', 'finish'
+    ];
+
+    // ステップの重要度を判定
+    let importance = 0;
+    let matchedKeywords = [];
+    
+    for (const keyword of keywords) {
+      if (stepLabel.includes(keyword) && userStoryLower.includes(keyword)) {
+        importance += 1;
+        matchedKeywords.push(keyword);
+      }
+    }
+
+    // 特別に重要とみなすパターン
+    const criticalPatterns = [
+      /必須/g, /required/gi, /必要/g, /important/gi,
+      /核心/g, /core/gi, /主要/g, /main/gi, /primary/gi
+    ];
+
+    let isCritical = false;
+    for (const pattern of criticalPatterns) {
+      if (userStoryLower.match(pattern)) {
+        isCritical = true;
+        break;
+      }
+    }
+
+    const isImportant = importance > 0 || isCritical;
+    const reason = matchedKeywords.length > 0 
+      ? `マッチキーワード: ${matchedKeywords.join(', ')}`
+      : isCritical 
+        ? '重要度の高いストーリー要素'
+        : 'ユーザーストーリーとの関連性が低い';
+
+    return {
+      isImportant,
+      importance,
+      reason,
+      matchedKeywords,
+      isCritical
+    };
   }
 
   /**
@@ -621,7 +709,14 @@ class FailureAnalyzer {
       fix_summary: fixSummary,
       steps: fixedSteps,
       user_story_id: originalRoute.user_story_id || null,
-      generated_at: originalRoute.generated_at || null
+      generated_at: originalRoute.generated_at || null,
+      // 修正時の参照情報を追加
+      analysis_context: {
+        user_story: this.userStory || null,
+        target_url: this.targetUrl || null,
+        spec_pdf: this.specPdf || null,
+        test_csv: this.testCsv || null
+      }
     };
 
     return fixedRoute;
@@ -634,9 +729,27 @@ class FailureAnalyzer {
     try {
       console.log('🔍 失敗したテストケースの分析を開始します...');
       
+      // 📋 参照情報の表示
+      if (this.userStory) {
+        console.log(`\n📋 ユーザーストーリー参照:`);
+        console.log(`   ${this.userStory.substring(0, 100)}${this.userStory.length > 100 ? '...' : ''}`);
+      }
+      
+      if (this.targetUrl) {
+        console.log(`🌐 対象URL: ${this.targetUrl}`);
+      }
+      
+      if (this.specPdf) {
+        console.log(`📄 仕様書PDF: ${this.specPdf}`);
+      }
+      
+      if (this.testCsv) {
+        console.log(`📊 テスト観点CSV: ${this.testCsv}`);
+      }
+      
       // 最新のテスト結果を取得
       const testResult = this.getLatestTestResult();
-      console.log(`📊 テスト結果: ${testResult.route_id}`);
+      console.log(`\n📊 テスト結果: ${testResult.route_id}`);
       console.log(`❌ 失敗数: ${testResult.failed_count}/${testResult.total_steps}`);
 
       if (testResult.failed_count === 0) {
@@ -649,11 +762,37 @@ class FailureAnalyzer {
       console.log('\n❌ 失敗したステップ:');
       failedSteps.forEach(step => {
         console.log(`  - ${step.label}: ${step.error}`);
+        
+        // ユーザーストーリーとの関連性を分析
+        if (this.userStory) {
+          const guidance = this.getFixGuidanceFromUserStory(step, 'element_not_found');
+          if (guidance.isImportant) {
+            console.log(`    🎯 ユーザーストーリー関連: ${guidance.reason} (重要度: ${guidance.importance})`);
+          }
+        }
       });
 
       // 元のルートファイルを取得
-      const routeFile = `route_${testResult.route_id.replace('route_', '')}.json`;
-      const routePath = path.join(process.cwd(), 'test-results', routeFile);
+      let routeFile, routePath;
+      
+      // 修正されたルートファイルの場合は元のルートIDを使用
+      if (testResult.route_id.startsWith('fixed_')) {
+        // fixed_route_250626021449_2025-06-25T0823 → route_250626021449.json
+        // fixed_250626021449_20250625... → route_250626021449.json
+        const match = testResult.route_id.match(/fixed_(?:route_)?(\d+)/);
+        if (match) {
+          const originalRouteId = match[1];
+          routeFile = `route_${originalRouteId}.json`;
+        } else {
+          throw new Error(`修正ルートIDの解析に失敗しました: ${testResult.route_id}`);
+        }
+      } else {
+        // 通常のルートファイルの場合
+        const routeId = testResult.route_id.replace(/^route_/, '');
+        routeFile = `route_${routeId}.json`;
+      }
+      
+      routePath = path.join(process.cwd(), 'test-results', routeFile);
       
       if (!fs.existsSync(routePath)) {
         throw new Error(`ルートファイルが見つかりません: ${routePath}`);
@@ -696,7 +835,23 @@ class FailureAnalyzer {
 
 // CLI実行
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const analyzer = new FailureAnalyzer();
+  // コマンドライン引数を解析
+  const args = parseArguments(process.argv.slice(2), {
+    url: { alias: 'u', type: 'string' },
+    goal: { alias: 'g', type: 'string' },
+    'spec-pdf': { type: 'string' },
+    'test-csv': { type: 'string' }
+  });
+
+  // 分析オプションを設定
+  const options = {
+    userStory: args.goal,
+    targetUrl: args.url,
+    specPdf: args['spec-pdf'],
+    testCsv: args['test-csv']
+  };
+
+  const analyzer = new FailureAnalyzer(options);
   
   analyzer.analyze()
     .then(() => {

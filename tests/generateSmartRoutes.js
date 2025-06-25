@@ -204,92 +204,94 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
   const openAIConfig = getOpenAIConfig(config);
   const openai = new OpenAI(openAIConfig);
 
-  // 失敗制約を取得
-  const failureConstraints = getFailureConstraints();
-  if (failureConstraints) {
-    console.log(`🧠 ${failureConstraints.length}件の失敗パターンを学習済み - 同じ失敗を回避します`);
-  }
+  // 失敗制約は初回生成では使用しない（analyzeFailures.jsで使用）
+  
+  const system = `あなたはWebページのE2Eテストシナリオを生成する専門AIです。
 
-  // ベースプロンプトを構築
-  let prompt = `あなたはPlaywrightテストエキスパートです。以下の情報に基づいて、効果的で実行可能なテストルートJSONを生成してください。
+重要原則：
+- 実際にページに存在する要素のみを使用する
+- ユーザーの意図を正確に理解し、それに沿ったテストを生成する
+- 動的に取得されたDOM情報を最大限活用する
+- 高い成功率を重視する
 
-**テスト対象URL**: ${url}
-**テスト目標**: ${testGoal}
+提供される情報：
+1. ページの動的DOM情報（実際に存在する要素）
+2. ユーザーのテスト意図・目標
+3. テスト観点（オプション）
 
-**現在のページ情報**:
-📄 ページタイトル: ${pageInfo.title}
+セレクタ選択方針：
+- :has-text("テキスト") を最優先（要素内テキストの柔軟な検索）
+- 次に属性ベースセレクタ
+- 最後にタグベースセレクタ
+- 複数候補をカンマ区切りで提供
 
-🔢 フォーム入力要素:
-${pageInfo.elements.inputs.map(input => 
-  `- ${input.tagName} (type="${input.type}") - 推奨セレクタ: ${input.recommendedSelector}${input.note ? ' ' + input.note : ''}${input.placeholder ? ` placeholder="${input.placeholder}"` : ''}`
-).join('\n')}
+テキスト検証の重要原則：
+- 入力値と一致する値で検証する（入力と同じ形式を使用）
+- 例：入力「2025/07/25」→ 検証「2025/07/25」
+- 例：入力「2」→ 検証「2」（単位なし）
+- :has-text()により部分一致で柔軟に検索可能`;
 
-🔘 ボタン要素:
-${pageInfo.elements.buttons.map(btn => 
-  `- "${btn.text}" - 推奨セレクタ: ${btn.selector}`
-).join('\n')}
+  let user = `以下の情報を基に、ユーザーの意図に沿った精密なE2Eテストシナリオを生成してください。
 
-🔗 リンク要素:
-${pageInfo.elements.links.slice(0, 5).map(link => 
-  `- "${link.text}" - 推奨セレクタ: ${link.selector}`
-).join('\n')}`;
+【ユーザーのテスト意図】
+${testGoal}
 
-  // テストポイント情報を追加
-  if (testPoints && testPoints.testPoints) {
-    prompt += `
+【ページ動的DOM情報】
+\`\`\`json
+${JSON.stringify(pageInfo, null, 2)}
+\`\`\`
 
-**参考テストポイント**:
-${testPoints.testPoints.map(tp => `- ${tp.description}`).slice(0, 10).join('\n')}`;
-  }
+【重要】上記DOM情報に含まれる要素のみを使用してください。存在しない要素は絶対に使用しないでください。
 
-  // PDF情報を追加
-  if (pdfFileInfo) {
-    const pdfPrompt = await createPDFPrompt(pdfFileInfo);
-    prompt += `\n\n${pdfPrompt}`;
-  }
+利用可能なアクション：
+- load: ページ読み込み
+- click: 要素クリック  
+- fill: 入力
+- assertVisible: 要素表示確認
+- assertNotVisible: 要素非表示確認
+- waitForSelector: 要素待機
+- waitForURL: URL遷移待機
 
-  // 失敗制約をプロンプトに追加
-  if (failureConstraints) {
-    prompt = addFailureConstraintsToPrompt(prompt, failureConstraints);
-  }
+セレクタ優先順位：
+1. :has-text("実際のテキスト") (DOM情報のtextから選択)
+2. 属性セレクタ [name="name"], [type="type"]
+3. 複数候補 "selector1, selector2, selector3"
 
-  prompt += `
+重要：テキスト検証では入力値と完全に一致する値を使用すること
 
-**JSON出力要件**:
+出力形式：
 \`\`\`json
 {
-  "route_id": "smart_test_001",
+  "route_id": "route_${getTimestamp()}",
+  "user_story_id": ${userStoryInfo ? userStoryInfo.currentId : 'null'},
   "steps": [
     {
-      "label": "明確な操作説明",
-      "action": "load|click|fill|waitForURL|assertVisible",
-      "target": "セレクタまたはURL",
-      "value": "入力値（fillの場合）"
+      "label": "ステップ説明",
+      "action": "アクション",
+      "target": "セレクタ",
+      "value": "入力値（オプション）"
     }
   ]
 }
-\`\`\`
+\`\`\``;
 
-**重要: セレクタの選択ルール**:
-1. **必ず上記の「推奨セレクタ」を使用してください**
-2. 無効化された要素（⚠️マーク）は操作しないでください
-3. name属性がある場合は [name="属性値"] を優先使用
-4. テキストベースの場合は text="正確なテキスト" を使用
+  if (testPoints) {
+    user += `\n\n【テスト観点】
+\`\`\`json
+${JSON.stringify(testPoints, null, 2)}
+\`\`\``;
+  }
 
-**注意事項**:
-- 確実に存在する要素のみを対象とする
-- タイムアウトが発生しやすい操作は避ける
-- 実際のページ情報に基づいた現実的なセレクタを使用
-- 各ステップは独立して実行可能にする
-- 画面遷移後は適切にwaitForURLを含める
-
-実用的で確実に動作するテストルートJSONのみを生成してください。`;
+  if (pdfFileInfo) {
+    user += `\n\n【仕様書】
+${createPDFPrompt(pdfFileInfo)}`;
+  }
 
   const client = new OpenAI(openAIConfig);
   
   const messages = [
-    { role: 'system', content: 'あなたはPlaywrightテストエキスパートです。与えられた情報を基に、効果的で実行可能なテストルートJSONを生成してください。' },
-    { role: 'user', content: prompt }
+    { role: 'system', content: system.trim() },
+    { role: 'user', content: user.trim() }
   ];
 
   const res = await client.chat.completions.create({

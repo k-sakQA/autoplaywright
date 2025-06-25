@@ -428,6 +428,119 @@ class GoogleSheetsUploader {
   }
 
   /**
+   * 修正ルート実行結果を既存のシートに追加
+   * @param {string} spreadsheetId - スプレッドシートID
+   * @param {string} sheetName - シート名
+   * @param {Array} testResults - テスト結果配列
+   * @param {string} columnTitle - 追加する列のタイトル（例: "再）実行結果"）
+   */
+  async addFixedRouteResults(spreadsheetId, sheetName, testResults, columnTitle = '再）実行結果') {
+    try {
+      // 既存データを取得
+      const existingData = await this.getSheetData(spreadsheetId, sheetName);
+      if (existingData.length === 0) {
+        console.log('既存データが見つかりません');
+        return;
+      }
+
+      // ヘッダー行を取得
+      const headers = existingData[0];
+      
+      // 新しい列の位置を決定（既存の列の右端）
+      const newColumnIndex = headers.length;
+      const newColumnLetter = this.columnIndexToLetter(newColumnIndex);
+      
+      // ヘッダーに新しい列名を追加
+      const headerRange = `${sheetName}!${newColumnLetter}1`;
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: headerRange,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[columnTitle]]
+        }
+      });
+
+      console.log(`新しい列を追加: ${columnTitle} (列${newColumnLetter})`);
+
+      // テスト結果をIDに基づいてマッピング
+      const resultMap = {};
+      testResults.forEach(result => {
+        // テストケースIDまたはラベルをキーとして使用
+        const key = result.label || result.testCaseId || result.id;
+        if (key) {
+          resultMap[key] = result.status || result.result || '不明';
+        }
+      });
+
+      // 既存データの各行に対して結果を追加
+      const updates = [];
+      for (let i = 1; i < existingData.length; i++) { // ヘッダー行をスキップ
+        const row = existingData[i];
+        const rowIndex = i + 1;
+        
+        // テストケース名またはIDを取得（通常は最初の列またはテスト手順列）
+        const testCaseName = row[5] || row[0] || ''; // 「テスト手順」列または最初の列
+        const result = resultMap[testCaseName] || this.findMatchingResult(testCaseName, testResults);
+        
+        updates.push({
+          range: `${sheetName}!${newColumnLetter}${rowIndex}`,
+          values: [[result || '未実行']]
+        });
+      }
+
+      // バッチで更新
+      if (updates.length > 0) {
+        await this.sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          resource: {
+            valueInputOption: 'RAW',
+            data: updates
+          }
+        });
+
+        console.log(`${updates.length}件の修正ルート実行結果を追加完了`);
+      }
+
+    } catch (error) {
+      console.error('修正ルート実行結果追加エラー:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * テストケース名に基づいて一致する結果を検索
+   * @param {string} testCaseName - テストケース名
+   * @param {Array} testResults - テスト結果配列
+   * @returns {string} - マッチした結果のステータス
+   */
+  findMatchingResult(testCaseName, testResults) {
+    for (const result of testResults) {
+      const label = result.label || '';
+      
+      // 部分一致でテストケースを特定
+      if (label.includes(testCaseName) || testCaseName.includes(label)) {
+        return result.status === 'success' ? '✅' : (result.status === 'failed' ? '❌' : result.status || '不明');
+      }
+    }
+    return '未実行';
+  }
+
+  /**
+   * 列インデックスを列文字に変換（0=A, 1=B, ..., 25=Z, 26=AA）
+   * @param {number} index - 列インデックス（0始まり）
+   * @returns {string} - 列文字
+   */
+  columnIndexToLetter(index) {
+    let result = '';
+    while (index >= 0) {
+      result = String.fromCharCode((index % 26) + 65) + result;
+      index = Math.floor(index / 26) - 1;
+    }
+    return result;
+  }
+
+  /**
    * スプレッドシートのURLを生成
    * @param {string} spreadsheetId - スプレッドシートID
    * @returns {string} - スプレッドシートのURL

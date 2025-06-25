@@ -64,4 +64,45 @@ export function validateOptions(options) {
   }
   
   return true;
+}
+
+/**
+ * 簡単なコマンドライン引数解析
+ */
+export function parseArguments(args, schema) {
+  const result = {};
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    
+    if (arg.startsWith('--')) {
+      const key = arg.substring(2);
+      const config = schema[key];
+      
+      if (config) {
+        if (config.type === 'string' && i + 1 < args.length) {
+          result[key] = args[i + 1];
+          i++; // 次の引数をスキップ
+        } else if (config.type === 'boolean') {
+          result[key] = true;
+        }
+      }
+    } else if (arg.startsWith('-')) {
+      // エイリアスの処理
+      const shortKey = arg.substring(1);
+      for (const [longKey, config] of Object.entries(schema)) {
+        if (config.alias === shortKey) {
+          if (config.type === 'string' && i + 1 < args.length) {
+            result[longKey] = args[i + 1];
+            i++; // 次の引数をスキップ
+          } else if (config.type === 'boolean') {
+            result[longKey] = true;
+          }
+          break;
+        }
+      }
+    }
+  }
+  
+  return result;
 } 

@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 import { chromium } from 'playwright';
 import { z } from "zod";
 import playwrightConfig from '../playwright.config.js';
+import GoogleSheetsUploader from './utils/googleSheetsUploader.js';
 
 // configのスキーマ定義
 const ConfigSchema = z.object({
@@ -470,6 +471,11 @@ export class PlaywrightRunner {
     // 実行履歴を更新
     updateExecutionHistory(testResultsDir, latestFile, testResults);
 
+    // 修正ルートの場合、Google Sheetsに結果を追加
+    if (isFixedRoute) {
+      await uploadFixedRouteResultsToSheets(testResults, route);
+    }
+
     // 失敗したテストがある場合でも、プロセスは正常終了
     process.exit(testResults.success ? 0 : 1);
   } catch (err) {
@@ -559,6 +565,86 @@ function getFailedStepsFromHistory(testResultsDir, routeFile) {
   } catch (error) {
     console.error('失敗ステップ履歴取得エラー:', error.message);
     return [];
+  }
+}
+
+/**
+ * 修正ルート実行結果をGoogle Sheetsに追加
+ */
+async function uploadFixedRouteResultsToSheets(testResults, route) {
+  try {
+    // config.jsonからGoogle Sheets設定を読み込み
+    const configPath = path.resolve(__dirname, "../config.json");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    
+    if (!config.googleSheets || !config.googleSheets.autoUpload) {
+      console.log('📊 Google Sheets自動アップロードが無効です');
+      return;
+    }
+
+    console.log('📊 修正ルート結果をGoogle Sheetsに追加中...');
+    
+    const uploader = new GoogleSheetsUploader();
+    await uploader.initialize(path.resolve(__dirname, '../credentials.json'));
+    
+    // 既存のスプレッドシートを検索
+    const spreadsheetId = await uploader.findExistingSpreadsheet(
+      config.googleSheets.spreadsheetTitle || 'AutoPlaywright テスト結果',
+      config.googleSheets.driveFolder
+    );
+    
+    if (!spreadsheetId) {
+      console.log('❌ 対象のスプレッドシートが見つかりません');
+      return;
+    }
+
+    // 最新のシート名を取得（TestResults_で始まる最新のもの）
+    const existingData = await uploader.getSheetData(spreadsheetId, 'Sheet1');
+    
+    // シート一覧を取得してTestResults_で始まる最新のシートを見つける
+    const response = await uploader.sheets.spreadsheets.get({
+      spreadsheetId: spreadsheetId,
+      fields: 'sheets.properties.title'
+    });
+    
+    const testResultSheets = response.data.sheets
+      .map(sheet => sheet.properties.title)
+      .filter(title => title.startsWith('TestResults_'))
+      .sort()
+      .reverse(); // 降順ソート（最新が先頭）
+    
+    if (testResultSheets.length === 0) {
+      console.log('❌ TestResultsシートが見つかりません');
+      return;
+    }
+    
+    const latestSheet = testResultSheets[0];
+    console.log(`📋 対象シート: ${latestSheet}`);
+    
+    // テスト結果を適切な形式に変換
+    const fixedResults = testResults.steps.map(step => ({
+      label: step.label,
+      status: step.status,
+      result: step.status,
+      isFixed: step.isFixed,
+      fixReason: step.fixReason
+    }));
+    
+    // Google Sheetsに修正結果を追加
+    await uploader.addFixedRouteResults(
+      spreadsheetId,
+      latestSheet,
+      fixedResults,
+      '再）実行結果'
+    );
+    
+    const spreadsheetUrl = uploader.getSpreadsheetUrl(spreadsheetId);
+    console.log(`✅ 修正ルート結果をGoogle Sheetsに追加完了`);
+    console.log(`🔗 スプレッドシート: ${spreadsheetUrl}`);
+    
+  } catch (error) {
+    console.error('❌ Google Sheets追加エラー:', error.message);
+    // エラーでもテスト実行は続行
   }
 }
 

@@ -213,6 +213,9 @@
             border-radius: 5px;
             font-weight: 600;
             text-align: center;
+            max-height: 100px;
+            overflow: hidden;
+            word-wrap: break-word;
         }
         
         .status.success {
@@ -346,6 +349,41 @@
             padding: 15px;
             margin: 15px 0;
             border-radius: 0 8px 8px 0;
+        }
+
+        /* 修正ルート一覧のスタイル */
+        .fixed-route-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .route-item {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .route-item h4 {
+            margin: 0;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .route-item p {
+            margin: 0;
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .route-item button {
+            align-self: flex-start;
+            padding: 6px 12px;
+            font-size: 12px;
         }
         
         .warning-box {
@@ -709,6 +747,9 @@
                     <button class="btn btn-warning" onclick="executeCommand('analyzeFailures')">
                         🔧 失敗テスト分析・修正
                     </button>
+                    <button class="btn btn-success" onclick="showFixedRouteModal()">
+                        🚀 修正ルート実行
+                    </button>
                     <button class="btn btn-info" onclick="executeCommand('discoverNewStories')">
                         🔍 新ストーリー発見
                     </button>
@@ -717,11 +758,15 @@
                     <h4>🤖 学習機能の特徴:</h4>
                     <ul>
                         <li><strong>失敗パターン学習</strong>: 過去の失敗を記録し、同じミスを回避</li>
-                        <li><strong>依存関係分析</strong>: 後続テストに必要な前提条件を考慮</li>
-                        <li><strong>重複実行防止</strong>: 30分以内の同一テストを自動検出</li>
+                        <li><strong>ユーザーストーリー参照</strong>: 上記で入力されたユーザーストーリーを考慮して重要な要素を特定</li>
+                        <li><strong>コンテキスト修正</strong>: PDF仕様書やCSV観点ファイルも参照して適切な修正を提案</li>
                         <li><strong>代替セレクタ提案</strong>: 要素が見つからない場合の代替案を生成</li>
                         <li><strong>修正ルート生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
                     </ul>
+                    <div class="highlight-box">
+                        <strong>💡 ヒント:</strong> 失敗分析実行時に上記の「ユーザーストーリー/テスト目標」が入力されていれば、
+                        そのストーリーの観点から重要な要素を判定し、スキップではなく代替手段を模索します！
+                    </div>
                 </div>
             </div>
         </div>
@@ -839,6 +884,38 @@
         </div>
     </div>
 
+    <!-- 修正ルート実行ポップアップ -->
+    <div id="fixedRouteModal" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>🚀 修正ルート実行</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>🎯 概要</h3>
+                <p>失敗分析で生成された修正ルートファイルを選択して実行します。</p>
+                
+                <div class="highlight-box">
+                    <strong>💡 ヒント:</strong> 修正ルート（fixed_*）は元のテストの失敗を改善したバージョンです。
+                </div>
+
+                <h3>📋 修正ルートファイル一覧</h3>
+                <div id="fixedRouteList">
+                    <p>読み込み中...</p>
+                </div>
+
+                <h3>⚠️ 注意事項</h3>
+                <div class="warning-box">
+                    <ul>
+                        <li>修正ルートは元のテストの失敗を解決する目的で生成されています</li>
+                        <li>一部のステップが「スキップ」される場合があります</li>
+                        <li>修正成功率は100%ではありません</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ログエリアに追加する関数
         function addLog(message, type = 'info') {
@@ -852,7 +929,9 @@
         // ステータス表示関数
         function showStatus(message, type) {
             const statusEl = document.getElementById('status');
-            statusEl.textContent = message;
+            // 長いメッセージは短縮して表示
+            const displayMessage = message.length > 100 ? message.substring(0, 100) + '...' : message;
+            statusEl.textContent = displayMessage;
             statusEl.className = `status ${type}`;
             statusEl.style.display = 'block';
         }
@@ -865,7 +944,7 @@
             const csvFile = document.getElementById('csvFile').files[0];
             
             // URL入力チェック
-            if (!url && command !== 'runRoutes' && command !== 'generateTestReport') {
+            if (!url && command !== 'runRoutes' && command !== 'generateTestReport' && command !== 'analyzeFailures') {
                 showStatus('テスト対象URLを入力してください', 'error');
                 return;
             }
@@ -904,6 +983,8 @@
                             parseTestResults(result.output);
                             // テスト実行の場合は特別なメッセージを表示
                             showStatus(`テストを実行しました！`, 'success');
+                        } else if (command === 'analyzeFailures') {
+                            showStatus(`失敗テスト分析・修正 完了`, 'success');
                         } else {
                             showStatus(`${getCommandName(command)} 完了`, 'success');
                         }
@@ -921,6 +1002,8 @@
                             parseTestResults(result.output);
                             // テスト実行の場合は特別なメッセージを表示
                             showStatus(`テストを実行しました！（一部エラーあり）`, 'warning');
+                        } else if (command === 'analyzeFailures') {
+                            showStatus(`失敗テスト分析でエラーが発生しました: ${result.error}`, 'error');
                         } else {
                             showStatus(`エラーが発生しました: ${result.error}`, 'error');
                         }
@@ -1401,7 +1484,141 @@
         function closeModal(event) {
             if (!event || event.target === event.currentTarget) {
                 document.getElementById('manualGuideModal').style.display = 'none';
+                document.getElementById('fixedRouteModal').style.display = 'none';
                 addLog('📋 ガイドを閉じました');
+            }
+        }
+
+        // 修正ルート実行ポップアップ表示
+        async function showFixedRouteModal() {
+            document.getElementById('fixedRouteModal').style.display = 'block';
+            addLog('🚀 修正ルート選択画面を表示しました');
+            
+            // 修正ルートファイル一覧を読み込み
+            await loadFixedRoutes();
+        }
+
+        // 修正ルートファイル一覧を読み込み
+        async function loadFixedRoutes() {
+            try {
+                const response = await fetch('/api/results');
+                const data = await response.json();
+                
+                // fixed_ で始まるファイルをフィルタ
+                const fixedRoutes = data.files
+                    .filter(file => file.name.startsWith('fixed_') && file.name.endsWith('.json'))
+                    .sort((a, b) => new Date(b.modified) - new Date(a.modified));
+                
+                const listContainer = document.getElementById('fixedRouteList');
+                
+                if (fixedRoutes.length === 0) {
+                    listContainer.innerHTML = '<p>❌ 修正ルートファイルが見つかりません</p><p>先に「失敗テスト分析・修正」を実行してください。</p>';
+                    return;
+                }
+                
+                let html = '<div class="fixed-route-list">';
+                
+                fixedRoutes.forEach(route => {
+                    const fileName = route.name.replace('.json', '');
+                    const modifiedDate = new Date(route.modified).toLocaleString('ja-JP');
+                    
+                    // ファイル名から情報を抽出
+                    const match = fileName.match(/fixed_(?:route_)?(\d+)_(.+)/);
+                    const originalId = match ? match[1] : 'unknown';
+                    const timestamp = match ? match[2] : 'unknown';
+                    
+                    html += `
+                        <div class="route-item">
+                            <h4>🔧 ${fileName}</h4>
+                            <p><strong>元ルート:</strong> route_${originalId}</p>
+                            <p><strong>修正日時:</strong> ${modifiedDate}</p>
+                            <button class="btn btn-primary" onclick="runFixedRoute('${fileName}')">
+                                ▶️ 実行
+                            </button>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                listContainer.innerHTML = html;
+                
+            } catch (error) {
+                document.getElementById('fixedRouteList').innerHTML = `<p>❌ エラー: ${error.message}</p>`;
+            }
+        }
+
+        // 修正ルートを実行
+        async function runFixedRoute(routeId) {
+            try {
+                addLog(`🚀 修正ルート実行開始: ${routeId}`);
+                showStatus(`修正ルート実行中: ${routeId}`, 'info');
+                
+                console.log('🛠️ [Debug] Sending request to:', '/api/execute-json');
+                console.log('🛠️ [Debug] Request body:', JSON.stringify({
+                    command: 'runFixedRoute',
+                    routeId: routeId
+                }));
+                
+                const response = await fetch('/api/execute-json', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        command: 'runFixedRoute',
+                        routeId: routeId
+                    })
+                });
+                
+                console.log('🛠️ [Debug] Response status:', response.status);
+                console.log('🛠️ [Debug] Response headers:', response.headers);
+                
+                const responseText = await response.text();
+                console.log('🛠️ [Debug] Raw response:', responseText);
+                
+                const result = JSON.parse(responseText);
+                
+                if (result.success) {
+                    addLog(`✅ 修正ルート実行完了: ${routeId}`);
+                    addLog(result.output);
+                    showStatus('修正ルート実行完了！', 'success');
+                    
+                    // Google Sheetsアップロードのチェック
+                    if (result.output.includes('修正ルート結果をGoogle Sheetsに追加完了')) {
+                        const urlMatch = result.output.match(/🔗 スプレッドシート: (https:\/\/[^\s]+)/);
+                        if (urlMatch) {
+                            const spreadsheetUrl = urlMatch[1];
+                            addLog(`📊 Google Sheetsに「再）実行結果」列を追加しました`);
+                            
+                            // スプレッドシートを開くかどうか確認
+                            setTimeout(() => {
+                                const openSheet = confirm('修正ルート実行結果をGoogle Sheetsに追加しました！\n\nスプレッドシートを開いて結果を確認しますか？');
+                                if (openSheet) {
+                                    window.open(spreadsheetUrl, '_blank');
+                                }
+                            }, 1000);
+                        }
+                    }
+                    
+                    // モーダルを閉じる
+                    closeModal();
+                    
+                    // テスト結果を解析
+                    parseTestResults(result.output);
+                } else {
+                    addLog(`❌ 修正ルート実行エラー: ${result.error}`);
+                    if (result.output) {
+                        addLog(result.output);
+                        // エラーでもテスト結果を解析（部分的な結果があるため）
+                        parseTestResults(result.output);
+                        showStatus('修正ルート実行完了（一部エラーあり）', 'warning');
+                    } else {
+                        showStatus('修正ルート実行失敗', 'error');
+                    }
+                }
+            } catch (error) {
+                addLog(`❌ 修正ルート実行エラー: ${error.message}`);
+                showStatus(`修正ルート実行失敗: ${error.message}`, 'error');
             }
         }
         
