@@ -615,6 +615,115 @@ app.get('/api/results/:filename', (req, res) => {
   }
 });
 
+// パターンによるファイル一覧取得API
+app.get('/api/list-files', (req, res) => {
+  try {
+    const pattern = req.query.pattern;
+    const resultsDir = path.join(__dirname, 'test-results');
+    
+    if (!fs.existsSync(resultsDir)) {
+      return res.json({ success: true, files: [] });
+    }
+    
+    const files = fs.readdirSync(resultsDir);
+    let filteredFiles = files;
+    
+    // パターンマッチング
+    if (pattern) {
+      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+      filteredFiles = files.filter(file => regex.test(file));
+    }
+    
+    // 日付順でソート（新しい順）
+    filteredFiles.sort((a, b) => {
+      const aPath = path.join(resultsDir, a);
+      const bPath = path.join(resultsDir, b);
+      const aStats = fs.statSync(aPath);
+      const bStats = fs.statSync(bPath);
+      return bStats.mtime - aStats.mtime;
+    });
+    
+    res.json({ success: true, files: filteredFiles });
+  } catch (error) {
+    console.error('ファイル一覧取得エラー:', error);
+    res.json({ success: false, error: 'ファイル一覧取得エラー' });
+  }
+});
+
+// ファイル内容取得API
+app.get('/api/get-file', (req, res) => {
+  try {
+    const filePath = req.query.path;
+    const fullPath = path.join(__dirname, 'test-results', filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.json({ success: false, error: 'ファイルが見つかりません' });
+    }
+    
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    res.json({ success: true, content: content });
+  } catch (error) {
+    console.error('ファイル取得エラー:', error);
+    res.json({ success: false, error: 'ファイル取得エラー' });
+  }
+});
+
+// ユーザーストーリー設定取得API
+app.get('/api/config/user-story', (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    
+    if (!fs.existsSync(configPath)) {
+      return res.json({ 
+        success: true, 
+        userStory: { currentId: null } 
+      });
+    }
+    
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    res.json({ 
+      success: true, 
+      userStory: config.userStory || { currentId: null } 
+    });
+  } catch (error) {
+    console.error('ユーザーストーリー設定取得エラー:', error);
+    res.json({ success: false, error: 'ユーザーストーリー設定取得エラー' });
+  }
+});
+
+// ユーザーストーリーIDリセットAPI
+app.post('/api/config/user-story/reset', (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    let config = {};
+    
+    // 既存の設定を読み込み
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+    
+    // ユーザーストーリー設定をリセット
+    config.userStory = {
+      currentId: null,
+      resetAt: new Date().toISOString()
+    };
+    
+    // 設定を保存
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    
+    res.json({ 
+      success: true, 
+      message: 'トレーサビリティIDをリセットしました',
+      userStory: config.userStory
+    });
+    
+    console.log('🔄 トレーサビリティIDをリセットしました');
+  } catch (error) {
+    console.error('ユーザーストーリーIDリセットエラー:', error);
+    res.json({ success: false, error: 'ユーザーストーリーIDリセットエラー' });
+  }
+});
+
 // サーバー起動
 app.listen(port, () => {
   console.log(`🚀 AutoPlaywright WebUI サーバーが起動しました`);

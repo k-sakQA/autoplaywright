@@ -546,6 +546,184 @@
             border-color: #007bff;
             box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
         }
+        
+        /* タブナビゲーションのスタイル */
+        .tab-nav {
+            display: flex;
+            border-bottom: 2px solid #e1e5e9;
+            margin-bottom: 30px;
+            gap: 5px;
+        }
+        
+        .tab-button {
+            padding: 12px 24px;
+            border: none;
+            background: transparent;
+            color: #6c757d;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .tab-button:hover {
+            color: #007bff;
+            background-color: #f8f9fa;
+        }
+        
+        .tab-button.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        
+        /* タブコンテンツのスタイル */
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 新ストーリータブ用スタイル */
+        .selected-story {
+            background: #f8f9fa;
+            border: 2px solid #28a745;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .story-info {
+            display: grid;
+            gap: 8px;
+        }
+
+        .stories-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .story-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .story-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .story-priority {
+            font-size: 14px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 5px;
+        }
+
+        .priority-high {
+            background: #ffe6e6;
+            color: #d63384;
+            border: 1px solid #d63384;
+        }
+
+        .priority-medium {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffc107;
+        }
+
+        .priority-low {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #17a2b8;
+        }
+
+        .story-url {
+            font-size: 12px;
+            color: #6c757d;
+            word-break: break-all;
+        }
+
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .file-date {
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        /* トレーサビリティIDリセットボタンのスタイル */
+        .user-story-id .btn {
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            margin-left: 10px;
+            border: 1px solid #6c757d;
+            background-color: transparent;
+            color: #6c757d;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+        
+        .user-story-id .btn:hover {
+            background-color: #6c757d;
+            color: white;
+            border-color: #495057;
+        }
+
+        /* プレースホルダーの色を薄くする */
+        input::placeholder,
+        textarea::placeholder {
+            color: #c6c6c6 !important;
+            opacity: 1;
+        }
+        
+        /* Firefox用 */
+        input::-moz-placeholder,
+        textarea::-moz-placeholder {
+            color: #c6c6c6 !important;
+            opacity: 1;
+        }
+        
+        /* WebKit系ブラウザ用 */
+        input::-webkit-input-placeholder,
+        textarea::-webkit-input-placeholder {
+            color: #c6c6c6 !important;
+        }
+        
+        /* Microsoft Edge用 */
+        input::-ms-input-placeholder,
+        textarea::-ms-input-placeholder {
+            color: #c6c6c6 !important;
+        }
     </style>
 </head>
 <body>
@@ -556,7 +734,7 @@
         </div>
         
         <div class="content">
-            <!-- 設定セクション -->
+            <!-- 基本設定セクション（共通） -->
             <div class="section">
                 <h2>基本設定</h2>
                 
@@ -572,6 +750,9 @@
                         <small>具体的なテスト手順や確認したい内容を記述してください</small>
                         <div id="userStoryId" class="user-story-id" style="display: none;">
                             🔗 <strong>トレーサビリティID:</strong> <span id="currentUserStoryId">-</span>
+                            <button type="button" class="btn" onclick="resetTraceabilityId()">
+                                ID No,をリセットする
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -586,12 +767,19 @@
                     <label for="pdfFile">仕様書PDF (オプション):</label>
                     <input type="file" id="pdfFile" accept=".pdf">
                 </div>
-                
-
             </div>
             
-            <!-- 実行ボタンセクション -->
-            <div class="section buttons-section">
+            <!-- タブナビゲーション -->
+            <div class="tab-nav">
+                <button class="tab-button active" onclick="switchTab('test-execution')">🧪 テスト実行</button>
+                <button class="tab-button" onclick="switchTab('auto-improvement')">🤖 自動改善・学習機能</button>
+                <button class="tab-button" onclick="switchTab('new-stories')">📖 新しいストーリー</button>
+            </div>
+            
+            <!-- テスト実行タブ -->
+            <div id="test-execution" class="tab-content active">
+                <!-- 実行ボタンセクション -->
+                <div class="section buttons-section">
                 <h2>テスト実行</h2>
                 
                 <div class="button-grid">
@@ -728,44 +916,175 @@
                 </div>
             </div>
             
-            <!-- 手動ガイドセクション -->
-            <div class="section">
-                <h2>📋 手動テストシナリオ作成</h2>
-                
-                <div class="form-group">
-                    <button type="button" class="btn-info manual-guide-btn" onclick="showManualGuide()">
-                        📋 手動でテストシナリオを作成する方法
-                    </button>
-                    <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
+                <!-- 手動ガイドセクション -->
+                <div class="section">
+                    <h2>📋 手動テストシナリオ作成</h2>
+                    
+                    <div class="form-group">
+                        <button type="button" class="btn-info manual-guide-btn" onclick="showManualGuide()">
+                            📋 手動でテストシナリオを作成する方法
+                        </button>
+                        <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
+                    </div>
                 </div>
             </div>
-
-            <!-- 自動改善セクション -->
-            <div class="section">
-                <h2>🧠 自動改善・学習機能</h2>
-                <div class="button-container">
-                    <button class="btn btn-warning" onclick="executeCommand('analyzeFailures')">
-                        🔧 失敗テスト分析・修正
-                    </button>
-                    <button class="btn btn-success" onclick="showFixedRouteModal()">
-                        🚀 修正ルート実行
-                    </button>
-                    <button class="btn btn-info" onclick="executeCommand('discoverNewStories')">
-                        🔍 新ストーリー発見
-                    </button>
+            
+            <!-- 自動改善・学習機能タブ -->
+            <div id="auto-improvement" class="tab-content">
+                <!-- 自動改善セクション -->
+                <div class="section">
+                    <h2>🧠 自動改善・学習機能</h2>
+                    
+                    <div class="button-container">
+                        <button class="btn btn-warning" onclick="executeCommand('analyzeFailures')">
+                            🔧 失敗したテストの分析と修正
+                        </button>
+                        <button class="btn btn-success" onclick="showFixedRouteModal()">
+                            🚀 失敗したテストの再トライ
+                        </button>
+                    </div>
+                    
+                    <div id="statusAI" class="status" style="display: none;"></div>
+                    
+                    <!-- テスト実行結果サマリー（自動改善用） -->
+                    <div id="testSummaryAI" class="test-summary" style="display: none;">
+                        <h3>📊 自動改善実行結果</h3>
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <span class="summary-label">🔷 テストID:</span>
+                                <span id="testIdAI" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">🔷 総ステップ数:</span>
+                                <span id="totalStepsAI" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item success">
+                                <span class="summary-label">✅ 成功数:</span>
+                                <span id="successCountAI" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item error">
+                                <span class="summary-label">❌ 失敗数:</span>
+                                <span id="failureCountAI" class="summary-value">-</span>
+                            </div>
+                        </div>
+                        <div id="failedTestsAI" class="failed-tests" style="display: none;">
+                            <h4>❌ 失敗したテストケース:</h4>
+                            <ul id="failedTestsListAI"></ul>
+                        </div>
+                    </div>
+                    
+                    <div class="log-area" id="logAreaAI">
+                        自動改善実行ログがここに表示されます...
+                    </div>
+                    
+                    <div class="description">
+                        <h4>🤖 学習機能の特徴:</h4>
+                        <ul>
+                            <li><strong>失敗パターン学習</strong>: 過去の失敗を記録し、同じミスを回避</li>
+                            <li><strong>ユーザーストーリー参照</strong>: 上記で入力されたユーザーストーリーを考慮して重要な要素を特定</li>
+                            <li><strong>コンテキスト修正</strong>: PDF仕様書やCSV観点ファイルも参照して適切な修正を提案</li>
+                            <li><strong>代替セレクタ提案</strong>: 要素が見つからない場合の代替案を生成</li>
+                            <li><strong>修正ルート生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
+                        </ul>
+                        <div class="highlight-box">
+                            <strong>💡 ヒント:</strong> 失敗分析実行時に上記の「ユーザーストーリー/テスト目標」が入力されていれば、
+                            そのストーリーの観点から重要な要素を判定し、スキップではなく代替手段を模索します！
+                        </div>
+                    </div>
                 </div>
-                <div class="description">
-                    <h4>🤖 学習機能の特徴:</h4>
-                    <ul>
-                        <li><strong>失敗パターン学習</strong>: 過去の失敗を記録し、同じミスを回避</li>
-                        <li><strong>ユーザーストーリー参照</strong>: 上記で入力されたユーザーストーリーを考慮して重要な要素を特定</li>
-                        <li><strong>コンテキスト修正</strong>: PDF仕様書やCSV観点ファイルも参照して適切な修正を提案</li>
-                        <li><strong>代替セレクタ提案</strong>: 要素が見つからない場合の代替案を生成</li>
-                        <li><strong>修正ルート生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
-                    </ul>
-                    <div class="highlight-box">
-                        <strong>💡 ヒント:</strong> 失敗分析実行時に上記の「ユーザーストーリー/テスト目標」が入力されていれば、
-                        そのストーリーの観点から重要な要素を判定し、スキップではなく代替手段を模索します！
+            </div>
+            
+            <!-- 新しいストーリータブ -->
+            <div id="new-stories" class="tab-content">
+                <!-- 新ストーリー発見セクション -->
+                <div class="section">
+                    <h2>📖 新しいストーリー発見・実行</h2>
+                    
+                    <div class="button-container">
+                        <button class="btn btn-info" onclick="executeCommand('discoverNewStories')">
+                            🔍 新ストーリー発見
+                        </button>
+                        <button class="btn btn-success" onclick="showDiscoveredStoriesModal()">
+                            📋 発見済みストーリー選択
+                        </button>
+                    </div>
+                    
+                    <div id="statusNewStories" class="status" style="display: none;"></div>
+                    
+                    <!-- 選択されたストーリー表示 -->
+                    <div id="selectedStoryDisplay" class="selected-story" style="display: none;">
+                        <h3>🎯 選択されたストーリー</h3>
+                        <div class="story-info">
+                            <p><strong>ストーリー:</strong> <span id="selectedStoryText">-</span></p>
+                            <p><strong>優先度:</strong> <span id="selectedStoryPriority">-</span></p>
+                            <p><strong>推奨URL:</strong> <span id="selectedStoryUrl">-</span></p>
+                        </div>
+                    </div>
+                    
+                    <!-- 新ストーリー用テスト実行ボタン -->
+                    <div class="section">
+                        <h3>🚀 新ストーリーでテスト実行</h3>
+                        <div class="button-container">
+                            <button class="btn btn-primary" onclick="executeNewStoryCommand('generateTestPoints')">
+                                📝 テスト観点生成
+                            </button>
+                            <button class="btn btn-primary" onclick="executeNewStoryCommand('generateSmartRoutes')">
+                                🎯 スマートシナリオ生成
+                            </button>
+                            <button class="btn btn-success" onclick="executeNewStoryCommand('runRoutes')">
+                                ▶️ テスト実行
+                            </button>
+                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateTestReport')">
+                                📊 レポート生成
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- テスト実行結果サマリー（新ストーリー用） -->
+                    <div id="testSummaryNewStories" class="test-summary" style="display: none;">
+                        <h3>📊 新ストーリーテスト結果</h3>
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <span class="summary-label">🔷 テストID:</span>
+                                <span id="testIdNewStories" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">🔷 総ステップ数:</span>
+                                <span id="totalStepsNewStories" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item success">
+                                <span class="summary-label">✅ 成功数:</span>
+                                <span id="successCountNewStories" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-item error">
+                                <span class="summary-label">❌ 失敗数:</span>
+                                <span id="failureCountNewStories" class="summary-value">-</span>
+                            </div>
+                        </div>
+                        <div id="failedTestsNewStories" class="failed-tests" style="display: none;">
+                            <h4>❌ 失敗したテストケース:</h4>
+                            <ul id="failedTestsListNewStories"></ul>
+                        </div>
+                    </div>
+                    
+                    <div class="log-area" id="logAreaNewStories">
+                        新ストーリーテスト実行ログがここに表示されます...
+                    </div>
+                    
+                    <div class="description">
+                        <h4>📖 新ストーリー機能の特徴:</h4>
+                        <ul>
+                            <li><strong>ストーリー自動発見</strong>: 過去のテスト結果を分析して新しいユーザーストーリーを発見</li>
+                            <li><strong>優先度判定</strong>: AIが重要度を判定し、高優先度のストーリーを優先表示</li>
+                            <li><strong>シームレス実行</strong>: 発見されたストーリーをそのまま新しいテストとして実行</li>
+                            <li><strong>完全なワークフロー</strong>: 観点生成からレポート作成まで一貫した実行が可能</li>
+                        </ul>
+                        <div class="highlight-box">
+                            <strong>💡 使い方:</strong> 
+                            1. 「新ストーリー発見」で新しいストーリーを発見 → 
+                            2. 「発見済みストーリー選択」でストーリーを選択 → 
+                            3. 各種テストボタンで実行！
+                        </div>
                     </div>
                 </div>
             </div>
@@ -916,10 +1235,87 @@
         </div>
     </div>
 
+    <!-- 発見済みストーリー選択ポップアップ -->
+    <div id="discoveredStoriesModal" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>📖 発見済みストーリー選択</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>🎯 概要</h3>
+                <p>過去に発見された新しいユーザーストーリーの一覧から選択します。</p>
+                
+                <div class="highlight-box">
+                    <strong>💡 ヒント:</strong> 選択したストーリーが基本設定の「ユーザーストーリー」欄に自動入力されます。
+                </div>
+
+                <h3>📋 発見済みストーリー一覧</h3>
+                <div id="discoveredStoriesList">
+                    <p>読み込み中...</p>
+                </div>
+
+                <h3>⚠️ 注意事項</h3>
+                <div class="warning-box">
+                    <ul>
+                        <li>ストーリーを選択すると基本設定の内容が上書きされます</li>
+                        <li>推奨URLがある場合は、そのURLに変更することをお勧めします</li>
+                        <li>選択後は「新ストーリー」タブでテスト実行が可能です</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // タブ切り替え関数
+        function switchTab(tabId) {
+            // すべてのタブコンテンツを非表示
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // すべてのタブボタンをアクティブ解除
+            const tabButtons = document.querySelectorAll('.tab-button');
+            tabButtons.forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            // 指定されたタブコンテンツを表示
+            const targetTab = document.getElementById(tabId);
+            if (targetTab) {
+                targetTab.classList.add('active');
+            }
+            
+            // 対応するタブボタンをアクティブ化
+            const targetButton = document.querySelector(`[onclick="switchTab('${tabId}')"]`);
+            if (targetButton) {
+                targetButton.classList.add('active');
+            }
+        }
+        
         // ログエリアに追加する関数
         function addLog(message, type = 'info') {
             const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}\n`;
+            logArea.textContent += logMessage;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+        
+        // 自動改善タブ用のログ関数
+        function addLogAI(message, type = 'info') {
+            const logArea = document.getElementById('logAreaAI');
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}\n`;
+            logArea.textContent += logMessage;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+        
+        // 新ストーリータブ用のログ関数
+        function addLogNewStories(message, type = 'info') {
+            const logArea = document.getElementById('logAreaNewStories');
             const timestamp = new Date().toLocaleTimeString();
             const logMessage = `[${timestamp}] ${message}\n`;
             logArea.textContent += logMessage;
@@ -935,6 +1331,26 @@
             statusEl.className = `status ${type}`;
             statusEl.style.display = 'block';
         }
+        
+        // 自動改善タブ用のステータス表示関数
+        function showStatusAI(message, type) {
+            const statusEl = document.getElementById('statusAI');
+            // 長いメッセージは短縮して表示
+            const displayMessage = message.length > 100 ? message.substring(0, 100) + '...' : message;
+            statusEl.textContent = displayMessage;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+        }
+        
+        // 新ストーリータブ用のステータス表示関数
+        function showStatusNewStories(message, type) {
+            const statusEl = document.getElementById('statusNewStories');
+            // 長いメッセージは短縮して表示
+            const displayMessage = message.length > 100 ? message.substring(0, 100) + '...' : message;
+            statusEl.textContent = displayMessage;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+        }
 
         // コマンド実行関数
         async function executeCommand(command) {
@@ -943,9 +1359,17 @@
             const pdfFile = document.getElementById('pdfFile').files[0];
             const csvFile = document.getElementById('csvFile').files[0];
             
+            // 自動改善コマンドかどうかを判定
+            const isAICommand = command === 'analyzeFailures' || command === 'discoverNewStories';
+            const isNewStoriesCommand = false; // executeNewStoryCommand で処理
+            
             // URL入力チェック
             if (!url && command !== 'runRoutes' && command !== 'generateTestReport' && command !== 'analyzeFailures') {
-                showStatus('テスト対象URLを入力してください', 'error');
+                if (isAICommand) {
+                    showStatusAI('テスト対象URLを入力してください', 'error');
+                } else {
+                    showStatus('テスト対象URLを入力してください', 'error');
+                }
                 return;
             }
             
@@ -954,8 +1378,14 @@
                 showUserStoryId();
             }
             
-            addLog(`🚀 ${getCommandName(command)} を開始しています...`);
-            showStatus(`${getCommandName(command)} 実行中...`, 'info');
+            // ログとステータス表示を自動改善コマンドに応じて分岐
+            if (isAICommand) {
+                addLogAI(`🚀 ${getCommandName(command)} を開始しています...`);
+                showStatusAI(`${getCommandName(command)} 実行中...`, 'info');
+            } else {
+                addLog(`🚀 ${getCommandName(command)} を開始しています...`);
+                showStatus(`${getCommandName(command)} 実行中...`, 'info');
+            }
             
             try {
                 const formData = new FormData();
@@ -973,47 +1403,90 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    addLog(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    if (isAICommand) {
+                        addLogAI(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    } else {
+                        addLog(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    }
+                    
                     if (result.output) {
-                        addLog(result.output);
+                        if (isAICommand) {
+                            addLogAI(result.output);
+                        } else {
+                            addLog(result.output);
+                        }
                         
                         // runRoutesコマンドの場合、テスト結果を解析
                         if (command === 'runRoutes') {
                             console.log('🛠️ [Debug] Full output for parsing:', result.output);
                             parseTestResults(result.output);
-                            // テスト実行の場合は特別なメッセージを表示
                             showStatus(`テストを実行しました！`, 'success');
                         } else if (command === 'analyzeFailures') {
-                            showStatus(`失敗テスト分析・修正 完了`, 'success');
+                            // 自動改善タブでもテスト結果を解析
+                            parseTestResultsAI(result.output);
+                            showStatusAI(`失敗テスト分析・修正 完了`, 'success');
+                        } else if (command === 'discoverNewStories') {
+                            showStatusAI(`新ストーリー発見 完了`, 'success');
+                        } else {
+                            if (isAICommand) {
+                                showStatusAI(`${getCommandName(command)} 完了`, 'success');
+                            } else {
+                                showStatus(`${getCommandName(command)} 完了`, 'success');
+                            }
+                        }
+                    } else {
+                        if (isAICommand) {
+                            showStatusAI(`${getCommandName(command)} 完了`, 'success');
                         } else {
                             showStatus(`${getCommandName(command)} 完了`, 'success');
                         }
-                    } else {
-                        showStatus(`${getCommandName(command)} 完了`, 'success');
                     }
                 } else {
-                    addLog(`❌ エラー: ${result.error}`);
+                    if (isAICommand) {
+                        addLogAI(`❌ エラー: ${result.error}`);
+                    } else {
+                        addLog(`❌ エラー: ${result.error}`);
+                    }
+                    
                     if (result.output) {
-                        addLog(result.output);
+                        if (isAICommand) {
+                            addLogAI(result.output);
+                        } else {
+                            addLog(result.output);
+                        }
                         
                         // エラーでもrunRoutesの場合は結果を解析
                         if (command === 'runRoutes') {
                             console.log('🛠️ [Debug] Error output for parsing:', result.output);
                             parseTestResults(result.output);
-                            // テスト実行の場合は特別なメッセージを表示
                             showStatus(`テストを実行しました！（一部エラーあり）`, 'warning');
                         } else if (command === 'analyzeFailures') {
-                            showStatus(`失敗テスト分析でエラーが発生しました: ${result.error}`, 'error');
+                            // エラーでも自動改善タブでテスト結果を解析を試行
+                            parseTestResultsAI(result.output);
+                            showStatusAI(`失敗テスト分析でエラーが発生しました: ${result.error}`, 'error');
+                        } else {
+                            if (isAICommand) {
+                                showStatusAI(`エラーが発生しました: ${result.error}`, 'error');
+                            } else {
+                                showStatus(`エラーが発生しました: ${result.error}`, 'error');
+                            }
+                        }
+                    } else {
+                        if (isAICommand) {
+                            showStatusAI(`エラーが発生しました: ${result.error}`, 'error');
                         } else {
                             showStatus(`エラーが発生しました: ${result.error}`, 'error');
                         }
-                    } else {
-                        showStatus(`エラーが発生しました: ${result.error}`, 'error');
                     }
                 }
             } catch (error) {
-                addLog(`❌ 通信エラー: ${error.message}`);
-                showStatus(`通信エラーが発生しました`, 'error');
+                if (isAICommand) {
+                    addLogAI(`❌ 通信エラー: ${error.message}`);
+                    showStatusAI(`通信エラーが発生しました`, 'error');
+                } else {
+                    addLog(`❌ 通信エラー: ${error.message}`);
+                    showStatus(`通信エラーが発生しました`, 'error');
+                }
             }
         }
         
@@ -1047,6 +1520,123 @@
             } catch (error) {
                 console.error('ユーザーストーリーID取得エラー:', error);
                 document.getElementById('userStoryId').style.display = 'none';
+            }
+        }
+
+        // トレーサビリティIDリセット機能
+        async function resetTraceabilityId() {
+            if (!confirm('トレーサビリティIDをリセットしますか？\n\n現在のID番号がリセットされ、新しいテスト実行時に新しいIDが採番されます。')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/config/user-story/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // UIを更新
+                    document.getElementById('currentUserStoryId').textContent = '-';
+                    document.getElementById('userStoryId').style.display = 'none';
+                    
+                    // 成功メッセージを表示
+                    alert('✅ トレーサビリティIDをリセットしました。\n次回のテスト実行時に新しいIDが採番されます。');
+                    console.log('🔄 トレーサビリティIDをリセットしました');
+                } else {
+                    alert(`❌ リセットに失敗しました: ${result.error}`);
+                    console.error('リセットエラー:', result.error);
+                }
+            } catch (error) {
+                alert(`❌ 通信エラーが発生しました: ${error.message}`);
+                console.error('トレーサビリティIDリセット通信エラー:', error);
+            }
+        }
+
+        // 新ストーリー用コマンド実行関数
+        async function executeNewStoryCommand(command) {
+            const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            const csvFile = document.getElementById('csvFile').files[0];
+            
+            // URL入力チェック
+            if (!url && command !== 'runRoutes' && command !== 'generateTestReport') {
+                showStatusNewStories('テスト対象URLを入力してください', 'error');
+                return;
+            }
+            
+            // ストーリー選択チェック
+            if (!testGoal || !testGoal.trim()) {
+                showStatusNewStories('発見済みストーリーを選択してください', 'error');
+                return;
+            }
+            
+            // ユーザーストーリーが入力されている場合、トレーサビリティIDを表示
+            if (testGoal && testGoal.trim()) {
+                showUserStoryId();
+            }
+            
+            addLogNewStories(`🚀 ${getCommandName(command)} を開始しています...`);
+            showStatusNewStories(`${getCommandName(command)} 実行中...`, 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('command', command);
+                if (url) formData.append('url', url);
+                if (testGoal) formData.append('goal', testGoal);
+                if (pdfFile) formData.append('pdf', pdfFile);
+                if (csvFile) formData.append('csv', csvFile);
+                
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLogNewStories(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    
+                    if (result.output) {
+                        addLogNewStories(result.output);
+                        
+                        // runRoutesコマンドの場合、テスト結果を解析
+                        if (command === 'runRoutes') {
+                            console.log('🛠️ [Debug] Full output for parsing (New Stories):', result.output);
+                            parseTestResultsNewStories(result.output);
+                            showStatusNewStories(`新ストーリーテストを実行しました！`, 'success');
+                        } else {
+                            showStatusNewStories(`${getCommandName(command)} 完了`, 'success');
+                        }
+                    } else {
+                        showStatusNewStories(`${getCommandName(command)} 完了`, 'success');
+                    }
+                } else {
+                    addLogNewStories(`❌ エラー: ${result.error}`);
+                    
+                    if (result.output) {
+                        addLogNewStories(result.output);
+                        
+                        // エラーでもrunRoutesの場合は結果を解析
+                        if (command === 'runRoutes') {
+                            console.log('🛠️ [Debug] Error output for parsing (New Stories):', result.output);
+                            parseTestResultsNewStories(result.output);
+                            showStatusNewStories(`新ストーリーテストを実行しました！（一部エラーあり）`, 'warning');
+                        } else {
+                            showStatusNewStories(`エラーが発生しました: ${result.error}`, 'error');
+                        }
+                    } else {
+                        showStatusNewStories(`エラーが発生しました: ${result.error}`, 'error');
+                    }
+                }
+            } catch (error) {
+                addLogNewStories(`❌ 通信エラー: ${error.message}`);
+                showStatusNewStories(`通信エラーが発生しました`, 'error');
             }
         }
 
@@ -1320,6 +1910,217 @@
             
             addLog(`📊 テスト結果サマリーが表示されました`);
         }
+        
+        // 自動改善タブ用のテスト結果解析関数
+        function parseTestResultsAI(output) {
+            try {
+                console.log('🛠️ [Debug] Parsing AI test results...');
+                const lines = output.split('\n');
+                let testId = '-';
+                let totalSteps = '-';
+                let successCount = '-';
+                let failureCount = '-';
+                const failedTests = [];
+                let resultFilePath = '';
+                
+                let inFailedSection = false;
+                
+                for (const line of lines) {
+                    // テストIDの抽出
+                    const testIdMatch = line.match(/🔷 テストID:\s*(.+)/);
+                    if (testIdMatch) {
+                        testId = testIdMatch[1].trim();
+                    }
+                    
+                    // 総ステップ数の抽出
+                    const totalStepsMatch = line.match(/🔷 総ステップ数:\s*(\d+)/);
+                    if (totalStepsMatch) {
+                        totalSteps = totalStepsMatch[1];
+                    }
+                    
+                    // 成功数の抽出
+                    const successMatch = line.match(/🔷 成功数:\s*(\d+)/);
+                    if (successMatch) {
+                        successCount = successMatch[1];
+                    }
+                    
+                    // 失敗数の抽出
+                    const failureMatch = line.match(/🔷 失敗数:\s*(\d+)/);
+                    if (failureMatch) {
+                        failureCount = failureMatch[1];
+                    }
+                    
+                    // 結果ファイルパスの抽出
+                    const resultFileMatch = line.match(/📝 テスト結果を保存しました:\s*(.+\.json)/);
+                    if (resultFileMatch) {
+                        resultFilePath = resultFileMatch[1].trim();
+                    }
+                    
+                    // 失敗したテストケースセクション開始
+                    if (line.includes('❌ 失敗したテストケース:')) {
+                        inFailedSection = true;
+                        continue;
+                    }
+                    
+                    // 失敗したテストケースの抽出
+                    if (inFailedSection) {
+                        const failedTestMatch = line.match(/^\s*-\s*(.+)/);
+                        if (failedTestMatch) {
+                            const failedTest = cleanErrorMessage(failedTestMatch[1].trim());
+                            if (failedTest.trim()) {
+                                failedTests.push(failedTest);
+                            }
+                        }
+                        
+                        if (line.trim() === '' || line.includes('📝 テスト結果を保存しました')) {
+                            inFailedSection = false;
+                        }
+                    }
+                }
+                
+                // 自動改善タブのサマリー表示
+                displayTestSummaryAI(testId, totalSteps, successCount, failureCount, failedTests, resultFilePath);
+                
+            } catch (error) {
+                console.error('自動改善テスト結果解析エラー:', error);
+                addLogAI(`⚠️ テスト結果の解析に失敗しました: ${error.message}`);
+            }
+        }
+        
+        // 自動改善タブ用のテストサマリー表示関数
+        function displayTestSummaryAI(testId, totalSteps, successCount, failureCount, failedTests, resultFilePath) {
+            // 値を設定
+            document.getElementById('testIdAI').textContent = testId;
+            document.getElementById('totalStepsAI').textContent = totalSteps;
+            document.getElementById('successCountAI').textContent = successCount;
+            document.getElementById('failureCountAI').textContent = failureCount;
+            
+            // 失敗したテストケースの表示
+            const failedTestsSection = document.getElementById('failedTestsAI');
+            const failedTestsList = document.getElementById('failedTestsListAI');
+            
+            if (failedTests.length > 0) {
+                failedTestsList.innerHTML = '';
+                failedTests.forEach(test => {
+                    const li = document.createElement('li');
+                    li.textContent = test;
+                    failedTestsList.appendChild(li);
+                });
+                failedTestsSection.style.display = 'block';
+            } else {
+                failedTestsSection.style.display = 'none';
+            }
+            
+            // サマリーセクションを表示
+            document.getElementById('testSummaryAI').style.display = 'block';
+            
+            addLogAI(`📊 自動改善テスト結果サマリーが表示されました`);
+        }
+        
+        // 新ストーリータブ用のテスト結果解析関数
+        function parseTestResultsNewStories(output) {
+            try {
+                console.log('🛠️ [Debug] Parsing New Stories test results...');
+                const lines = output.split('\n');
+                let testId = '-';
+                let totalSteps = '-';
+                let successCount = '-';
+                let failureCount = '-';
+                const failedTests = [];
+                let resultFilePath = '';
+                
+                let inFailedSection = false;
+                
+                for (const line of lines) {
+                    // テストIDの抽出
+                    const testIdMatch = line.match(/🔷 テストID:\s*(.+)/);
+                    if (testIdMatch) {
+                        testId = testIdMatch[1].trim();
+                    }
+                    
+                    // 総ステップ数の抽出
+                    const totalStepsMatch = line.match(/🔷 総ステップ数:\s*(\d+)/);
+                    if (totalStepsMatch) {
+                        totalSteps = totalStepsMatch[1];
+                    }
+                    
+                    // 成功数の抽出
+                    const successMatch = line.match(/🔷 成功数:\s*(\d+)/);
+                    if (successMatch) {
+                        successCount = successMatch[1];
+                    }
+                    
+                    // 失敗数の抽出
+                    const failureMatch = line.match(/🔷 失敗数:\s*(\d+)/);
+                    if (failureMatch) {
+                        failureCount = failureMatch[1];
+                    }
+                    
+                    // 失敗したテストケースの開始
+                    if (line.includes('❌ 失敗したテストケース:')) {
+                        inFailedSection = true;
+                        continue;
+                    }
+                    
+                    // 失敗したテストケースの抽出
+                    if (inFailedSection && line.includes('- ')) {
+                        const failedTest = line.replace('STDOUT:', '').replace(/^\s*[-]\s*/, '').trim();
+                        if (failedTest) {
+                            failedTests.push(failedTest);
+                        }
+                    }
+                    
+                    // ファイルパスの抽出
+                    const filePathMatch = line.match(/📝 テスト結果を保存しました:\s*(.+)/);
+                    if (filePathMatch) {
+                        resultFilePath = filePathMatch[1].trim();
+                        inFailedSection = false; // ファイル保存時点で失敗セクション終了
+                    }
+                }
+                
+                // 結果を表示
+                displayTestSummaryNewStories(testId, totalSteps, successCount, failureCount, failedTests);
+                
+                if (resultFilePath) {
+                    addLogNewStories(`📁 テスト結果ファイル: ${resultFilePath}`);
+                }
+                
+                console.log('🛠️ [Debug] Parsed New Stories results:', {
+                    testId, totalSteps, successCount, failureCount, failedTests
+                });
+            } catch (error) {
+                console.error('🛠️ [Debug] Error parsing New Stories test results:', error);
+                addLogNewStories(`❌ テスト結果の解析でエラーが発生しました: ${error.message}`);
+            }
+        }
+        
+        // 新ストーリータブ用のテストサマリー表示関数
+        function displayTestSummaryNewStories(testId, totalSteps, successCount, failureCount, failedTests) {
+            document.getElementById('testIdNewStories').textContent = testId;
+            document.getElementById('totalStepsNewStories').textContent = totalSteps;
+            document.getElementById('successCountNewStories').textContent = successCount;
+            document.getElementById('failureCountNewStories').textContent = failureCount;
+            
+            // 失敗したテストケースを表示
+            const failedTestsList = document.getElementById('failedTestsListNewStories');
+            const failedTestsContainer = document.getElementById('failedTestsNewStories');
+            
+            if (failedTests.length > 0) {
+                failedTestsList.innerHTML = '';
+                failedTests.forEach(test => {
+                    const li = document.createElement('li');
+                    li.textContent = test;
+                    failedTestsList.appendChild(li);
+                });
+                failedTestsContainer.style.display = 'block';
+            } else {
+                failedTestsContainer.style.display = 'none';
+            }
+            
+            // サマリーを表示
+            document.getElementById('testSummaryNewStories').style.display = 'block';
+            addLogNewStories(`📊 新ストーリーテスト結果サマリーが表示されました`);
+        }
 
         // AI設定関数
         function updateTemperatureDisplay() {
@@ -1485,14 +2286,148 @@
             if (!event || event.target === event.currentTarget) {
                 document.getElementById('manualGuideModal').style.display = 'none';
                 document.getElementById('fixedRouteModal').style.display = 'none';
-                addLog('📋 ガイドを閉じました');
+                document.getElementById('discoveredStoriesModal').style.display = 'none';
+                addLog('📋 ポップアップを閉じました');
             }
+        }
+
+        // 発見済みストーリー選択ポップアップ表示
+        async function showDiscoveredStoriesModal() {
+            document.getElementById('discoveredStoriesModal').style.display = 'block';
+            addLogNewStories('📖 発見済みストーリー選択画面を表示しました');
+            
+            // 発見済みストーリーファイル一覧を読み込み
+            await loadDiscoveredStories();
+        }
+
+        // 発見済みストーリーファイル一覧読み込み
+        async function loadDiscoveredStories() {
+            try {
+                const response = await fetch('/api/list-files?pattern=discovered_stories_*.json');
+                const result = await response.json();
+                
+                const storiesListEl = document.getElementById('discoveredStoriesList');
+                
+                if (result.success && result.files && result.files.length > 0) {
+                    let html = '<div class="file-list">';
+                    
+                    // ファイルを日付順にソート（新しい順）
+                    const sortedFiles = result.files.sort((a, b) => b.localeCompare(a));
+                    
+                    for (const file of sortedFiles) {
+                        // ファイル名から日時を抽出
+                        const dateMatch = file.match(/discovered_stories_(.+)\.json$/);
+                        const dateStr = dateMatch ? dateMatch[1].replace(/T/g, ' ').replace(/-/g, '/').replace('Z', '') : 'Unknown';
+                        
+                        html += `
+                            <div class="file-item">
+                                <div class="file-info">
+                                    <div class="file-name">📁 ${file}</div>
+                                    <div class="file-date">📅 作成日時: ${dateStr}</div>
+                                </div>
+                                <button class="btn btn-small btn-info" onclick="loadDiscoveredStoriesFromFile('${file}')">
+                                    📋 ストーリー一覧表示
+                                </button>
+                            </div>
+                        `;
+                    }
+                    
+                    html += '</div>';
+                    storiesListEl.innerHTML = html;
+                } else {
+                    storiesListEl.innerHTML = '<p>❌ 発見済みストーリーファイルが見つかりません。<br>まず「新ストーリー発見」を実行してください。</p>';
+                }
+            } catch (error) {
+                console.error('発見済みストーリー一覧読み込みエラー:', error);
+                const storiesListEl = document.getElementById('discoveredStoriesList');
+                storiesListEl.innerHTML = '<p>❌ ファイル一覧の読み込みに失敗しました</p>';
+            }
+        }
+
+        // 発見済みストーリーファイルからストーリー一覧を読み込み
+        async function loadDiscoveredStoriesFromFile(fileName) {
+            try {
+                const response = await fetch(`/api/get-file?path=${encodeURIComponent(fileName)}`);
+                const result = await response.json();
+                
+                if (result.success && result.content) {
+                    const storiesData = JSON.parse(result.content);
+                    displayDiscoveredStories(storiesData.discoveredStories || []);
+                } else {
+                    addLogNewStories(`❌ ファイル読み込みエラー: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('ストーリーファイル読み込みエラー:', error);
+                addLogNewStories(`❌ ストーリーファイル読み込みエラー: ${error.message}`);
+            }
+        }
+
+        // 発見されたストーリー一覧を表示
+        function displayDiscoveredStories(stories) {
+            const storiesListEl = document.getElementById('discoveredStoriesList');
+            
+            if (stories.length === 0) {
+                storiesListEl.innerHTML = '<p>❌ ストーリーが見つかりません</p>';
+                return;
+            }
+            
+            let html = '<div class="stories-list"><h4>📖 発見されたストーリー一覧</h4>';
+            
+            stories.forEach((story, index) => {
+                const priorityColor = story.priority === '高' ? 'high' : story.priority === '中' ? 'medium' : 'low';
+                
+                html += `
+                    <div class="story-item">
+                        <div class="story-info">
+                            <div class="story-title">📋 ${story.story}</div>
+                            <div class="story-priority priority-${priorityColor}">🎯 優先度: ${story.priority}</div>
+                            ${story.recommendedUrl ? `<div class="story-url">🔗 推奨URL: ${story.recommendedUrl}</div>` : ''}
+                        </div>
+                        <button class="btn btn-small btn-success" onclick="selectDiscoveredStory('${story.story.replace(/'/g, "\\'")}', '${story.priority}', '${story.recommendedUrl || ''}')">
+                            ✅ このストーリーを選択
+                        </button>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            storiesListEl.innerHTML = html;
+        }
+
+        // 発見されたストーリーを選択
+        function selectDiscoveredStory(story, priority, recommendedUrl) {
+            // 基本設定のユーザーストーリー欄に設定
+            document.getElementById('testGoal').value = story;
+            
+            // 推奨URLがある場合は、URLフィールドも更新
+            if (recommendedUrl && recommendedUrl !== 'undefined' && recommendedUrl.trim()) {
+                document.getElementById('testUrl').value = recommendedUrl;
+                addLogNewStories(`🔗 推奨URLを設定しました: ${recommendedUrl}`);
+            }
+            
+            // 選択されたストーリー情報を表示
+            document.getElementById('selectedStoryText').textContent = story;
+            document.getElementById('selectedStoryPriority').textContent = priority;
+            document.getElementById('selectedStoryUrl').textContent = recommendedUrl || '指定なし';
+            document.getElementById('selectedStoryDisplay').style.display = 'block';
+            
+            // モーダルを閉じる
+            document.getElementById('discoveredStoriesModal').style.display = 'none';
+            
+            // 新ストーリータブに切り替え
+            switchTab('new-stories');
+            
+            addLogNewStories(`✅ ストーリーを選択しました: ${story}`);
+            addLogNewStories(`🎯 優先度: ${priority}`);
+            
+            // トレーサビリティIDを表示
+            showUserStoryId();
         }
 
         // 修正ルート実行ポップアップ表示
         async function showFixedRouteModal() {
             document.getElementById('fixedRouteModal').style.display = 'block';
-            addLog('🚀 修正ルート選択画面を表示しました');
+            addLogAI('🚀 修正ルート選択画面を表示しました');
             
             // 修正ルートファイル一覧を読み込み
             await loadFixedRoutes();
@@ -1550,8 +2485,8 @@
         // 修正ルートを実行
         async function runFixedRoute(routeId) {
             try {
-                addLog(`🚀 修正ルート実行開始: ${routeId}`);
-                showStatus(`修正ルート実行中: ${routeId}`, 'info');
+                addLogAI(`🚀 修正ルート実行開始: ${routeId}`);
+                showStatusAI(`修正ルート実行中: ${routeId}`, 'info');
                 
                 console.log('🛠️ [Debug] Sending request to:', '/api/execute-json');
                 console.log('🛠️ [Debug] Request body:', JSON.stringify({
@@ -1579,16 +2514,16 @@
                 const result = JSON.parse(responseText);
                 
                 if (result.success) {
-                    addLog(`✅ 修正ルート実行完了: ${routeId}`);
-                    addLog(result.output);
-                    showStatus('修正ルート実行完了！', 'success');
+                    addLogAI(`✅ 修正ルート実行完了: ${routeId}`);
+                    addLogAI(result.output);
+                    showStatusAI('修正ルート実行完了！', 'success');
                     
                     // Google Sheetsアップロードのチェック
                     if (result.output.includes('修正ルート結果をGoogle Sheetsに追加完了')) {
                         const urlMatch = result.output.match(/🔗 スプレッドシート: (https:\/\/[^\s]+)/);
                         if (urlMatch) {
                             const spreadsheetUrl = urlMatch[1];
-                            addLog(`📊 Google Sheetsに「再）実行結果」列を追加しました`);
+                            addLogAI(`📊 Google Sheetsに「再）実行結果」列を追加しました`);
                             
                             // スプレッドシートを開くかどうか確認
                             setTimeout(() => {
@@ -1603,22 +2538,22 @@
                     // モーダルを閉じる
                     closeModal();
                     
-                    // テスト結果を解析
-                    parseTestResults(result.output);
+                    // 自動改善タブ用のテスト結果解析
+                    parseTestResultsAI(result.output);
                 } else {
-                    addLog(`❌ 修正ルート実行エラー: ${result.error}`);
+                    addLogAI(`❌ 修正ルート実行エラー: ${result.error}`);
                     if (result.output) {
-                        addLog(result.output);
-                        // エラーでもテスト結果を解析（部分的な結果があるため）
-                        parseTestResults(result.output);
-                        showStatus('修正ルート実行完了（一部エラーあり）', 'warning');
+                        addLogAI(result.output);
+                        // エラーでも自動改善タブのテスト結果を解析（部分的な結果があるため）
+                        parseTestResultsAI(result.output);
+                        showStatusAI('修正ルート実行完了（一部エラーあり）', 'warning');
                     } else {
-                        showStatus('修正ルート実行失敗', 'error');
+                        showStatusAI('修正ルート実行失敗', 'error');
                     }
                 }
             } catch (error) {
-                addLog(`❌ 修正ルート実行エラー: ${error.message}`);
-                showStatus(`修正ルート実行失敗: ${error.message}`, 'error');
+                addLogAI(`❌ 修正ルート実行エラー: ${error.message}`);
+                showStatusAI(`修正ルート実行失敗: ${error.message}`, 'error');
             }
         }
         
