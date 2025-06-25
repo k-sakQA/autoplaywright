@@ -130,44 +130,15 @@ export class PlaywrightRunner {
           let visibleFound = false;
           for (const selector of visibleSelectors) {
             try {
-              // text=セレクタの場合は部分一致も試行
-              if (selector.startsWith('text=')) {
-                const searchText = selector.replace('text=', '').replace(/"/g, '');
-                try {
-                  // 厳密一致を先に試行
-                  await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
-                  console.log(`✅ 要素表示確認（厳密一致）: ${selector}`);
-                  visibleFound = true;
-                  break;
-                } catch (e) {
-                  // 厳密一致が失敗した場合、部分一致を試行
-                  try {
-                    const partialSelector = `text*="${searchText}"`;
-                    await this.page.waitForSelector(partialSelector, { state: 'visible', timeout: step.timeout || 10000 });
-                    console.log(`✅ 要素表示確認（部分一致）: ${partialSelector}`);
-                    visibleFound = true;
-                    break;
-                  } catch (e2) {
-                    // さらに、:has-textも試行
-                    try {
-                      const hasTextSelector = `:has-text("${searchText}")`;
-                      await this.page.waitForSelector(hasTextSelector, { state: 'visible', timeout: step.timeout || 10000 });
-                      console.log(`✅ 要素表示確認（:has-text）: ${hasTextSelector}`);
-                      visibleFound = true;
-                      break;
-                    } catch (e3) {
-                      continue;
-                    }
-                  }
-                }
-              } else {
-                await this.page.waitForSelector(selector, { state: 'visible', timeout: step.timeout || 10000 });
-                console.log(`✅ 要素表示確認: ${selector}`);
-                visibleFound = true;
-                break;
-              }
+              await this.page.waitForSelector(selector, { 
+                state: 'visible', 
+                timeout: step.timeout || 5000 
+              });
+              console.log(`✅ 要素表示確認: ${selector}`);
+              visibleFound = true;
+              break;
             } catch (e) {
-              // 次のセレクタを試す
+              // このセレクタでは見つからなかった、次を試す
               continue;
             }
           }
@@ -175,39 +146,36 @@ export class PlaywrightRunner {
             throw new Error(`いずれの要素も見つかりませんでした: ${step.target}`);
           }
           break;
-        case 'assertNotVisible':
-          await this.page.waitForSelector(step.target, { state: 'hidden', timeout: step.timeout || 5000 });
-          console.log(`✅ 要素非表示確認: ${step.target}`);
-          break;
         case 'click':
-          // 複数セレクタの場合は最初に見つかったものをクリック
+          // 複数セレクタの場合は最初にクリックできたものを使用
           const clickSelectors = step.target.split(',').map(s => s.trim());
-          let clickFound = false;
+          let clickSuccess = false;
           for (const selector of clickSelectors) {
             try {
-              if (step.expectsNavigation) {
-                await Promise.all([
-                  this.page.waitForNavigation({
-                    timeout: step.timeout || 30000,
-                    waitUntil: 'networkidle'
-                  }),
-                  this.page.click(selector, { timeout: step.timeout || 10000 })
-                ]);
-                console.log(`✅ クリック後の画面遷移成功: ${selector}`);
-              } else {
-                await this.page.click(selector, { timeout: step.timeout || 10000 });
-                console.log(`✅ クリック成功: ${selector}`);
-              }
-              clickFound = true;
+              await this.page.click(selector, { timeout: step.timeout || 5000 });
+              console.log(`✅ クリック成功: ${selector}`);
+              clickSuccess = true;
               break;
             } catch (e) {
-              // 次のセレクタを試す
+              // このセレクタではクリックできなかった、次を試す
               continue;
             }
           }
-          if (!clickFound) {
+          if (!clickSuccess) {
             throw new Error(`いずれの要素もクリックできませんでした: ${step.target}`);
           }
+          break;
+        case 'scroll_and_click':
+          // スクロールしてからクリック
+          const locator = this.page.locator(step.target);
+          await locator.scrollIntoViewIfNeeded();
+          await locator.click({ timeout: step.timeout || 5000 });
+          console.log(`✅ スクロール後クリック成功: ${step.target}`);
+          break;
+        case 'force_click':
+          // 強制クリック
+          await this.page.locator(step.target).click({ force: true, timeout: step.timeout || 5000 });
+          console.log(`✅ 強制クリック成功: ${step.target}`);
           break;
         case 'fill':
           // select要素の場合はselectOptionを使用
@@ -222,9 +190,19 @@ export class PlaywrightRunner {
             console.log(`✅ 入力完了: ${step.target} = "${step.value}"`);
           }
           break;
+        case 'scroll_and_fill':
+          // スクロールしてから入力
+          const fillLocator = this.page.locator(step.target);
+          await fillLocator.scrollIntoViewIfNeeded();
+          await fillLocator.fill(step.value || '', { timeout: step.timeout || 5000 });
+          console.log(`✅ スクロール後入力完了: ${step.target} = "${step.value}"`);
+          break;
         case 'waitForURL':
           await this.page.waitForURL(step.target, { timeout: step.timeout || 10000 });
           console.log(`✅ URL遷移確認: ${step.target}`);
+          break;
+        case 'skip':
+          console.log(`⏭️ ステップをスキップ: ${step.label || step.target}`);
           break;
         default:
           console.log(`⚠️ 未知のアクション: "${step.action}"`);
@@ -255,36 +233,128 @@ export class PlaywrightRunner {
   let successTests = [];
 
   try {
-    // 1. 最新の route ファイルを取得
-    const testResultsDir = path.resolve(__dirname, '../test-results');
-    const files = fs.readdirSync(testResultsDir)
-      .filter(f => f.startsWith('route_') && f.endsWith('.json'));
-    if (files.length === 0) {
-      throw new Error('route JSONファイルが見つかりません');
+    // コマンドライン引数の解析
+    const args = process.argv.slice(2);
+    let specificRouteFile = null;
+    let skipDuplicateCheck = false;
+
+    // --route-file 引数の処理
+    const routeFileIndex = args.indexOf('--route-file');
+    if (routeFileIndex !== -1 && args[routeFileIndex + 1]) {
+      specificRouteFile = args[routeFileIndex + 1];
+      console.log(`🎯 指定されたルートファイルを使用: ${specificRouteFile}`);
     }
-    // yymmddhhmmssでソートして最新を選択
-    files.sort();
-    const latestFile = files[files.length - 1];
-    const routePath = path.join(testResultsDir, latestFile);
+
+    // --skip-duplicate-check 引数の処理
+    if (args.includes('--skip-duplicate-check')) {
+      skipDuplicateCheck = true;
+      console.log('⚠️ 重複実行チェックをスキップします');
+    }
+
+    // 1. ルートファイルの取得
+    const testResultsDir = path.resolve(__dirname, '../test-results');
+    let routePath;
+    let latestFile;
+
+    if (specificRouteFile) {
+      // 特定のファイルが指定された場合
+      if (specificRouteFile.endsWith('.json')) {
+        latestFile = specificRouteFile;
+      } else {
+        latestFile = `${specificRouteFile}.json`;
+      }
+      routePath = path.join(testResultsDir, latestFile);
+      
+      if (!fs.existsSync(routePath)) {
+        throw new Error(`指定されたルートファイルが見つかりません: ${routePath}`);
+      }
+    } else {
+      // 最新のrouteファイルを取得
+      const files = fs.readdirSync(testResultsDir)
+        .filter(f => f.startsWith('route_') && f.endsWith('.json'));
+      if (files.length === 0) {
+        throw new Error('route JSONファイルが見つかりません');
+      }
+      // yymmddhhmmssでソートして最新を選択
+      files.sort();
+      latestFile = files[files.length - 1];
+      routePath = path.join(testResultsDir, latestFile);
+    }
+
     console.log(`🛠️ [Debug] Using route file: ${routePath}`);
 
-    // 2. ルートを読み込む
+    // 2. 重複実行チェック
+    if (!skipDuplicateCheck) {
+      const duplicateResult = checkForDuplicateExecution(testResultsDir, latestFile);
+      if (duplicateResult.isDuplicate) {
+        console.log(`⚠️ 重複実行を検出しました:`);
+        console.log(`  - 同じルートファイル: ${duplicateResult.routeFile}`);
+        console.log(`  - 前回実行時刻: ${duplicateResult.lastExecution}`);
+        console.log(`  - 前回結果: ${duplicateResult.lastResult.success_count}成功/${duplicateResult.lastResult.failed_count}失敗`);
+        console.log(`  - 提案: ${duplicateResult.suggestion}`);
+        
+        if (duplicateResult.skipType === 'complete') {
+          console.log('\n🤔 完全スキップしますか？');
+          console.log('⚠️  注意: 後続テストに必要な前提条件（ログイン、データ入力等）がある場合は、');
+          console.log('   スキップすると依存関係が壊れる可能性があります。');
+          console.log('🔧 強制実行する場合は --skip-duplicate-check オプションを使用してください');
+          console.log('🔧 失敗ステップのみ分析する場合は analyzeFailures コマンドを使用してください');
+          process.exit(0);
+        } else if (duplicateResult.skipType === 'partial') {
+          console.log('\n💡 部分再実行モードを推奨します:');
+          console.log('  1. 🔧 失敗テスト分析・修正 (analyzeFailures) を実行');
+          console.log('  2. 📝 修正されたルートファイルで再テスト');
+          console.log('  3. ✅ 成功ステップは前回結果を活用');
+          console.log('\n🚀 継続する場合は、失敗の可能性があることを承知で実行します...');
+        }
+      }
+    }
+
+    // 3. ルートを読み込む
     const route = JSON.parse(fs.readFileSync(routePath, 'utf-8'));
     if (!route.steps || !Array.isArray(route.steps)) {
       throw new Error('ルートJSONにstepsが含まれていません。正しい形式のJSONを作成してください。');
     }
     console.log('🛠️ [Debug] Parsed route:', route);
 
-    // 3. Playwright 起動
+    // 4. 修正されたルートかどうかを判定
+    const isFixedRoute = route.original_route_id || route.fix_timestamp;
+    if (isFixedRoute) {
+      console.log('🔧 修正されたルートを実行します');
+      console.log(`  - 元のルート: ${route.original_route_id || 'Unknown'}`);
+      console.log(`  - 修正日時: ${route.fix_timestamp || 'Unknown'}`);
+      if (route.fix_summary) {
+        console.log(`  - 修正ステップ数: ${route.fix_summary.fixed_steps}`);
+        console.log(`  - スキップステップ数: ${route.fix_summary.skipped_steps}`);
+      }
+    }
+
+    // 5. Playwright 起動
     const runner = new PlaywrightRunner();
     await runner.initialize();
 
     console.log(`🛠️ [Debug] Running route_id: ${route.route_id || 'undefined'}`);
 
-    // 4. 各ステップを実行
+    // 6. 各ステップを実行
     for (const step of route.steps) {
+      // スキップされたステップの処理
+      if (step.action === 'skip') {
+        console.log(`\n⏭️ ステップをスキップ: ${step.label}`);
+        console.log(`   理由: ${step.fix_reason || 'Unknown'}`);
+        continue;
+      }
+
       const stepLabel = step.label || `${step.action} ${step.target}`;
       console.log(`\n📝 テストステップ: ${stepLabel}`);
+
+      // 修正されたステップの場合は追加情報を表示
+      if (step.fix_reason) {
+        console.log(`🔧 修正済みステップ: ${step.fix_reason}`);
+        if (step.original_target) {
+          console.log(`   元のターゲット: ${step.original_target}`);
+          console.log(`   新しいターゲット: ${step.target}`);
+        }
+      }
 
       try {
         await runner.executeStep(step);
@@ -293,17 +363,28 @@ export class PlaywrightRunner {
           label: stepLabel,
           action: step.action,
           target: step.target,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          isFixed: !!step.fix_reason
         });
       } catch (err) {
         const errorMessage = err.message.split('\n')[0]; // エラーメッセージの最初の行のみを使用
         console.log(`❌ テスト失敗: ${stepLabel}\n   理由: ${errorMessage}`);
+        
+        // 修正されたステップが再び失敗した場合の特別処理
+        if (step.fix_reason) {
+          console.log(`🚨 修正されたステップが再び失敗しました！`);
+          console.log(`   修正理由: ${step.fix_reason}`);
+          console.log(`   → さらなる分析が必要です`);
+        }
+        
         failedTests.push({
           label: stepLabel,
           action: step.action,
           target: step.target,
           error: errorMessage,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          isFixed: !!step.fix_reason,
+          fixReason: step.fix_reason || null
         });
         
         // 画面遷移系のアクションが失敗した場合、後続のassertは信頼性が低いため警告
@@ -323,6 +404,9 @@ export class PlaywrightRunner {
       failed_count: failedTests.length,
       success: failedTests.length === 0,
       execution_time: Date.now() - startTime,
+      is_fixed_route: isFixedRoute,
+      original_route_id: route.original_route_id || null,
+      fix_summary: route.fix_summary || null,
       steps: route.steps.map((step, index) => {
         const test = successTests.find(t => t.label === step.label) || 
                     failedTests.find(t => t.label === step.label);
@@ -330,8 +414,10 @@ export class PlaywrightRunner {
           label: step.label,
           action: step.action,
           target: step.target,
-          status: test ? (test.error ? 'failed' : 'success') : 'unknown',
-          error: test?.error || null
+          status: step.action === 'skip' ? 'skipped' : (test ? (test.error ? 'failed' : 'success') : 'unknown'),
+          error: test?.error || null,
+          isFixed: !!step.fix_reason,
+          fixReason: step.fix_reason || null
         };
       })
     };
@@ -343,10 +429,33 @@ export class PlaywrightRunner {
     console.log(`🔷 成功数: ${testResults.success_count}`);
     console.log(`🔷 失敗数: ${testResults.failed_count}`);
 
+    if (isFixedRoute) {
+      const fixedStepResults = testResults.steps.filter(s => s.isFixed);
+      const fixedSuccessCount = fixedStepResults.filter(s => s.status === 'success').length;
+      const fixedFailedCount = fixedStepResults.filter(s => s.status === 'failed').length;
+      
+      console.log(`\n🔧 修正ステップの結果:`);
+      console.log(`  - 修正ステップ数: ${fixedStepResults.length}`);
+      console.log(`  - 修正成功数: ${fixedSuccessCount}`);
+      console.log(`  - 修正失敗数: ${fixedFailedCount}`);
+      
+      if (fixedFailedCount > 0) {
+        console.log(`\n🚨 修正されたステップで再び失敗が発生しました:`);
+        fixedStepResults.filter(s => s.status === 'failed').forEach(step => {
+          console.log(`  - ${step.label}: ${step.error}`);
+          console.log(`    修正理由: ${step.fixReason}`);
+        });
+        console.log(`\n💡 これらのステップには更なる分析が必要です`);
+      }
+    }
+
     if (failedTests.length > 0) {
       console.log('\n❌ 失敗したテストケース:');
       failedTests.forEach(test => {
         console.log(`  - ${test.label}: ${test.error}`);
+        if (test.isFixed) {
+          console.log(`    ⚠️ 修正済みステップが再失敗`);
+        }
       });
     } else {
       console.log('🎉 すべてのテストが正常に完了しました');
@@ -358,6 +467,9 @@ export class PlaywrightRunner {
     fs.writeFileSync(resultPath, JSON.stringify(testResults, null, 2));
     console.log(`\n📝 テスト結果を保存しました: ${resultPath}`);
 
+    // 実行履歴を更新
+    updateExecutionHistory(testResultsDir, latestFile, testResults);
+
     // 失敗したテストがある場合でも、プロセスは正常終了
     process.exit(testResults.success ? 0 : 1);
   } catch (err) {
@@ -367,3 +479,135 @@ export class PlaywrightRunner {
     await runner?.cleanup();
   }
 })();
+
+/**
+ * 重複実行をチェック（改良版：依存関係を考慮）
+ */
+function checkForDuplicateExecution(testResultsDir, routeFile) {
+  try {
+    const historyPath = path.join(testResultsDir, '.execution-history.json');
+    if (!fs.existsSync(historyPath)) {
+      return { isDuplicate: false };
+    }
+
+    const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
+    const routeHistory = history[routeFile];
+
+    if (!routeHistory || routeHistory.length === 0) {
+      return { isDuplicate: false };
+    }
+
+    const lastExecution = routeHistory[routeHistory.length - 1];
+    const timeDiff = Date.now() - new Date(lastExecution.timestamp).getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+
+    // 30分以内の同じルートファイルの実行は重複とみなす（1時間から短縮）
+    if (hoursDiff < 0.5) {
+      // 🔧 改良: 部分的スキップの提案
+      const lastResult = lastExecution.result;
+      
+      // 全て成功している場合のみ完全スキップを提案
+      if (lastResult.failed_count === 0) {
+        return {
+          isDuplicate: true,
+          skipType: 'complete',
+          routeFile,
+          lastExecution: lastExecution.timestamp,
+          lastResult: lastResult,
+          suggestion: '前回のテストは全て成功しているため、完全スキップを提案します'
+        };
+      } 
+      // 部分的に失敗している場合は、失敗ステップのみ再実行を提案
+      else {
+        return {
+          isDuplicate: true,
+          skipType: 'partial',
+          routeFile,
+          lastExecution: lastExecution.timestamp,
+          lastResult: lastResult,
+          suggestion: `前回のテストで${lastResult.failed_count}件の失敗があったため、失敗ステップのみ再実行を提案します`
+        };
+      }
+    }
+
+    return { isDuplicate: false };
+  } catch (error) {
+    console.error('実行履歴チェックエラー:', error.message);
+    return { isDuplicate: false };
+  }
+}
+
+/**
+ * 前回の実行結果から失敗ステップを特定
+ */
+function getFailedStepsFromHistory(testResultsDir, routeFile) {
+  try {
+    const historyPath = path.join(testResultsDir, '.execution-history.json');
+    if (!fs.existsSync(historyPath)) {
+      return [];
+    }
+
+    const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
+    const routeHistory = history[routeFile];
+    
+    if (!routeHistory || routeHistory.length === 0) {
+      return [];
+    }
+
+    const lastExecution = routeHistory[routeHistory.length - 1];
+    return lastExecution.failedSteps || [];
+  } catch (error) {
+    console.error('失敗ステップ履歴取得エラー:', error.message);
+    return [];
+  }
+}
+
+/**
+ * 実行履歴を更新
+ */
+function updateExecutionHistory(testResultsDir, routeFile, testResult) {
+  try {
+    const historyPath = path.join(testResultsDir, '.execution-history.json');
+    let history = {};
+
+    if (fs.existsSync(historyPath)) {
+      history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
+    }
+
+    if (!history[routeFile]) {
+      history[routeFile] = [];
+    }
+
+    // 最新10件まで保持
+    if (history[routeFile].length >= 10) {
+      history[routeFile].shift();
+    }
+
+    // 失敗ステップの詳細を抽出
+    const failedSteps = testResult.steps
+      .filter(step => step.status === 'failed')
+      .map(step => ({
+        label: step.label,
+        action: step.action,
+        target: step.target,
+        error: step.error
+      }));
+
+    history[routeFile].push({
+      timestamp: testResult.timestamp,
+      result: {
+        success_count: testResult.success_count,
+        failed_count: testResult.failed_count,
+        success: testResult.success,
+        execution_time: testResult.execution_time
+      },
+      failedSteps: failedSteps, // 🔧 失敗ステップの詳細を追加
+      isFixedRoute: testResult.is_fixed_route || false,
+      originalRouteId: testResult.original_route_id || null
+    });
+
+    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+  } catch (error) {
+    console.error('実行履歴更新エラー:', error.message);
+  }
+}

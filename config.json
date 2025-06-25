@@ -3,7 +3,7 @@
   "openai": {
     "apiKeyEnv": "OPENAI_API_KEY",
     "model": "gpt-4o",
-    "temperature": 0.2,
+    "temperature": 0.1,
     "max_tokens": 5000,
     "top_p": 0.2,
     "timeout": 60000,

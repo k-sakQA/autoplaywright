@@ -291,34 +291,55 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
       // 設定ファイルを保存
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     }
-    // コマンドの構築
+    // コマンドの実行
+    let commandName = command;
     let args = [];
-    const scriptPath = path.join(__dirname, 'tests', `${command}.js`);
-    
-    // URLパラメータの追加
-    if (url && url.trim()) {
-      args.push('--url', url.trim());
+
+    switch (commandName) {
+        case 'generateTestPoints':
+            args = ['tests/generateTestPoints.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            break;
+
+        case 'generateSmartRoutes':
+            args = ['tests/generateSmartRoutes.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            if (csvFile) args.push('--test-csv', csvFile.path);
+            break;
+
+        case 'runRoutes':
+            args = ['tests/runRoutes.js'];
+            break;
+
+        case 'generateTestReport':
+            args = ['tests/generateTestReport.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            if (csvFile) args.push('--test-csv', csvFile.path);
+            break;
+
+        case 'analyzeFailures':
+            args = ['tests/analyzeFailures.js'];
+            break;
+
+        case 'discoverNewStories':
+            args = ['tests/discoverNewStories.js'];
+            if (url) args.push('--url', url);
+            break;
+
+        default:
+            return res.status(400).json({ success: false, error: '未知のコマンドです' });
     }
     
-    // テスト意図パラメータの追加
-    if (goal && goal.trim()) {
-      args.push('--goal', goal.trim());
-    }
-    
-    // PDFパラメータの追加
-    if (pdfFile) {
-      args.push('--spec-pdf', pdfFile.path);
-    }
-    
-    // CSVパラメータの追加
-    if (csvFile) {
-      args.push('--test-csv', csvFile.path);
-    }
-    
-    console.log(`実行コマンド: node ${scriptPath} ${args.join(' ')}`);
+    console.log(`実行コマンド: node ${args.join(' ')}`);
     
     // Node.jsプロセスを実行
-    const child = spawn('node', [scriptPath, ...args], {
+    const child = spawn('node', args, {
       cwd: __dirname,
       env: { ...process.env }
     });
@@ -343,7 +364,7 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
         let finalOutput = output.trim();
         
         // テストレポート生成後、Google Sheets自動アップロードを確認
-        if (command === 'generateTestReport') {
+        if (commandName === 'generateTestReport') {
           try {
             const configPath = path.join(__dirname, 'config.json');
             const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));

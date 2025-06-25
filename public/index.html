@@ -701,6 +701,29 @@
                     <small>AIが生成するテストシナリオに満足できない場合の代替手段</small>
                 </div>
             </div>
+
+            <!-- 自動改善セクション -->
+            <div class="section">
+                <h2>🧠 自動改善・学習機能</h2>
+                <div class="button-container">
+                    <button class="btn btn-warning" onclick="executeCommand('analyzeFailures')">
+                        🔧 失敗テスト分析・修正
+                    </button>
+                    <button class="btn btn-info" onclick="executeCommand('discoverNewStories')">
+                        🔍 新ストーリー発見
+                    </button>
+                </div>
+                <div class="description">
+                    <h4>🤖 学習機能の特徴:</h4>
+                    <ul>
+                        <li><strong>失敗パターン学習</strong>: 過去の失敗を記録し、同じミスを回避</li>
+                        <li><strong>依存関係分析</strong>: 後続テストに必要な前提条件を考慮</li>
+                        <li><strong>重複実行防止</strong>: 30分以内の同一テストを自動検出</li>
+                        <li><strong>代替セレクタ提案</strong>: 要素が見つからない場合の代替案を生成</li>
+                        <li><strong>修正ルート生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
+                    </ul>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -917,7 +940,9 @@
                 'generateTestPoints': 'テスト観点生成',
                 'generateSmartRoutes': 'スマートシナリオ生成',
                 'runRoutes': 'テスト実行',
-                'generateTestReport': 'レポート生成'
+                'generateTestReport': 'レポート生成',
+                'analyzeFailures': '失敗テスト分析・修正',
+                'discoverNewStories': '新ストーリー発見'
             };
             return names[command] || command;
         }
