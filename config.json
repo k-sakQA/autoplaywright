@@ -11,19 +11,24 @@
   },
   "googleSheets": {
     "shareEmail": "sakata1977@gmail.com",
-    "driveFolder": "1yx5b2egdjrtB4LTIruSatikTcTW7KOSD",
+    "driveFolder": "1Z_hcriF8IMbj_uLVr7yGiWFD4dGGj-3g",
     "spreadsheetTitle": "AutoPlaywright テスト結果",
     "autoUpload": true
   },
   "userStory": {
-    "currentId": 1,
-    "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\r\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。\r\n（例）\r\n    {\r\n      \"label\": \"確認のご連絡方法を選択\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\\\"contact\\\"]\",\r\n      \"value\": \"email\"\r\n    },\r\n    {\r\n      \"label\": \"メールアドレスを入力\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\"email\"]\",\r\n      \"value\": \"hogefuga@example.com\"\r\n      },",
-    "timestamp": "2025-06-25T16:45:38.487Z",
+    "currentId": 2,
+    "content": "宿泊予約時の入力エラーを検出する",
+    "timestamp": "2025-06-27T09:32:27.479Z",
     "history": [
       {
         "id": 1,
-        "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\r\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。\r\n（例）\r\n    {\r\n      \"label\": \"確認のご連絡方法を選択\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\\\"contact\\\"]\",\r\n      \"value\": \"email\"\r\n    },\r\n    {\r\n      \"label\": \"メールアドレスを入力\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\"email\"]\",\r\n      \"value\": \"hogefuga@example.com\"\r\n      },",
-        "timestamp": "2025-06-25T16:45:38.487Z"
+        "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：宿泊予約画面で各項目に有効な値（「宿泊日＝2025/6/30」など）を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\r\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。\r\n（例）\r\n    {\r\n      \"label\": \"確認のご連絡方法を選択\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\\\"contact\\\"]\",\r\n      \"value\": \"email\"\r\n    },\r\n    {\r\n      \"label\": \"メールアドレスを入力\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\"email\"]\",\r\n      \"value\": \"hogefuga@example.com\"\r\n      },",
+        "timestamp": "2025-06-27T09:29:39.609Z"
+      },
+      {
+        "id": 2,
+        "content": "宿泊予約時の入力エラーを検出する",
+        "timestamp": "2025-06-27T09:32:27.479Z"
       }
     ]
   }

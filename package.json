@@ -1,4 +1,13 @@
 {
+  "name": "autoplaywright",
+  "version": "1.0.0",
+  "description": "革命的なE2Eテスト自動化プラットフォーム - OpenAI GPTの力で、あなたのテストプロセスを完全自動化",
+  "author": "AutoPlaywright Project Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/k-sakQA/autoplaywright.git"
+  },
   "type": "module",
   "devDependencies": {
     "@playwright/test": "^1.53.0"
@@ -7,7 +16,6 @@
     "@cyber2024/pdf-parse-fixed": "^1.2.5",
     "axios": "^1.9.0",
     "commander": "^14.0.0",
-    "csv-parse": "^5.6.0",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "google-auth-library": "^10.1.0",

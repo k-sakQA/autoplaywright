@@ -106,9 +106,25 @@
         
         .button-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 15px;
             margin-top: 20px;
+        }
+        
+        /* 最初の2行は2列、最後の行は1列（中央配置） */
+        .button-grid button:nth-child(1),
+        .button-grid button:nth-child(2) {
+            /* 最初の行 */
+        }
+        
+        .button-grid button:nth-child(3),
+        .button-grid button:nth-child(4) {
+            /* 2行目 */
+        }
+        
+        .button-grid button:nth-child(5) {
+            /* 3行目、中央配置 */
+            grid-column: 2;
         }
         
         button {
@@ -927,6 +943,10 @@
                         📋 テスト観点生成
                     </button>
                     
+                    <button class="btn-secondary" onclick="executeCommand('generateTestCases')" title="テスト観点を自然言語テストケースに変換">
+                        🧪 テストケース変換
+                    </button>
+                    
                     <button class="btn-info" onclick="executeCommand('generateSmartRoutes')">
                         🧠 スマートシナリオ生成
                     </button>
@@ -938,6 +958,15 @@
                     <button class="btn-warning" onclick="executeCommand('generateTestReport')">
                         📊 レポート生成
                     </button>
+                </div>
+                
+                <div class="full-workflow-section" style="margin-top: 20px;">
+                    <button class="btn-success" onclick="executeFullWorkflow()" style="width: 100%; font-size: 18px; padding: 20px;">
+                        🚀 統合テスト実行 (観点生成 → ケース変換 → シナリオ生成 → 実行 → レポート生成)
+                    </button>
+                    <small style="display: block; margin-top: 8px; color: #666; text-align: center;">
+                        新しいワークフローで具体的な観点内容を含むレポートを生成します
+                    </small>
                 </div>
                 
                 <div id="status" class="status" style="display: none;"></div>
@@ -1634,6 +1663,7 @@
         function getCommandName(command) {
             const names = {
                 'generateTestPoints': 'テスト観点生成',
+                'generateTestCases': 'テストケース変換',
                 'generateSmartRoutes': 'スマートシナリオ生成',
                 'runRoutes': 'テスト実行',
                 'generateTestReport': 'レポート生成',
@@ -2891,6 +2921,53 @@
                     addLog(`⚠️ 設定読み込みエラー: ${error.message}`);
                 });
         });
+
+        // 統合ワークフロー実行関数
+        async function executeFullWorkflow() {
+            const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
+            
+            if (!url) {
+                showStatus('テスト対象URLを入力してください', 'error');
+                return;
+            }
+            
+            addLog('🚀 統合テストワークフローを開始しています...');
+            showStatus('統合テストワークフロー実行中...', 'info');
+            
+            const steps = [
+                { command: 'generateTestPoints', name: 'テスト観点生成' },
+                { command: 'generateTestCases', name: 'テストケース変換' },
+                { command: 'generateSmartRoutes', name: 'スマートシナリオ生成' },
+                { command: 'runRoutes', name: 'テスト実行' },
+                { command: 'generateTestReport', name: 'レポート生成' }
+            ];
+            
+            let stepNumber = 1;
+            
+            for (const step of steps) {
+                addLog(`📝 ステップ ${stepNumber}/${steps.length}: ${step.name} を実行中...`);
+                
+                try {
+                    await executeCommand(step.command);
+                    addLog(`✅ ステップ ${stepNumber}: ${step.name} 完了`);
+                    
+                    // 少し待機（ファイル書き込み完了を待つ）
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                } catch (error) {
+                    addLog(`❌ ステップ ${stepNumber}: ${step.name} でエラーが発生しました: ${error.message}`);
+                    showStatus(`統合ワークフローがステップ${stepNumber}で失敗しました`, 'error');
+                    return;
+                }
+                
+                stepNumber++;
+            }
+            
+            addLog('🎉 統合テストワークフローが完了しました！');
+            addLog('📊 生成されたレポートには具体的なテスト観点内容が含まれています。');
+            showStatus('統合テストワークフロー完了！', 'success');
+        }
     </script>
 </body>
 </html> 

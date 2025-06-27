@@ -12,4 +12,6 @@ services:
       - ./credentials.json:/app/credentials.json:ro  # Google Sheets API認証ファイル（読み取り専用）
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/airy-cycle-451111-s0-32fbfd2f1e9f.json
+      - ALLOW_EXTERNAL_ACCESS=false
     command: node server.js

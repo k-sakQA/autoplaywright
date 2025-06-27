@@ -1,5 +1,6 @@
 // tests/generateSmartRoutes.js
-// 動的DOM取得とAI分析を組み合わせたスマートテストシナリオ生成
+// DOM照合 + Playwright変換特化版
+// 自然言語テストケース(generateTestCases.js出力)をDOM情報と照合してPlaywright実装に変換
 
 import 'dotenv/config';
 import fs from "fs";
@@ -197,8 +198,844 @@ async function extractDynamicPageInfo(url) {
   }
 }
 
+/**
+ * 自然言語テストケースファイルを読み込み
+ * @param {string} naturalTestCasesFile - 自然言語テストケースファイルパス
+ * @returns {Object} テストケースデータ
+ */
+function loadNaturalLanguageTestCases(naturalTestCasesFile) {
+  try {
+    const filePath = path.isAbsolute(naturalTestCasesFile) 
+      ? naturalTestCasesFile 
+      : path.join(__dirname, '../test-results', naturalTestCasesFile);
+    
+    console.log(`📋 自然言語テストケースを読み込み中: ${filePath}`);
+    
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`自然言語テストケースファイルが見つかりません: ${filePath}`);
+    }
+
+    const data = fs.readFileSync(filePath, 'utf8');
+    const testCasesData = JSON.parse(data);
+    
+    console.log(`✅ ${testCasesData.metadata.total_test_cases}件の自然言語テストケースを読み込みました`);
+    console.log(`📊 カテゴリ内訳:`, testCasesData.metadata.categories);
+    
+    return testCasesData;
+  } catch (error) {
+    console.error('❌ 自然言語テストケース読み込みに失敗:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * DOM情報と自然言語テストケースを照合して実行可能性を分析
+ * @param {Object} domInfo - DOM情報
+ * @param {Array} testCases - 自然言語テストケース配列
+ * @returns {Object} 照合結果
+ */
+function analyzeTestCaseFeasibility(domInfo, testCases) {
+  console.log('🔍 DOM照合分析を開始...');
+  
+  const analysis = {
+    totalCases: testCases.length,
+    feasibleCases: [],
+    problematicCases: [],
+    suggestedCases: [],
+    domCapabilities: {
+      hasInputs: domInfo.elements.inputs.length > 0,
+      hasButtons: domInfo.elements.buttons.length > 0,
+      hasLinks: domInfo.elements.links.length > 0,
+      hasNavigation: domInfo.elements.navigation.length > 0,
+      inputTypes: [...new Set(domInfo.elements.inputs.map(input => input.type))],
+      availableActions: []
+    }
+  };
+
+  // DOM機能の分析
+  if (analysis.domCapabilities.hasInputs) analysis.domCapabilities.availableActions.push('データ入力');
+  if (analysis.domCapabilities.hasButtons) analysis.domCapabilities.availableActions.push('ボタン操作');
+  if (analysis.domCapabilities.hasLinks) analysis.domCapabilities.availableActions.push('ナビゲーション');
+
+  // 各テストケースの実行可能性を分析
+  testCases.forEach((testCase, index) => {
+    const feasibilityScore = calculateFeasibilityScore(testCase, domInfo);
+    
+    if (feasibilityScore.score >= 0.7) {
+      analysis.feasibleCases.push({
+        ...testCase,
+        feasibilityScore: feasibilityScore.score,
+        matchedElements: feasibilityScore.matchedElements,
+        suggestions: feasibilityScore.suggestions
+      });
+    } else if (feasibilityScore.score >= 0.3) {
+      analysis.problematicCases.push({
+        ...testCase,
+        feasibilityScore: feasibilityScore.score,
+        issues: feasibilityScore.issues,
+        suggestions: feasibilityScore.suggestions
+      });
+    }
+    
+    console.log(`📝 ${index + 1}. ${testCase.category}: ${feasibilityScore.score.toFixed(2)} (${feasibilityScore.score >= 0.7 ? '実行可能' : feasibilityScore.score >= 0.3 ? '要検討' : '困難'})`);
+  });
+
+  // 実行推奨ケースを優先度順に並び替え
+  analysis.suggestedCases = analysis.feasibleCases
+    .sort((a, b) => {
+      const priorityOrder = { high: 3, medium: 2, low: 1 };
+      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+        return priorityOrder[b.priority] - priorityOrder[a.priority];
+      }
+      return b.feasibilityScore - a.feasibilityScore;
+    })
+    .slice(0, 10); // 上位10件に限定
+
+  console.log(`✅ DOM照合分析完了: 実行可能${analysis.feasibleCases.length}件, 要検討${analysis.problematicCases.length}件`);
+  console.log(`🎯 推奨実行ケース: ${analysis.suggestedCases.length}件を選定`);
+  
+  return analysis;
+}
+
+/**
+ * テストケースの実行可能性スコアを計算
+ */
+function calculateFeasibilityScore(testCase, domInfo) {
+  let score = 0;
+  const matchedElements = [];
+  const issues = [];
+  const suggestions = [];
+
+  // カテゴリ別の実行可能性判定
+  switch (testCase.category) {
+    case 'display':
+      // 表示系は基本的に実行可能
+      score += 0.8;
+      if (domInfo.elements.headings.length > 0) score += 0.1;
+      if (domInfo.elements.images.length > 0) score += 0.1;
+      matchedElements.push('画面表示要素');
+      break;
+
+    case 'input_validation':
+      // 入力フィールドの存在確認
+      if (domInfo.elements.inputs.length > 0) {
+        score += 0.6;
+        matchedElements.push(`入力フィールド${domInfo.elements.inputs.length}個`);
+        
+        const hasRequiredInputs = domInfo.elements.inputs.some(input => input.required);
+        if (hasRequiredInputs) {
+          score += 0.2;
+          matchedElements.push('必須入力フィールド');
+        }
+        
+        if (domInfo.elements.buttons.length > 0) {
+          score += 0.2;
+          matchedElements.push('送信ボタン');
+        }
+      } else {
+        issues.push('入力フィールドが見つかりません');
+        suggestions.push('フォーム要素の存在確認をお願いします');
+      }
+      break;
+
+    case 'interaction':
+      // ボタンやプルダウンの存在確認
+      if (domInfo.elements.buttons.length > 0) {
+        score += 0.5;
+        matchedElements.push(`ボタン${domInfo.elements.buttons.length}個`);
+      }
+      
+      const hasSelectInputs = domInfo.elements.inputs.some(input => input.tagName === 'SELECT');
+      if (hasSelectInputs) {
+        score += 0.3;
+        matchedElements.push('プルダウン要素');
+      }
+      
+      if (score === 0) {
+        issues.push('操作可能な要素が見つかりません');
+      } else {
+        score += 0.2; // 基本実行可能性
+      }
+      break;
+
+    case 'navigation':
+      // リンクの存在確認
+      if (domInfo.elements.links.length > 0) {
+        score += 0.7;
+        matchedElements.push(`リンク${domInfo.elements.links.length}個`);
+        
+        if (domInfo.elements.buttons.length > 0) {
+          score += 0.2;
+          matchedElements.push('ナビゲーションボタン');
+        }
+        score += 0.1; // 基本実行可能性
+      } else {
+        issues.push('ナビゲーション要素が見つかりません');
+        suggestions.push('リンクまたはナビゲーションボタンの存在確認をお願いします');
+      }
+      break;
+
+    case 'data_verification':
+      // データ入力・確認系
+      if (domInfo.elements.inputs.length > 0 && domInfo.elements.buttons.length > 0) {
+        score += 0.8;
+        matchedElements.push('データ入力・確認フロー');
+        score += 0.2; // 実行完了可能性
+      } else {
+        issues.push('データ入力または確認機能が不足しています');
+      }
+      break;
+
+    case 'error_handling':
+      // エラー系は条件次第で実行可能
+      score += 0.6;
+      suggestions.push('エラー発生条件の手動確認が必要です');
+      break;
+
+    case 'edge_case':
+      // エッジケースは部分的に実行可能
+      score += 0.4;
+      suggestions.push('エッジケースの安全な実行環境の確認が必要です');
+      break;
+
+    default:
+      // 汎用ケース
+      score += 0.5;
+      break;
+  }
+
+  return {
+    score: Math.min(score, 1.0),
+    matchedElements,
+    issues,
+    suggestions
+  };
+}
+
+/**
+ * 実行可能なテストケースをPlaywright形式に変換
+ * @param {Object} testCase - 自然言語テストケース
+ * @param {Object} domInfo - DOM情報
+ * @param {string} targetUrl - 対象URL
+ * @returns {Object} Playwright実装
+ */
+function convertToPlaywrightImplementation(testCase, domInfo, targetUrl) {
+  const steps = [];
+  
+  // 基本的なページアクセス
+  steps.push({
+    label: "対象ページにアクセスする",
+    action: "load",
+    target: targetUrl
+  });
+
+  // カテゴリ別の実装生成
+  switch (testCase.category) {
+    case 'display':
+      return generateDisplaySteps(testCase, domInfo, steps);
+    case 'input_validation':
+      return generateInputValidationSteps(testCase, domInfo, steps);
+    case 'interaction':
+      return generateInteractionSteps(testCase, domInfo, steps);
+    case 'navigation':
+      return generateNavigationSteps(testCase, domInfo, steps);
+    case 'data_verification':
+      return generateDataVerificationSteps(testCase, domInfo, steps);
+    default:
+      return generateGeneralSteps(testCase, domInfo, steps);
+  }
+}
+
+/**
+ * 表示確認系Playwright実装生成
+ */
+function generateDisplaySteps(testCase, domInfo, steps) {
+  // 主要要素の表示確認
+  domInfo.elements.headings.forEach((heading, index) => {
+    if (index < 3) { // 上位3つの見出しのみ
+      steps.push({
+        label: `見出し「${heading.text}」が表示されていることを確認`,
+        action: "assertVisible",
+        target: heading.selector
+      });
+    }
+  });
+
+  // 重要なボタンの表示確認
+  domInfo.elements.buttons.forEach((button, index) => {
+    if (index < 2) { // 上位2つのボタンのみ
+      steps.push({
+        label: `ボタン「${button.text}」が表示されていることを確認`,
+        action: "assertVisible",
+        target: button.selector
+      });
+    }
+  });
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * 入力検証系Playwright実装生成
+ */
+function generateInputValidationSteps(testCase, domInfo, steps) {
+  // 各入力フィールドに対する検証
+  domInfo.elements.inputs.forEach((input, index) => {
+    if (input.type === 'text' || input.type === 'email' || input.type === 'number') {
+      const testValue = generateTestValue(input.type);
+      
+      steps.push({
+        label: `${input.name || input.type}フィールドに有効な値を入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: testValue
+      });
+
+      // 無効値のテスト
+      const invalidValue = generateInvalidValue(input.type);
+      steps.push({
+        label: `${input.name || input.type}フィールドに無効な値を入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: invalidValue
+      });
+    }
+  });
+
+  // 送信ボタンの操作
+  const submitButton = domInfo.elements.buttons.find(btn => 
+    btn.text.includes('送信') || btn.text.includes('確認') || btn.type === 'submit'
+  );
+  
+  if (submitButton) {
+    steps.push({
+      label: "フォームを送信",
+      action: "click",
+      target: submitButton.selector
+    });
+  }
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * インタラクション系Playwright実装生成
+ */
+function generateInteractionSteps(testCase, domInfo, steps) {
+  // ボタンクリック
+  domInfo.elements.buttons.forEach((button, index) => {
+    if (index < 2) {
+      steps.push({
+        label: `「${button.text}」ボタンをクリック`,
+        action: "click",
+        target: button.selector
+      });
+    }
+  });
+
+  // プルダウン選択
+  const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
+  selectInputs.forEach((select, index) => {
+    if (index < 2) {
+      steps.push({
+        label: `${select.name || 'プルダウン'}で選択`,
+        action: "fill",
+        target: select.recommendedSelector,
+        value: "最初のオプション" // 実際の実装ではoptionを動的取得
+      });
+    }
+  });
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * ナビゲーション系Playwright実装生成
+ */
+function generateNavigationSteps(testCase, domInfo, steps) {
+  // リンククリック
+  domInfo.elements.links.forEach((link, index) => {
+    if (index < 2) {
+      steps.push({
+        label: `「${link.text}」リンクをクリック`,
+        action: "click",
+        target: link.selector
+      });
+      
+      if (link.href && link.href !== '#') {
+        steps.push({
+          label: "ページ遷移を確認",
+          action: "waitForURL",
+          target: link.href
+        });
+      }
+    }
+  });
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * データ検証系Playwright実装生成
+ */
+function generateDataVerificationSteps(testCase, domInfo, steps) {
+  // データ入力
+  domInfo.elements.inputs.forEach((input, index) => {
+    if (index < 3) {
+      const testValue = generateTestValue(input.type);
+      steps.push({
+        label: `${input.name || input.type}にテストデータを入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: testValue
+      });
+    }
+  });
+
+  // 送信
+  const submitButton = domInfo.elements.buttons.find(btn => 
+    btn.text.includes('送信') || btn.text.includes('確認')
+  );
+  
+  if (submitButton) {
+    steps.push({
+      label: "データを送信",
+      action: "click",
+      target: submitButton.selector
+    });
+
+    // データ確認
+    steps.push({
+      label: "入力データが正しく反映されていることを確認",
+      action: "assertVisible",
+      target: ":has-text(\"入力した値\")" // 実際には入力値を動的に設定
+    });
+  }
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * 汎用Playwright実装生成
+ */
+function generateGeneralSteps(testCase, domInfo, steps) {
+  // 基本的な操作のみ
+  if (domInfo.elements.buttons.length > 0) {
+    const mainButton = domInfo.elements.buttons[0];
+    steps.push({
+      label: `メインボタン「${mainButton.text}」をクリック`,
+      action: "click",
+      target: mainButton.selector
+    });
+  }
+
+  return createRouteObject(testCase, steps);
+}
+
+/**
+ * ルートオブジェクトを作成
+ */
+function createRouteObject(testCase, steps) {
+  return {
+    route_id: `route_${getTimestamp()}`,
+    generated_from_natural_case: testCase.id,
+    original_viewpoint: testCase.original_viewpoint,
+    category: testCase.category,
+    priority: testCase.priority,
+    steps: steps,
+    generated_at: new Date().toISOString(),
+    metadata: {
+      source: 'generateSmartRoutes.js',
+      version: '2.0.0',
+      type: 'playwright_implementation',
+      generation_method: 'dom_matching'
+    }
+  };
+}
+
+/**
+ * テスト用の値を生成
+ */
+function generateTestValue(inputType) {
+  switch (inputType) {
+    case 'email':
+      return 'test@example.com';
+    case 'number':
+      return '123';
+    case 'date':
+      return '2025-07-25';
+    case 'tel':
+      return '090-1234-5678';
+    default:
+      return 'テストデータ';
+  }
+}
+
+/**
+ * 無効値を生成
+ */
+function generateInvalidValue(inputType) {
+  switch (inputType) {
+    case 'email':
+      return 'invalid-email';
+    case 'number':
+      return 'abc';
+    case 'date':
+      return '無効な日付';
+    default:
+      return ''; // 空文字
+  }
+}
+
+/**
+ * 自然言語テストケースからPlaywright実装を生成
+ * @param {Object} naturalCase - 自然言語テストケース
+ * @param {Object} domInfo - DOM情報
+ * @param {string} url - 対象URL
+ * @param {Object} userStoryInfo - ユーザーストーリー情報
+ * @returns {Object} Playwright実装
+ */
+function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userStoryInfo) {
+  const steps = [];
+  
+  // 基本的なページアクセス
+  steps.push({
+    label: "対象ページにアクセスする",
+    action: "load",
+    target: url
+  });
+
+  // カテゴリ別の実装生成
+  switch (naturalCase.category) {
+    case 'display':
+      generateDisplayStepsFromDOM(steps, domInfo);
+      break;
+    case 'input_validation':
+      generateInputValidationStepsFromDOM(steps, domInfo);
+      break;
+    case 'interaction':
+      generateInteractionStepsFromDOM(steps, domInfo);
+      break;
+    case 'navigation':
+      generateNavigationStepsFromDOM(steps, domInfo);
+      break;
+    case 'data_verification':
+      generateDataVerificationStepsFromDOM(steps, domInfo);
+      break;
+    default:
+      generateGeneralStepsFromDOM(steps, domInfo);
+      break;
+  }
+
+  return {
+    route_id: `route_${getTimestamp()}`,
+    generated_from_natural_case: naturalCase.id,
+    original_viewpoint: naturalCase.original_viewpoint,
+    category: naturalCase.category,
+    priority: naturalCase.priority,
+    user_story_id: userStoryInfo ? userStoryInfo.currentId : null,
+    steps: steps,
+    generated_at: new Date().toISOString(),
+    metadata: {
+      source: 'generateSmartRoutes.js DOM照合',
+      version: '2.0.0',
+      type: 'playwright_implementation',
+      generation_method: 'dom_matching'
+    }
+  };
+}
+
+/**
+ * 表示確認系のステップをDOM情報から生成
+ */
+function generateDisplayStepsFromDOM(steps, domInfo) {
+  // 主要要素の表示確認
+  domInfo.elements.headings.forEach((heading, index) => {
+    if (index < 3) { // 上位3つの見出しのみ
+      steps.push({
+        label: `見出し「${heading.text}」が表示されていることを確認`,
+        action: "assertVisible",
+        target: heading.selector
+      });
+    }
+  });
+
+  // 重要なボタンの表示確認
+  domInfo.elements.buttons.forEach((button, index) => {
+    if (index < 2) { // 上位2つのボタンのみ
+      steps.push({
+        label: `ボタン「${button.text}」が表示されていることを確認`,
+        action: "assertVisible",
+        target: button.selector
+      });
+    }
+  });
+
+  // 入力フィールドの表示確認
+  domInfo.elements.inputs.forEach((input, index) => {
+    if (index < 3) {
+      const label = input.name || input.id || `入力フィールド${index + 1}`;
+      steps.push({
+        label: `${label}が表示されていることを確認`,
+        action: "assertVisible",
+        target: input.recommendedSelector
+      });
+    }
+  });
+}
+
+/**
+ * 入力検証系のステップをDOM情報から生成
+ */
+function generateInputValidationStepsFromDOM(steps, domInfo) {
+  // 各入力フィールドに対する検証
+  domInfo.elements.inputs.forEach((input, index) => {
+    if (input.type === 'text' || input.type === 'email' || input.type === 'number' || input.type === 'date') {
+      const testValue = generateTestValueForInput(input.type);
+      const fieldLabel = input.name || input.placeholder || `入力フィールド${index + 1}`;
+      
+      steps.push({
+        label: `${fieldLabel}に有効な値を入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: testValue
+      });
+
+      // 必須フィールドの場合は空文字テストも追加
+      if (input.required) {
+        steps.push({
+          label: `${fieldLabel}を空にして必須チェック`,
+          action: "fill",
+          target: input.recommendedSelector,
+          value: ""
+        });
+      }
+    }
+  });
+
+  // 送信ボタンの操作
+  const submitButton = domInfo.elements.buttons.find(btn => 
+    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.type === 'submit'
+  );
+  
+  if (submitButton) {
+    steps.push({
+      label: `「${submitButton.text}」ボタンをクリック`,
+      action: "click",
+      target: submitButton.selector
+    });
+  }
+}
+
+/**
+ * インタラクション系のステップをDOM情報から生成
+ */
+function generateInteractionStepsFromDOM(steps, domInfo) {
+  // プルダウン選択
+  const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
+  selectInputs.forEach((select, index) => {
+    if (index < 2) {
+      const fieldLabel = select.name || `プルダウン${index + 1}`;
+      steps.push({
+        label: `${fieldLabel}で選択`,
+        action: "click",
+        target: select.recommendedSelector
+      });
+    }
+  });
+
+  // ボタンクリック（送信系以外）
+  domInfo.elements.buttons.forEach((button, index) => {
+    if (index < 2 && !button.text.includes('送信') && !button.text.includes('確認')) {
+      steps.push({
+        label: `「${button.text}」ボタンをクリック`,
+        action: "click",
+        target: button.selector
+      });
+    }
+  });
+}
+
+/**
+ * ナビゲーション系のステップをDOM情報から生成
+ */
+function generateNavigationStepsFromDOM(steps, domInfo) {
+  // リンククリック
+  domInfo.elements.links.forEach((link, index) => {
+    if (index < 2 && link.href && link.href !== '#') {
+      steps.push({
+        label: `「${link.text}」リンクをクリック`,
+        action: "click",
+        target: link.selector
+      });
+      
+      // 外部リンクでなければページ遷移を確認
+      if (link.href.includes(domInfo.url.split('/')[2])) {
+        steps.push({
+          label: "ページ遷移を確認",
+          action: "waitForURL",
+          target: link.href
+        });
+      }
+    }
+  });
+}
+
+/**
+ * データ検証系のステップをDOM情報から生成
+ */
+function generateDataVerificationStepsFromDOM(steps, domInfo) {
+  const testDataSet = {
+    date: "2025/07/25",
+    term: "2",
+    "head-count": "2", 
+    username: "山田太郎",
+    email: "test@example.com"
+  };
+
+  // データ入力
+  domInfo.elements.inputs.forEach((input, index) => {
+    if (input.name && testDataSet[input.name]) {
+      steps.push({
+        label: `${input.name}に「${testDataSet[input.name]}」を入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: testDataSet[input.name]
+      });
+    } else if (input.type && input.type !== 'submit' && input.type !== 'button') {
+      const testValue = generateTestValueForInput(input.type);
+      const fieldLabel = input.placeholder || input.id || `フィールド${index + 1}`;
+      steps.push({
+        label: `${fieldLabel}に「${testValue}」を入力`,
+        action: "fill",
+        target: input.recommendedSelector,
+        value: testValue
+      });
+    }
+  });
+
+  // プルダウン選択
+  const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
+  selectInputs.forEach((select) => {
+    if (select.name === 'contact') {
+      steps.push({
+        label: "確認のご連絡方法を選択",
+        action: "fill",
+        target: select.recommendedSelector,
+        value: "email"
+      });
+    }
+  });
+
+  // 送信・確認
+  const submitButton = domInfo.elements.buttons.find(btn => 
+    btn.text.includes('確認') || btn.text.includes('送信') || btn.text.includes('予約')
+  );
+  
+  if (submitButton) {
+    steps.push({
+      label: `「${submitButton.text}」ボタンをクリック`,
+      action: "click",
+      target: submitButton.selector
+    });
+
+    // データ確認ステップ
+    Object.entries(testDataSet).forEach(([key, value]) => {
+      if (key !== 'email') { // emailは後で個別確認
+        steps.push({
+          label: `入力した${key}「${value}」が正しく表示されることを確認`,
+          action: "assertVisible",
+          target: `:has-text("${value}")`
+        });
+      }
+    });
+
+    // メールアドレスの確認
+    steps.push({
+      label: `入力したメールアドレス「${testDataSet.email}」が正しく表示されることを確認`,
+      action: "assertVisible", 
+      target: `:has-text("${testDataSet.email}")`
+    });
+  }
+}
+
+/**
+ * 汎用のステップをDOM情報から生成
+ */
+function generateGeneralStepsFromDOM(steps, domInfo) {
+  // 基本的な操作のみ
+  if (domInfo.elements.buttons.length > 0) {
+    const mainButton = domInfo.elements.buttons[0];
+    steps.push({
+      label: `メインボタン「${mainButton.text}」をクリック`,
+      action: "click",
+      target: mainButton.selector
+    });
+  }
+
+  if (domInfo.elements.links.length > 0) {
+    const mainLink = domInfo.elements.links[0];
+    steps.push({
+      label: `メインリンク「${mainLink.text}」をクリック`,
+      action: "click",
+      target: mainLink.selector
+    });
+  }
+}
+
+/**
+ * 入力タイプに応じたテスト値を生成
+ */
+function generateTestValueForInput(inputType) {
+  switch (inputType) {
+    case 'email':
+      return 'test@example.com';
+    case 'number':
+      return '123';
+    case 'date':
+      return '2025-07-25';
+    case 'tel':
+      return '090-1234-5678';
+    case 'password':
+      return 'password123';
+    case 'url':
+      return 'https://example.com';
+    default:
+      return 'テストデータ';
+  }
+}
+
 // スマートテストルート生成
-async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null) {
+async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null, naturalTestCasesFile = null) {
+  // 自然言語テストケースが指定されている場合はDOM照合モードで実行
+  if (naturalTestCasesFile) {
+    console.log('🔄 DOM照合モードで実行します');
+    
+    // 1. 自然言語テストケースを読み込み
+    const testCasesData = loadNaturalLanguageTestCases(naturalTestCasesFile);
+    
+    // 2. DOM情報と照合して実行可能性を分析
+    const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
+    
+    // 3. 実行可能なケースから最適なものを選択
+    if (feasibilityAnalysis.suggestedCases.length === 0) {
+      console.log('⚠️ 実行可能なテストケースが見つかりませんでした');
+      console.log('📋 問題のあるケース:', feasibilityAnalysis.problematicCases.length);
+      // フォールバックとして従来のAI生成を実行
+      console.log('🔄 フォールバック: AI生成モードに切り替えます');
+    } else {
+      // 最も適したテストケースをPlaywright実装に変換
+      const selectedCase = feasibilityAnalysis.suggestedCases[0];
+      console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
+      
+      // DOM照合版の簡易実装を生成
+      const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+      
+      console.log('✅ DOM照合によるPlaywright実装生成が完了しました');
+      return playwrightRoute;
+    }
+  }
+
   // OpenAI設定を取得
   const config = loadConfig();
   const openAIConfig = getOpenAIConfig(config);
@@ -457,15 +1294,27 @@ ${constraintText}
       console.log(`🛠️ [Debug] Loaded testPoints from: ${latestTP}`);
     }
 
-    // 3. スマートAI呼び出し
+    // 3. 自然言語テストケースファイルの確認（新機能）
+    let naturalTestCasesFile = cliOptions.naturalTestCases || null;
+    if (naturalTestCasesFile) {
+      console.log(`🔄 DOM照合モードを使用: ${naturalTestCasesFile}`);
+    }
+
+    // 4. スマートAI呼び出し（DOM照合または従来モード）
     console.log('🤖 AI分析開始...');
-    const routeJson = await generateSmartTestRoute(url, testGoal, pageInfo, testPoints, pdfFileInfo, userStoryInfo);
+    const routeJson = await generateSmartTestRoute(url, testGoal, pageInfo, testPoints, pdfFileInfo, userStoryInfo, naturalTestCasesFile);
     if (!routeJson) throw new Error('ルート生成に失敗しました');
 
-    // 4. 保存
+    // 5. 保存
     const outPath = path.join(resultsDir, `route_${getTimestamp()}.json`);
     fs.writeFileSync(outPath, JSON.stringify(routeJson, null, 2), 'utf-8');
     console.log(`💾 Smart Route JSON saved to ${outPath}`);
+    
+    // DOM照合モードの場合、使用された自然言語テストケース情報をログ出力
+    if (naturalTestCasesFile && routeJson.generated_from_natural_case) {
+      console.log(`🔗 トレーサビリティ: 自然言語テストケース ID ${routeJson.generated_from_natural_case} から生成`);
+      console.log(`📝 元観点: ${routeJson.original_viewpoint?.substring(0, 100)}...`);
+    }
     
     console.log('✅ スマートテストシナリオ生成が完了しました');
     process.exit(0);

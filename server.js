@@ -380,12 +380,49 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             break;
 
+        case 'generateTestCases':
+            args = ['tests/generateTestCases.js'];
+            // 最新のtestPoints_*.jsonファイルを自動で探す
+            const testResultsDir = path.join(__dirname, 'test-results');
+            try {
+                const files = fs.readdirSync(testResultsDir);
+                const testPointsFiles = files
+                    .filter(f => f.startsWith('testPoints_') && f.endsWith('.json'))
+                    .sort()
+                    .reverse();
+                if (testPointsFiles.length > 0) {
+                    const latestTestPoints = path.join(testResultsDir, testPointsFiles[0]);
+                    args.push(latestTestPoints);
+                    console.log(`📊 最新のテスト観点ファイルを使用: ${testPointsFiles[0]}`);
+                }
+            } catch (error) {
+                console.warn('⚠️ テスト観点ファイルの自動検索に失敗:', error.message);
+            }
+            break;
+
         case 'generateSmartRoutes':
             args = ['tests/generateSmartRoutes.js'];
             if (url) args.push('--url', url);
             if (goal) args.push('--goal', goal);
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
+            
+            // 自然言語テストケースファイルが存在する場合は自動使用
+            const testResultsDir2 = path.join(__dirname, 'test-results');
+            try {
+                const files = fs.readdirSync(testResultsDir2);
+                const naturalTestCasesFiles = files
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json'))
+                    .sort()
+                    .reverse();
+                if (naturalTestCasesFiles.length > 0) {
+                    const latestNaturalTestCases = path.join(testResultsDir2, naturalTestCasesFiles[0]);
+                    args.push('--natural-test-cases', latestNaturalTestCases);
+                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
+                }
+            } catch (error) {
+                console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
+            }
             break;
 
         case 'runRoutes':

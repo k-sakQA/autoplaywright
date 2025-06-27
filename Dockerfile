@@ -2,8 +2,8 @@
 # Dockerfile
 # ───────────────────────────────────────────
 
-# Node.jsの公式イメージを使用
-FROM node:24.2.0
+# Node.jsの公式イメージを使用（最新LTS版）
+FROM node:22-slim
 
 # 作業ディレクトリを設定
 WORKDIR /app
@@ -17,6 +17,9 @@ COPY public/ ./public/
 COPY tests/ ./tests/
 COPY test_point/ ./test_point/
 COPY specs/ ./specs/
+
+# Google Cloud認証ファイル（オプション）
+COPY airy-cycle-451111-s0-32fbfd2f1e9f.json* ./
 
 # 依存パッケージのインストール
 RUN npm install

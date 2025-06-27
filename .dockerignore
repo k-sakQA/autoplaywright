@@ -1,27 +1,34 @@
-# Git
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# テスト結果・キャッシュ（実行時にボリュームマウント）
+test-results/*
+cache/*
+.execution-history.json
+.last-run.json
+
+# 開発・デバッグファイル
+.DS_Store
+*.log
+.env
+.env.local
+
+# Git関連
 .git
 .gitignore
+README.md
 
-# Node
-node_modules
-npm-debug.log
-
-# Environment
-.env
-.env.*
-
-# Test results
-test-results/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-.vscode/
+# エディタ設定
+.vscode
+.idea
 *.swp
 *.swo
+
+# OS生成ファイル
+Thumbs.db
 
 # Docker
 Dockerfile

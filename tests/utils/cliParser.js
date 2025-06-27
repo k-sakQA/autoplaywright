@@ -8,6 +8,7 @@ export function parseCLIArgs() {
   program
     .option('-p, --spec-pdf <path>', '仕様書PDFファイルのパス')
     .option('-c, --test-csv <path>', 'テスト観点CSVファイルのパス')
+    .option('-n, --natural-test-cases <path>', '自然言語テストケースJSONファイルのパス')
     .option('-u, --url <url>', 'テスト対象のURL')
     .option('-g, --goal <text>', 'テストの目的・意図')
     .option('-o, --output <path>', '出力ディレクトリのパス')
@@ -36,6 +37,16 @@ export function parseCLIArgs() {
     options.testCsv = csvPath;
   }
   
+  // 自然言語テストケースファイルの存在確認
+  if (options.naturalTestCases) {
+    const naturalTestCasesPath = path.resolve(options.naturalTestCases);
+    if (!fs.existsSync(naturalTestCasesPath)) {
+      console.error(`エラー: 自然言語テストケースファイルが見つかりません: ${naturalTestCasesPath}`);
+      process.exit(1);
+    }
+    options.naturalTestCases = naturalTestCasesPath;
+  }
+  
   return options;
 }
 
@@ -55,6 +66,11 @@ export function validateOptions(options) {
   // CSVファイルの拡張子確認
   if (options.testCsv && !options.testCsv.toLowerCase().endsWith('.csv')) {
     errors.push('指定されたファイルはCSVではありません');
+  }
+  
+  // 自然言語テストケースファイルの拡張子確認
+  if (options.naturalTestCases && !options.naturalTestCases.toLowerCase().endsWith('.json')) {
+    errors.push('指定された自然言語テストケースファイルはJSONではありません');
   }
   
   if (errors.length > 0) {

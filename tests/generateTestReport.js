@@ -155,7 +155,38 @@ function groupTestPointsByFunction(testPoints) {
 }
 
 function determineFunctionKey(testPoint) {
-  const description = testPoint.description || testPoint.viewpoint || testPoint.content || '';
+  // 自然言語テストケースのカテゴリを優先使用
+  if (testPoint.category) {
+    switch (testPoint.category) {
+      case 'display':
+        return 'Display';
+      case 'input_validation':
+        return 'Input';
+      case 'error_handling':
+        return 'Error';
+      case 'navigation':
+        return 'Navigation';
+      case 'interaction':
+        return 'Interaction';
+      case 'data_verification':
+        return 'DataVerification';
+      case 'edge_case':
+        return 'EdgeCase';
+      case 'compatibility':
+        return 'Compatibility';
+      case 'operations':
+        return 'Operations';
+      default:
+        return 'General';
+    }
+  }
+  
+  // フォールバック：説明文からキーワードベースで分類
+  const description = testPoint['考慮すべき仕様の具体例'] || 
+                     testPoint.description || 
+                     testPoint.viewpoint || 
+                     testPoint.content || 
+                     testPoint.original_viewpoint || '';
   
   // 機能を推定するキーワードベースの分類
   if (description.includes('入力') || description.includes('フォーム') || description.includes('記入')) {
@@ -172,6 +203,8 @@ function determineFunctionKey(testPoint) {
     return 'Payment';
   } else if (description.includes('ナビゲーション') || description.includes('メニュー') || description.includes('遷移')) {
     return 'Navigation';
+  } else if (description.includes('エラー') || description.includes('メッセージ')) {
+    return 'Error';
   } else {
     return 'General';
   }
@@ -186,7 +219,13 @@ function getFunctionId(functionKey, index) {
     'Search': 'E',
     'Payment': 'F',
     'Navigation': 'G',
-    'General': 'H'
+    'Error': 'H',
+    'Interaction': 'I',
+    'DataVerification': 'J',
+    'EdgeCase': 'K',
+    'Compatibility': 'L',
+    'Operations': 'M',
+    'General': 'N'
   };
   
   return functionIdMap[functionKey] || String.fromCharCode(65 + index); // A, B, C, ...
@@ -201,6 +240,12 @@ function determineFunctionName(testPoint, functionKey) {
     'Search': '検索機能',
     'Payment': '決済機能',
     'Navigation': 'ナビゲーション機能',
+    'Error': 'エラーハンドリング機能',
+    'Interaction': 'インタラクション機能',
+    'DataVerification': 'データ検証機能',
+    'EdgeCase': 'エッジケース機能',
+    'Compatibility': '互換性機能',
+    'Operations': '運用機能',
     'General': '基本機能'
   };
   
@@ -210,7 +255,10 @@ function determineFunctionName(testPoint, functionKey) {
 function findRelatedSteps(testPoint, steps, fallbackIndex) {
   if (!steps || !Array.isArray(steps)) return [];
   
-  const description = testPoint.description || testPoint.viewpoint || testPoint.content || '';
+  const description = testPoint['考慮すべき仕様の具体例'] || 
+                     testPoint.description || 
+                     testPoint.viewpoint || 
+                     testPoint.content || '';
   
   // 観点の内容に関連するステップを検索
   const relatedSteps = steps.filter(step => {
@@ -233,7 +281,10 @@ function findRelatedSteps(testPoint, steps, fallbackIndex) {
 function findRelatedResults(testPoint, resultSteps, fallbackIndex) {
   if (!resultSteps || !Array.isArray(resultSteps)) return [];
   
-  const description = testPoint.description || testPoint.viewpoint || testPoint.content || '';
+  const description = testPoint['考慮すべき仕様の具体例'] || 
+                     testPoint.description || 
+                     testPoint.viewpoint || 
+                     testPoint.content || '';
   
   // 観点の内容に関連する結果を検索
   const relatedResults = resultSteps.filter(step => {
@@ -294,7 +345,13 @@ function createStepToViewpointMapping(testPoints, executedSteps) {
     const testPointsInFunction = functionalGroups[functionKey];
     
     testPointsInFunction.forEach((testPoint, viewpointIndex) => {
-      const viewpoint = testPoint.description || testPoint.viewpoint || testPoint.content || `テスト観点${viewpointIndex + 1}`;
+      // 実際のテスト観点内容を優先使用
+      const viewpoint = testPoint['考慮すべき仕様の具体例'] || 
+                       testPoint.original_viewpoint || 
+                       testPoint.description || 
+                       testPoint.viewpoint || 
+                       testPoint.content || 
+                       `テスト観点${viewpointIndex + 1}`;
       const functionName = determineFunctionName(testPoint, functionKey);
       
       // この観点に割り当てるステップ数を決定
@@ -602,24 +659,70 @@ async function main() {
   
   const resultFiles = files.filter(f => f.startsWith('result_')).sort().reverse();
   const routeFiles = files.filter(f => f.startsWith('route_')).sort().reverse();
+  
+  // 新しいワークフロー対応：自然言語テストケースを優先的に読み込み
+  const naturalLanguageFiles = files.filter(f => f.startsWith('naturalLanguageTestCases_')).sort().reverse();
   const testPointFiles = files.filter(f => f.startsWith('testPoints_')).sort().reverse();
+  
+  console.log(`📊 利用可能なファイル: 結果${resultFiles.length}件, ルート${routeFiles.length}件, 自然言語${naturalLanguageFiles.length}件, テスト観点${testPointFiles.length}件`);
 
-  if (resultFiles.length === 0 || routeFiles.length === 0 || testPointFiles.length === 0) {
-    console.error('必要なファイルが見つかりません。');
+  if (resultFiles.length === 0 || routeFiles.length === 0) {
+    console.error('❌ 必要なファイル（結果、ルート）が見つかりません。');
     return;
   }
 
   const latestResult = await readJsonFile(path.join(testResultsDir, resultFiles[0]));
   const latestRoute = await readJsonFile(path.join(testResultsDir, routeFiles[0]));
-  const latestTestPoints = await readJsonFile(path.join(testResultsDir, testPointFiles[0]));
+  
+  // テスト観点データを優先順位で読み込み
+  let testPoints = null;
+  let testPointSource = '';
+  
+  // 1. 自然言語テストケースファイルを優先
+  if (naturalLanguageFiles.length > 0) {
+    console.log(`📊 自然言語テストケースファイルを使用: ${naturalLanguageFiles[0]}`);
+    const naturalLanguageData = await readJsonFile(path.join(testResultsDir, naturalLanguageFiles[0]));
+    if (naturalLanguageData && naturalLanguageData.testCases) {
+      testPoints = naturalLanguageData.testCases.map(testCase => ({
+        No: testCase.id || 'N/A',
+        description: testCase.original_viewpoint || 'テスト観点',
+        viewpoint: testCase.original_viewpoint,
+        content: testCase.original_viewpoint,
+        category: testCase.category || 'general',
+        priority: testCase.priority || 'medium',
+        test_scenarios: testCase.test_scenarios || [],
+        metadata: testCase.metadata || {}
+      }));
+      testPointSource = 'naturalLanguageTestCases';
+      console.log(`✅ 自然言語テストケースから${testPoints.length}件の観点を読み込みました`);
+    }
+  }
+  
+  // 2. フォールバック：従来のテスト観点ファイル
+  if (!testPoints && testPointFiles.length > 0) {
+    console.log(`📊 フォールバック：テスト観点ファイルを使用: ${testPointFiles[0]}`);
+    testPoints = await readJsonFile(path.join(testResultsDir, testPointFiles[0]));
+    testPointSource = 'testPoints';
+    if (testPoints && Array.isArray(testPoints)) {
+      console.log(`✅ テスト観点ファイルから${testPoints.length}件の観点を読み込みました`);
+    }
+  }
+  
+  // テストポイント形式ファイル（CSV）の読み込み
   const testPointFormat = await readCsvFile(path.join(__dirname, '..', 'test_point', 'TestPoint_Format.csv'));
 
-  if (!latestResult || !latestRoute || !latestTestPoints || !testPointFormat) {
-    console.error('ファイルの読み込みに失敗しました。');
+  if (!latestResult || !latestRoute) {
+    console.error('❌ 必須ファイル（結果、ルート）の読み込みに失敗しました。');
     return;
   }
+  
+  if (!testPoints) {
+    console.log('⚠️ テスト観点データが見つかりません。フォールバックレポートを生成します。');
+  } else {
+    console.log(`📊 テスト観点ソース: ${testPointSource} (${Array.isArray(testPoints) ? testPoints.length : 0}件)`);
+  }
 
-  const report = await generateTestReport(testPointFormat, latestTestPoints, latestRoute, latestResult, userStoryInfo);
+  const report = await generateTestReport(testPointFormat, testPoints, latestRoute, latestResult, userStoryInfo);
   
   if (report) {
     // 統一されたファイル名形式: AutoPlaywright テスト結果 - TestResults_YYYY-MM-DD_HHMM.csv
