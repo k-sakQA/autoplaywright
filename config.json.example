@@ -1,0 +1,21 @@
+{
+  "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0",
+  "openai": {
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "model": "gpt-4o-mini",
+    "temperature": 0.2,
+    "max_tokens": 4000,
+    "top_p": 0.3,
+    "timeout": 60000,
+    "maxRetries": 3
+  },
+  "googleSheets": {
+    "shareEmail": "",
+    "driveFolder": "",
+    "spreadsheetTitle": "AutoPlaywright テスト結果",
+    "autoUpload": false
+  },
+  "userStory": {
+    "currentId": null
+  }
+} 

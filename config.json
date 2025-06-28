@@ -2,21 +2,20 @@
   "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0",
   "openai": {
     "apiKeyEnv": "OPENAI_API_KEY",
-    "model": "gpt-4o",
+    "model": "gpt-4o-mini",
     "temperature": 0.2,
-    "max_tokens": 5000,
+    "max_tokens": 4000,
     "top_p": 0.2,
     "timeout": 60000,
     "maxRetries": 3
   },
   "googleSheets": {
-    "shareEmail": "sakata1977@gmail.com",
-    "driveFolder": "1Z_hcriF8IMbj_uLVr7yGiWFD4dGGj-3g",
+    "shareEmail": "",
+    "driveFolder": "",
     "spreadsheetTitle": "AutoPlaywright テスト結果",
-    "autoUpload": true
+    "autoUpload": false
   },
   "userStory": {
-    "currentId": null,
-    "resetAt": "2025-06-28T03:24:21.950Z"
+    "currentId": null
   }
 }
