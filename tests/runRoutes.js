@@ -271,13 +271,13 @@ export class PlaywrightRunner {
       }
     } else {
       // 最新のrouteファイルを取得
-      const files = fs.readdirSync(testResultsDir)
-        .filter(f => f.startsWith('route_') && f.endsWith('.json'));
-      if (files.length === 0) {
-        throw new Error('route JSONファイルが見つかりません');
-      }
-      // yymmddhhmmssでソートして最新を選択
-      files.sort();
+    const files = fs.readdirSync(testResultsDir)
+      .filter(f => f.startsWith('route_') && f.endsWith('.json'));
+    if (files.length === 0) {
+      throw new Error('route JSONファイルが見つかりません');
+    }
+    // yymmddhhmmssでソートして最新を選択
+    files.sort();
       latestFile = files[files.length - 1];
       routePath = path.join(testResultsDir, latestFile);
     }

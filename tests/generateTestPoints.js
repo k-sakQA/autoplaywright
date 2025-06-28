@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 import axios from "axios";
 import OpenAI from "openai";
 import { parse } from "csv-parse/sync";
-import crypto from "crypto";
+
 import { z } from "zod";
 import { parseCLIArgs, validateOptions } from './utils/cliParser.js';
 import { uploadPDFToOpenAI, createPDFPrompt } from './utils/pdfParser.js';
@@ -82,31 +82,7 @@ function getTimestamp() {
   return `${String(d.getFullYear()).slice(-2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-// キャッシュ関連の関数を追加
-function createCacheKey(url, userLines, pdfFileId = '') {
-  const data = url + JSON.stringify(userLines) + pdfFileId;
-  return crypto.createHash('md5').update(data).digest('hex');
-}
 
-function getCachedResponse(cacheKey) {
-  const cacheDir = path.resolve(__dirname, '../cache');
-  const cachePath = path.join(cacheDir, `${cacheKey}.json`);
-  
-  if (fs.existsSync(cachePath)) {
-    console.log('🎯 キャッシュヒット！');
-    return JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-  }
-  return null;
-}
-
-function saveToCache(cacheKey, data) {
-  const cacheDir = path.resolve(__dirname, '../cache');
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir);
-  }
-  const cachePath = path.join(cacheDir, `${cacheKey}.json`);
-  fs.writeFileSync(cachePath, JSON.stringify(data), 'utf-8');
-}
 
 (async () => {
   try {
@@ -198,6 +174,12 @@ ${htmlSnippet}`;
 ${createPDFPrompt(pdfFileInfo)}`;
     }
 
+    // goalパラメータをプロンプトに追加
+    if (cliOptions.goal) {
+      user += `\n\n【ユーザーストーリー・目標】
+${cliOptions.goal}`;
+    }
+
     user += `\n\n考慮すべき仕様のない観点は省略してください。
 テスト観点の「No」を必ず含めて、以下の形式でJSON配列として返してください：
 
@@ -208,71 +190,60 @@ ${createPDFPrompt(pdfFileInfo)}`;
   }
 ]`;
 
-    // キャッシュチェック
-    const cacheKey = createCacheKey(url, userLines, pdfFileInfo?.fileId || '');
-    const cachedData = getCachedResponse(cacheKey);
+    // 4. AI 呼び出し（毎回新しい観点を生成）
+    console.log('🛠️ [Debug] Calling OpenAI Functions API...');
+    
+    const messages = [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ];
+
+    // 特に追加処理は不要（createPDFPromptで既に処理済み）
+
+    const res = await openai.chat.completions.create({
+      model: aiConfig.model || 'gpt-4o-mini',
+      messages: messages,
+      temperature: aiConfig.temperature || 0.5,
+      max_tokens: aiConfig.max_tokens || 4000,
+      top_p: aiConfig.top_p || 0.9,
+    });
+
+    // 5. JSON パース
+    const content = res.choices[0].message.content.trim();
+    console.log('🛠️ [Debug] AI Response:', content);
+    
+    // JSON配列部分を抽出
+    const jsonMatch = content.match(/\[([\s\S]*?)\]/);
+    if (!jsonMatch) {
+      throw new Error('AI応答からJSON配列を抽出できませんでした');
+    }
     
     let points;
-    if (cachedData) {
-      points = cachedData;
-    } else {
-      // 4. AI 呼び出し
-      console.log('🛠️ [Debug] Calling OpenAI Functions API...');
+    try {
+      let jsonText = jsonMatch[0];
       
-      const messages = [
-        { role: 'system', content: system },
-        { role: 'user', content: user }
-      ];
-
-      // 特に追加処理は不要（createPDFPromptで既に処理済み）
-
-      const res = await openai.chat.completions.create({
-        model: aiConfig.model || 'gpt-4o-mini',
-        messages: messages,
-        temperature: aiConfig.temperature || 0.5,
-        max_tokens: aiConfig.max_tokens || 4000,
-        top_p: aiConfig.top_p || 0.9,
-      });
-
-      // 5. JSON パース
-      const content = res.choices[0].message.content.trim();
-      console.log('🛠️ [Debug] AI Response:', content);
+      // 最小限の安全なクリーニングのみ実行
+      // 1. 末尾のカンマのみ除去（コメント除去は行わない）
+      jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1');
       
-      // JSON配列部分を抽出
-      const jsonMatch = content.match(/\[([\s\S]*?)\]/);
-      if (!jsonMatch) {
-        throw new Error('AI応答からJSON配列を抽出できませんでした');
+      points = JSON.parse(jsonText);
+      if (!Array.isArray(points)) {
+        throw new Error('返された値が配列ではありません');
       }
       
-      try {
-        let jsonText = jsonMatch[0];
-        
-        // 最小限の安全なクリーニングのみ実行
-        // 1. 末尾のカンマのみ除去（コメント除去は行わない）
-        jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1');
-        
-        points = JSON.parse(jsonText);
-        if (!Array.isArray(points)) {
-          throw new Error('返された値が配列ではありません');
+      // 各要素が正しい構造を持っているか確認
+      for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+        if (!point.No || !point['考慮すべき仕様の具体例']) {
+          console.warn(`要素 ${i} の構造が不正です:`, point);
         }
-        
-        // 各要素が正しい構造を持っているか確認
-        for (let i = 0; i < points.length; i++) {
-          const point = points[i];
-          if (!point.No || !point['考慮すべき仕様の具体例']) {
-            console.warn(`要素 ${i} の構造が不正です:`, point);
-          }
-        }
-        
-        console.log(`🛠️ [Debug] 抽出されたテスト観点数: ${points.length}`);
-      } catch (parseError) {
-        console.error('JSON解析エラー:', parseError);
-        console.error('AI応答:', content);
-        throw new Error('AI応答のJSON解析に失敗しました');
       }
       
-      // キャッシュに保存
-      saveToCache(cacheKey, points);
+      console.log(`🛠️ [Debug] 抽出されたテスト観点数: ${points.length}`);
+    } catch (parseError) {
+      console.error('JSON解析エラー:', parseError);
+      console.error('AI応答:', content);
+      throw new Error('AI応答のJSON解析に失敗しました');
     }
     console.log(`🛠️ [Debug] testPoints count: ${points.length}`);
 
