@@ -914,7 +914,8 @@
                 <div id="bulkStatus" class="bulk-status" style="display: none;">
                     <div class="bulk-progress">
                         <div class="progress-step" id="step-testpoints">📋 観点生成</div>
-                        <div class="progress-step" id="step-routes">🧠 シナリオ生成</div>
+                        <div class="progress-step" id="step-testcases">🧠 テストケース生成</div>
+                        <div class="progress-step" id="step-routes">🎭 Playwright変換</div>
                         <div class="progress-step" id="step-run">▶️ テスト実行</div>
                         <div class="progress-step" id="step-report">📊 レポート生成</div>
                         <div class="progress-step" id="step-analyze">🔧 失敗分析</div>
@@ -943,12 +944,12 @@
                         📋 テスト観点生成
                     </button>
                     
-                    <button class="btn-secondary" onclick="executeCommand('generateTestCases')" title="テスト観点を自然言語テストケースに変換">
-                        🧪 テストケース変換
+                    <button class="btn-secondary" onclick="executeCommand('generateTestCases')" title="テスト観点をより具体的な自然言語テストケースに生成">
+                        🧠 テストケース生成
                     </button>
                     
                     <button class="btn-info" onclick="executeCommand('generateSmartRoutes')">
-                        🧠 スマートシナリオ生成
+                        🎭 Playwright用に変換
                     </button>
                     
                     <button class="btn-success" onclick="executeCommand('runRoutes')">
@@ -1190,13 +1191,16 @@
                             <button class="btn btn-primary" onclick="executeNewStoryCommand('generateTestPoints')">
                                 📝 テスト観点生成
                             </button>
-                            <button class="btn btn-primary" onclick="executeNewStoryCommand('generateSmartRoutes')">
-                                🎯 スマートシナリオ生成
+                            <button class="btn btn-secondary" onclick="executeNewStoryCommand('generateTestCases')">
+                                🧠 テストケース生成
+                            </button>
+                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateSmartRoutes')">
+                                🎭 Playwright用に変換
                             </button>
                             <button class="btn btn-success" onclick="executeNewStoryCommand('runRoutes')">
                                 ▶️ テスト実行
                             </button>
-                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateTestReport')">
+                            <button class="btn btn-warning" onclick="executeNewStoryCommand('generateTestReport')">
                                 📊 レポート生成
                             </button>
                         </div>
@@ -1239,13 +1243,13 @@
                             <li><strong>ストーリー自動発見</strong>: 過去のテスト結果を分析して新しいユーザーストーリーを発見</li>
                             <li><strong>優先度判定</strong>: AIが重要度を判定し、高優先度のストーリーを優先表示</li>
                             <li><strong>シームレス実行</strong>: 発見されたストーリーをそのまま新しいテストとして実行</li>
-                            <li><strong>完全なワークフロー</strong>: 観点生成からレポート作成まで一貫した実行が可能</li>
+                            <li><strong>完全なワークフロー</strong>: 観点生成→テストケース生成→Playwright変換→実行→レポート作成まで一貫した実行が可能</li>
                         </ul>
                         <div class="highlight-box">
                             <strong>💡 使い方:</strong> 
                             1. 「新ストーリー発見」で新しいストーリーを発見 → 
                             2. 「発見済みストーリー選択」でストーリーを選択 → 
-                            3. 各種テストボタンで実行！
+                            3. 観点生成→テストケース生成→変換→実行の順番で実行！
                         </div>
                     </div>
                 </div>
@@ -1657,7 +1661,7 @@
             const names = {
                 'generateTestPoints': 'テスト観点生成',
                 'generateTestCases': 'テストケース変換',
-                'generateSmartRoutes': 'スマートシナリオ生成',
+                'generateSmartRoutes': 'Playwright用に変換',
                 'runRoutes': 'テスト実行',
                 'generateTestReport': 'レポート生成',
                 'analyzeFailures': '失敗テスト分析・修正',
@@ -1739,7 +1743,7 @@
             // 確認ダイアログ
             if (!confirm('🚀 以下のワークフローを自動実行します：\n\n' +
                 '1. 📋 テスト観点生成\n' +
-                '2. 🧠 スマートシナリオ生成\n' +
+                '2. 🎭 Playwright用に変換\n' +
                 '3. ▶️ テスト実行\n' +
                 '4. 📊 レポート生成\n' +
                 '5. 🔧 失敗分析（失敗がある場合）\n' +
@@ -1765,13 +1769,19 @@
                 await delay(1000);
                 updateBulkProgress('step-testpoints', 'completed', '✅ テスト観点生成完了');
                 
-                // 2. スマートシナリオ生成
-                updateBulkProgress('step-routes', 'active', '🧠 スマートシナリオを生成中...');
+                // 2. テストケース生成
+                updateBulkProgress('step-testcases', 'active', '🧠 テストケースを生成中...');
+                await executeCommand('generateTestCases');
+                await delay(1000);
+                updateBulkProgress('step-testcases', 'completed', '✅ テストケース生成完了');
+                
+                // 3. Playwright用に変換
+                updateBulkProgress('step-routes', 'active', '🎭 Playwright用に変換中...');
                 await executeCommand('generateSmartRoutes');
                 await delay(1000);
-                updateBulkProgress('step-routes', 'completed', '✅ スマートシナリオ生成完了');
+                updateBulkProgress('step-routes', 'completed', '✅ Playwright用に変換完了');
                 
-                // 3. テスト実行
+                // 4. テスト実行
                 updateBulkProgress('step-run', 'active', '▶️ テストを実行中...');
                 await executeCommand('runRoutes');
                 await delay(1000);
@@ -1783,13 +1793,13 @@
                     hasFailures = true;
                 }
                 
-                // 4. レポート生成
+                // 5. レポート生成
                 updateBulkProgress('step-report', 'active', '📊 レポートを生成中...');
                 await executeCommand('generateTestReport');
                 await delay(1000);
                 updateBulkProgress('step-report', 'completed', '✅ レポート生成完了');
                 
-                // 5. 失敗分析（失敗がある場合）
+                // 6. 失敗分析（失敗がある場合）
                 if (hasFailures) {
                     updateBulkProgress('step-analyze', 'active', '🔧 失敗テストを分析中...');
                     await executeCommand('analyzeFailures');
@@ -1808,7 +1818,7 @@
                     updateBulkProgress('step-analyze', 'completed', '⏭️ 失敗なしのためスキップ');
                 }
                 
-                // 6. 再トライ（修正ルートがある場合）
+                // 7. 再トライ（修正ルートがある場合）
                 if (fixedRouteId) {
                     updateBulkProgress('step-retry', 'active', '🚀 修正ルートで再トライ中...');
                     await runFixedRoute(fixedRouteId);
@@ -1818,7 +1828,7 @@
                     updateBulkProgress('step-retry', 'completed', '⏭️ 修正ルートなしのためスキップ');
                 }
                 
-                // 7. 新ストーリー発見
+                // 8. 新ストーリー発見
                 updateBulkProgress('step-stories', 'active', '🔍 新ストーリーを発見中...');
                 await executeCommand('discoverNewStories');
                 await delay(1000);
@@ -1846,7 +1856,7 @@
         function showBulkStatus() {
             document.getElementById('bulkStatus').style.display = 'block';
             // すべてのステップを初期状態にリセット
-            const steps = ['step-testpoints', 'step-routes', 'step-run', 'step-report', 'step-analyze', 'step-retry', 'step-stories'];
+            const steps = ['step-testpoints', 'step-testcases', 'step-routes', 'step-run', 'step-report', 'step-analyze', 'step-retry', 'step-stories'];
             steps.forEach(stepId => {
                 const element = document.getElementById(stepId);
                 element.className = 'progress-step';

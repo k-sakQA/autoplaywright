@@ -19,6 +19,9 @@ class FailureAnalyzer {
     this.targetUrl = options.targetUrl || null;
     this.specPdf = options.specPdf || null;
     this.testCsv = options.testCsv || null;
+    
+    // DOM解析結果のキャッシュ
+    this.cachedDomInfo = null;
   }
 
   async init() {
@@ -29,6 +32,45 @@ class FailureAnalyzer {
   async close() {
     if (this.browser) {
       await this.browser.close();
+    }
+  }
+
+  /**
+   * 事前DOM解析結果を読み込み
+   */
+  loadCachedDomAnalysis() {
+    try {
+      const testResultsDir = path.join(process.cwd(), 'test-results');
+      
+      // DOM解析結果ファイルを検索（最新のものを取得）
+      const domFiles = fs.readdirSync(testResultsDir)
+        .filter(file => file.includes('dom_analysis') || file.includes('route_'))
+        .sort()
+        .reverse();
+
+      // 最新のルートファイルからDOM情報を抽出
+      for (const file of domFiles) {
+        try {
+          const filePath = path.join(testResultsDir, file);
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          
+          // ルートファイルにDOM情報が含まれている場合
+          if (content.dom_analysis || content.page_info) {
+            console.log(`📋 事前DOM解析結果を発見: ${file}`);
+            this.cachedDomInfo = content.dom_analysis || content.page_info;
+            return this.cachedDomInfo;
+          }
+        } catch (e) {
+          // ファイル読み込みエラーは無視して次へ
+          continue;
+        }
+      }
+      
+      console.log('📋 事前DOM解析結果が見つかりませんでした（リアルタイム解析を実行します）');
+      return null;
+    } catch (error) {
+      console.log('📋 DOM解析結果の読み込みに失敗しました（リアルタイム解析を実行します）');
+      return null;
     }
   }
 
@@ -56,6 +98,122 @@ class FailureAnalyzer {
    */
   extractFailedSteps(testResult) {
     return testResult.steps.filter(step => step.status === 'failed');
+  }
+
+  /**
+   * 事前DOM解析結果から代替セレクタを提案
+   */
+  findAlternativeSelectorsFromCachedDOM(target, action) {
+    if (!this.cachedDomInfo || !this.cachedDomInfo.elements) {
+      return [];
+    }
+
+    console.log(`🔍 事前DOM解析結果から代替セレクタを検索中...`);
+    const suggestions = [];
+    
+    try {
+      // name属性から検索
+      const nameMatch = target.match(/\[name="([^"]+)"\]/);
+      if (nameMatch) {
+        const nameValue = nameMatch[1];
+        
+        // 類似のname属性を持つ要素を検索
+        this.cachedDomInfo.elements.inputs?.forEach(input => {
+          if (input.name && (
+            input.name === nameValue || 
+            input.name.includes(nameValue.split('-')[0]) ||
+            nameValue.includes(input.name)
+          )) {
+            suggestions.push({
+              selector: input.recommendedSelector || `[name="${input.name}"]`,
+              reason: `類似name属性: ${input.name}`,
+              confidence: input.name === nameValue ? 0.9 : 0.7,
+              elementInfo: {
+                type: input.type,
+                placeholder: input.placeholder,
+                id: input.id,
+                disabled: input.disabled
+              }
+            });
+          }
+        });
+      }
+
+      // text属性から検索（ボタン・リンク）
+      const textMatch = target.match(/text="([^"]+)"/);
+      if (textMatch) {
+        const textValue = textMatch[1];
+        
+        // ボタンから検索
+        this.cachedDomInfo.elements.buttons?.forEach(button => {
+          if (button.text && (
+            button.text.includes(textValue) || 
+            textValue.includes(button.text)
+          )) {
+            suggestions.push({
+              selector: button.selector,
+              reason: `類似ボタンテキスト: ${button.text}`,
+              confidence: button.text === textValue ? 0.9 : 0.6,
+              elementInfo: {
+                type: button.type,
+                text: button.text
+              }
+            });
+          }
+        });
+
+        // リンクから検索
+        this.cachedDomInfo.elements.links?.forEach(link => {
+          if (link.text && (
+            link.text.includes(textValue) || 
+            textValue.includes(link.text)
+          )) {
+            suggestions.push({
+              selector: link.selector,
+              reason: `類似リンクテキスト: ${link.text}`,
+              confidence: link.text === textValue ? 0.9 : 0.6,
+              elementInfo: {
+                href: link.href,
+                text: link.text
+              }
+            });
+          }
+        });
+      }
+
+      // ID・クラス属性から検索
+      const idMatch = target.match(/#([^.\s\[]+)/);
+      if (idMatch) {
+        const idValue = idMatch[1];
+        
+        this.cachedDomInfo.elements.inputs?.forEach(input => {
+          if (input.id && input.id.includes(idValue)) {
+            suggestions.push({
+              selector: `#${input.id}`,
+              reason: `類似ID: ${input.id}`,
+              confidence: input.id === idValue ? 0.9 : 0.7,
+              elementInfo: input
+            });
+          }
+        });
+      }
+
+      // confidence順でソート
+      suggestions.sort((a, b) => b.confidence - a.confidence);
+      
+      if (suggestions.length > 0) {
+        console.log(`✅ 事前DOM解析から${suggestions.length}件の代替セレクタを発見`);
+        suggestions.forEach((sugg, i) => {
+          console.log(`   ${i + 1}. ${sugg.selector} (信頼度: ${sugg.confidence}, 理由: ${sugg.reason})`);
+        });
+      }
+      
+      return suggestions.slice(0, 5); // 上位5件に限定
+
+    } catch (error) {
+      console.error(`事前DOM解析からの代替セレクタ検索エラー: ${error.message}`);
+      return [];
+    }
   }
 
   /**
@@ -124,15 +282,19 @@ class FailureAnalyzer {
   }
 
   /**
-   * 代替セレクタを提案
+   * 代替セレクタを提案（事前DOM解析結果 + リアルタイム解析）
    */
   async suggestAlternativeSelectors(target, url) {
     try {
+      // 1. 事前DOM解析結果から代替セレクタを取得
+      const cachedSuggestions = this.findAlternativeSelectorsFromCachedDOM(target);
+      
+      // 2. リアルタイム解析も実行
       await this.page.goto(url);
       await this.page.waitForTimeout(2000);
 
       // ページ内の類似要素を検索
-      const suggestions = [];
+      const realtimeSuggestions = [];
       
       // name属性から他の属性を推測
       const nameMatch = target.match(/\[name="([^"]+)"\]/);
@@ -153,7 +315,9 @@ class FailureAnalyzer {
                 type: el.type,
                 tagName: el.tagName.toLowerCase(),
                 placeholder: el.placeholder,
-                visible: el.offsetParent !== null
+                visible: el.offsetParent !== null,
+                reason: `リアルタイム検索: 類似name属性`,
+                confidence: el.name === name ? 0.8 : 0.5
               });
             }
           });
@@ -161,10 +325,28 @@ class FailureAnalyzer {
           return similar;
         }, nameValue);
 
-        suggestions.push(...similarElements);
+        realtimeSuggestions.push(...similarElements);
       }
 
-      return suggestions;
+      // 3. 両方の結果をマージして重複を除去
+      const allSuggestions = [...cachedSuggestions, ...realtimeSuggestions];
+      const uniqueSuggestions = [];
+      const seenSelectors = new Set();
+      
+      allSuggestions.forEach(suggestion => {
+        const selector = suggestion.selector;
+        if (!seenSelectors.has(selector)) {
+          seenSelectors.add(selector);
+          uniqueSuggestions.push(suggestion);
+        }
+      });
+
+      // confidence順でソート
+      uniqueSuggestions.sort((a, b) => (b.confidence || 0.5) - (a.confidence || 0.5));
+
+      console.log(`🔍 代替セレクタ提案: 事前解析${cachedSuggestions.length}件 + リアルタイム${realtimeSuggestions.length}件 = 合計${uniqueSuggestions.length}件`);
+
+      return uniqueSuggestions.slice(0, 10); // 上位10件に限定
     } catch (error) {
       console.error(`代替セレクタ提案エラー: ${error.message}`);
       return [];
@@ -542,12 +724,16 @@ class FailureAnalyzer {
   }
 
   /**
-   * 代替セレクタを検索
+   * 代替セレクタを検索（事前DOM解析 + リアルタイム検索）
    */
   async findAlternativeSelectors(step) {
     const alternatives = [];
     
-    // セレクタのパターンを分析して代替案を生成
+    // 1. 事前DOM解析結果から代替セレクタを取得
+    const cachedAlternatives = this.findAlternativeSelectorsFromCachedDOM(step.target, step.action);
+    alternatives.push(...cachedAlternatives);
+    
+    // 2. セレクタのパターンを分析して代替案を生成
     const target = step.target;
     
     // name属性の場合
@@ -614,7 +800,22 @@ class FailureAnalyzer {
       }
     }
 
-    return alternatives.sort((a, b) => b.confidence - a.confidence);
+    // 3. 重複を除去してconfidence順でソート
+    const uniqueAlternatives = [];
+    const seenSelectors = new Set();
+    
+    alternatives.forEach(alt => {
+      if (!seenSelectors.has(alt.selector)) {
+        seenSelectors.add(alt.selector);
+        uniqueAlternatives.push(alt);
+      }
+    });
+    
+    const sortedAlternatives = uniqueAlternatives.sort((a, b) => (b.confidence || 0.5) - (a.confidence || 0.5));
+    
+    console.log(`🔍 代替セレクタ検索結果: 事前解析${cachedAlternatives.length}件 + リアルタイム${alternatives.length - cachedAlternatives.length}件 = 総計${sortedAlternatives.length}件`);
+    
+    return sortedAlternatives.slice(0, 8); // 上位8件に限定
   }
 
   /**
@@ -729,6 +930,9 @@ class FailureAnalyzer {
     try {
       console.log('🔍 失敗したテストケースの分析を開始します...');
       
+      // 📋 事前DOM解析結果を読み込み
+      this.loadCachedDomAnalysis();
+      
       // 📋 参照情報の表示
       if (this.userStory) {
         console.log(`\n📋 ユーザーストーリー参照:`);
@@ -745,6 +949,10 @@ class FailureAnalyzer {
       
       if (this.testCsv) {
         console.log(`📊 テスト観点CSV: ${this.testCsv}`);
+      }
+      
+      if (this.cachedDomInfo) {
+        console.log(`🔍 事前DOM解析結果: ${Object.keys(this.cachedDomInfo.elements || {}).length}要素タイプを参照可能`);
       }
       
       // 最新のテスト結果を取得

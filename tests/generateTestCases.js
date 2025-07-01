@@ -16,6 +16,49 @@ const __dirname = path.dirname(__filename);
 class NaturalLanguageTestCaseGenerator {
   constructor() {
     this.outputDir = path.join(__dirname, '../test-results');
+    this.config = null;
+    this.userStory = null;
+    this.targetUrl = null;
+    this.pdfSpecContent = null;
+  }
+
+  /**
+   * 設定情報を読み込む
+   */
+  loadConfig() {
+    try {
+      const configPath = path.join(__dirname, '../config.json');
+      if (fs.existsSync(configPath)) {
+        this.config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        console.log('📋 設定ファイルを読み込みました');
+      }
+    } catch (error) {
+      console.warn('⚠️ 設定ファイルの読み込みに失敗:', error.message);
+    }
+  }
+
+  /**
+   * PDFファイルの内容を読み込む
+   * @param {string} pdfFilePath - PDFファイルのパス
+   */
+  async loadPdfContent(pdfFilePath) {
+    try {
+      if (!pdfFilePath || !fs.existsSync(pdfFilePath)) {
+        return null;
+      }
+
+      console.log(`📄 PDFファイルを読み込み中: ${pdfFilePath}`);
+      
+      // PDFパーサーを使用（必要に応じて実装）
+      // 簡易版として、ファイルの存在確認のみ
+      this.pdfSpecContent = `仕様書PDF: ${path.basename(pdfFilePath)}`;
+      console.log('✅ PDF情報を設定しました');
+      
+      return this.pdfSpecContent;
+    } catch (error) {
+      console.warn('⚠️ PDFファイルの読み込みに失敗:', error.message);
+      return null;
+    }
   }
 
   /**
@@ -25,9 +68,25 @@ class NaturalLanguageTestCaseGenerator {
    */
   loadTestPoints(testPointsFile) {
     try {
-      const filePath = path.isAbsolute(testPointsFile) 
-        ? testPointsFile 
-        : path.join(__dirname, testPointsFile);
+      let filePath;
+      
+      if (path.isAbsolute(testPointsFile)) {
+        filePath = testPointsFile;
+      } else {
+        // 相対パスの場合、複数の場所を検索
+        const possiblePaths = [
+          path.join(__dirname, testPointsFile),
+          path.join(__dirname, '../test-results', testPointsFile),
+          path.join(process.cwd(), testPointsFile),
+          path.join(process.cwd(), 'test-results', testPointsFile)
+        ];
+        
+        filePath = possiblePaths.find(p => fs.existsSync(p));
+        
+        if (!filePath) {
+          throw new Error(`テスト観点ファイルが見つかりません。以下の場所を確認しました:\n${possiblePaths.join('\n')}`);
+        }
+      }
       
       console.log(`📊 テスト観点JSONファイルを読み込み中: ${filePath}`);
       
@@ -127,6 +186,7 @@ class NaturalLanguageTestCaseGenerator {
     // 基本的なテストケース構造
     const testCase = {
       id: testCaseId,
+      title: this.generateTestCaseTitle(viewpoint, category),
       original_viewpoint: viewpoint,
       category: category,
       priority: this.determinePriority(viewpoint),
@@ -134,10 +194,15 @@ class NaturalLanguageTestCaseGenerator {
       expected_results: [],
       test_data: [],
       preconditions: [],
+      context: {
+        target_url: this.targetUrl,
+        user_story: this.userStory,
+        pdf_spec: this.pdfSpecContent
+      },
       metadata: {
         generated_at: new Date().toISOString(),
         source: 'generateTestCases.js',
-        version: '2.0.0',
+        version: '2.1.0',
         type: 'natural_language'
       }
     };
@@ -168,28 +233,66 @@ class NaturalLanguageTestCaseGenerator {
   }
 
   /**
+   * テストケースのタイトルを生成
+   * @param {string} viewpoint - テスト観点
+   * @param {string} category - カテゴリ
+   * @returns {string} テストケースタイトル
+   */
+  generateTestCaseTitle(viewpoint, category) {
+    const categoryNames = {
+      'display': '表示確認',
+      'input_validation': '入力検証',
+      'error_handling': 'エラーハンドリング',
+      'navigation': '画面遷移',
+      'interaction': 'UI操作',
+      'data_verification': 'データ確認',
+      'edge_case': '境界値テスト',
+      'compatibility': '互換性',
+      'operations': '運用確認',
+      'general': '一般機能'
+    };
+    
+    const categoryName = categoryNames[category] || '機能確認';
+    const shortViewpoint = viewpoint.substring(0, 30) + (viewpoint.length > 30 ? '...' : '');
+    
+    return `${categoryName}: ${shortViewpoint}`;
+  }
+
+  /**
    * 表示確認系自然言語テストケース
    */
   generateDisplayTestCase(baseCase, viewpoint) {
+    const targetUrl = this.targetUrl || "対象ページ";
+    const userStoryContext = this.userStory ? `（${this.userStory.substring(0, 50)}...の文脈で）` : "";
+    
     baseCase.test_scenarios = [
-      "対象ページにアクセスする",
+      `${targetUrl}にアクセスする`,
       "ページが完全に読み込まれるまで待機する",
-      "各UI要素が正しく配置されていることを確認する",
+      `各UI要素が正しく配置されていることを確認する${userStoryContext}`,
       "文字が正しく表示され、文字化けや文字切れがないことを確認する",
-      "レイアウトが崩れていないことを確認する"
+      "レイアウトが崩れていないことを確認する",
+      this.userStory ? "ユーザーストーリーに記載された要素が表示されていることを確認する" : "主要な機能要素が表示されていることを確認する"
     ];
 
     baseCase.expected_results = [
       "ページが正常に表示される",
       "すべてのUI要素が意図された位置に配置されている",
       "テキストが読みやすく表示されている",
-      "レスポンシブデザインが適切に機能している"
+      "レスポンシブデザインが適切に機能している",
+      this.userStory ? "ユーザーストーリーで期待される表示内容が確認できる" : "期待される表示内容が確認できる"
     ];
 
     baseCase.preconditions = [
-      "対象ページのURLが有効である",
-      "ブラウザが正常に動作している"
+      this.targetUrl ? `${this.targetUrl}が有効である` : "対象ページのURLが有効である",
+      "ブラウザが正常に動作している",
+      this.userStory ? "ユーザーストーリーで想定されたアクセス権限がある" : "適切なアクセス権限がある"
     ];
+
+    // PDF仕様書情報がある場合は追加情報を含める
+    if (this.pdfSpecContent) {
+      baseCase.test_scenarios.push("仕様書に記載された表示要件と照合する");
+      baseCase.expected_results.push("仕様書の表示要件を満たしている");
+    }
 
     return baseCase;
   }
@@ -198,9 +301,12 @@ class NaturalLanguageTestCaseGenerator {
    * 入力検証系自然言語テストケース
    */
   generateInputValidationTestCase(baseCase, viewpoint) {
+    const targetUrl = this.targetUrl || "対象ページ";
+    const userStoryContext = this.userStory ? `（${this.userStory.substring(0, 50)}...に関連する）` : "";
+    
     baseCase.test_scenarios = [
-      "対象ページにアクセスする",
-      "入力フィールドを特定する",
+      `${targetUrl}にアクセスする`,
+      `入力フィールドを特定する${userStoryContext}`,
       "有効な値を入力して正常動作を確認する",
       "無効な値（空文字、特殊文字、長すぎる文字列等）を入力する",
       "バリデーションメッセージが適切に表示されることを確認する",
@@ -215,16 +321,23 @@ class NaturalLanguageTestCaseGenerator {
     ];
 
     baseCase.test_data = [
-      { type: "valid", description: "正常な入力値" },
+      { type: "valid", description: "正常な入力値", context: this.userStory ? "ユーザーストーリーに基づく実用的な値" : null },
       { type: "invalid_empty", description: "空文字" },
       { type: "invalid_special", description: "特殊文字" },
       { type: "invalid_length", description: "文字数制限超過" }
     ];
 
     baseCase.preconditions = [
-      "フォームページにアクセス可能である",
-      "入力フィールドが表示されている"
+      this.targetUrl ? `${this.targetUrl}のフォームページにアクセス可能である` : "フォームページにアクセス可能である",
+      "入力フィールドが表示されている",
+      this.userStory ? "ユーザーストーリーで想定された入力権限がある" : "適切な入力権限がある"
     ];
+
+    // PDF仕様書情報がある場合は追加情報を含める
+    if (this.pdfSpecContent) {
+      baseCase.test_scenarios.push("仕様書に記載された入力制限と照合する");
+      baseCase.expected_results.push("仕様書の入力要件を満たしている");
+    }
 
     return baseCase;
   }
@@ -451,63 +564,245 @@ class NaturalLanguageTestCaseGenerator {
   }
 
   /**
-   * テストケース群を生成
+   * テストケース群を生成（分類別に分割対応）
    * @param {Array} testPoints - テスト観点配列
-   * @returns {Array} 生成された自然言語テストケース配列
+   * @returns {Object} 分類別のテストケース群
    */
   generateNaturalLanguageTestCases(testPoints) {
     console.log('🔄 自然言語テストケース生成を開始...');
     
-    const testCases = [];
+    const testCasesByCategory = {};
+    const allTestCases = [];
     
     testPoints.forEach((point, index) => {
       const viewpoint = point['考慮すべき仕様の具体例'] || point.description || `テスト観点${index + 1}`;
-      const category = this.categorizeViewpoint(viewpoint);
+      const originalCategory = this.categorizeViewpoint(viewpoint);
       
-      console.log(`📝 ${index + 1}. カテゴリ: ${category}, 観点: ${viewpoint.substring(0, 50)}...`);
+      // 中分類があれば使用、なければ自動分類
+      const middleCategory = point['中分類'] || this.mapCategoryToMiddle(originalCategory);
+      const finalCategory = this.normalizeMiddleCategory(middleCategory);
       
-      const testCase = this.generateNaturalLanguageTestCase(viewpoint, category, index + 1);
-      testCases.push(testCase);
+      console.log(`📝 ${index + 1}. 中分類: ${middleCategory} → ${finalCategory}, 観点: ${viewpoint.substring(0, 50)}...`);
+      
+      const testCase = this.generateNaturalLanguageTestCase(viewpoint, originalCategory, index + 1);
+      testCase.middle_category = finalCategory;
+      testCase.original_middle_category = middleCategory;
+      
+      // 分類別に分ける
+      if (!testCasesByCategory[finalCategory]) {
+        testCasesByCategory[finalCategory] = [];
+      }
+      testCasesByCategory[finalCategory].push(testCase);
+      allTestCases.push(testCase);
     });
     
-    console.log(`✅ ${testCases.length}件の自然言語テストケースを生成しました`);
-    return testCases;
+    const categoryCount = Object.keys(testCasesByCategory).length;
+    const totalCases = allTestCases.length;
+    
+    console.log(`✅ ${totalCases}件のテストケースを${categoryCount}カテゴリに分類しました`);
+    
+    // カテゴリ別件数表示
+    Object.entries(testCasesByCategory).forEach(([category, cases]) => {
+      console.log(`   📂 ${category}: ${cases.length}件`);
+    });
+    
+    return {
+      byCategory: testCasesByCategory,
+      all: allTestCases
+    };
   }
 
   /**
-   * テストケースを保存
-   * @param {Array} testCases - テストケース配列
-   * @param {string} outputFileName - 出力ファイル名
-   * @returns {string} 保存されたファイルパス
+   * 自動分類から中分類へのマッピング
    */
-  saveNaturalLanguageTestCases(testCases, outputFileName = null) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
-    const fileName = outputFileName || `naturalLanguageTestCases_${timestamp}.json`;
-    const filePath = path.join(this.outputDir, fileName);
-    
-    const outputData = {
-      metadata: {
-        generated_at: new Date().toISOString(),
-        total_test_cases: testCases.length,
-        categories: this.getCategorySummary(testCases),
-        generator_version: '2.0.0',
-        type: 'natural_language_test_cases',
-        description: 'DOM解析前の自然言語テストケース。generateSmartRoutes.jsで実装形式に変換される。'
-      },
-      testCases: testCases
+  mapCategoryToMiddle(category) {
+    const mapping = {
+      'display': '表示（UI）',
+      'input_validation': '入力',
+      'navigation': '画面遷移',
+      'interaction': '操作',
+      'data_verification': 'データ確認',
+      'error_handling': 'エラーハンドリング',
+      'edge_case': '境界値',
+      'compatibility': '互換性',
+      'operations': '運用性',
+      'general': '一般機能'
+    };
+    return mapping[category] || '一般機能';
+  }
+
+  /**
+   * 中分類の正規化
+   */
+  normalizeMiddleCategory(middleCategory) {
+    const normalizeMap = {
+      '表示（UI）': '表示',
+      '表示': '表示',
+      'レイアウト/文言': '表示',
+      '入力': '入力',
+      '未入力': '入力',
+      '状態遷移': '状態遷移',
+      '経時変化': '状態遷移',
+      '画面遷移': '画面遷移',
+      '変更・反映・設定保持': '設定保持',
+      '初期値': '設定保持',
+      'キャンセル': '設定保持',
+      '排他処理': '排他処理',
+      '禁則': '排他処理',
+      '互換性': '互換性',
+      'OS': '互換性',
+      'ブラウザ': '互換性',
+      '運用性': '運用性',
+      '障害アラート': '運用性',
+      'エラーハンドリング': '運用性',
+      '相互運用性': '連携',
+      '連携システム': '連携'
     };
     
-    fs.writeFileSync(filePath, JSON.stringify(outputData, null, 2), 'utf8');
+    return normalizeMap[middleCategory] || middleCategory || '一般機能';
+  }
+
+  /**
+   * テストケースを保存（分類別分割対応）
+   * @param {Object} testCasesData - { byCategory: {...}, all: [...] }
+   * @param {string} outputFileName - 出力ファイル名
+   * @returns {Array} 保存されたファイルパス配列
+   */
+  saveNaturalLanguageTestCases(testCasesData, outputFileName = null) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+    const baseFileName = outputFileName ? outputFileName.replace('.json', '') : `naturalLanguageTestCases_${timestamp}`;
     
-    console.log(`💾 自然言語テストケースを保存しました: ${filePath}`);
-    console.log(`📊 生成統計:`);
-    console.log(`   - 総テストケース数: ${testCases.length}`);
+    // 共通メタデータ
+    const commonMetadata = {
+      generated_at: new Date().toISOString(),
+      generator_version: '2.2.0',
+      type: 'natural_language_test_cases',
+      context: {
+        target_url: this.targetUrl,
+        user_story: this.userStory ? this.userStory.substring(0, 200) + (this.userStory.length > 200 ? '...' : '') : null,
+        pdf_spec: this.pdfSpecContent
+      }
+    };
+
+    const savedFiles = [];
+    const fileSizes = {};
+
+    // 1. 分類別ファイルを保存
+    console.log(`💾 分類別テストケースファイルを生成中...`);
     
-    Object.entries(outputData.metadata.categories).forEach(([category, count]) => {
-      console.log(`   - ${category}: ${count}件`);
+    Object.entries(testCasesData.byCategory).forEach(([category, testCases]) => {
+      const categoryFileName = `${baseFileName}_${category}.json`;
+      const categoryFilePath = path.join(this.outputDir, categoryFileName);
+      
+      const categoryData = {
+        metadata: {
+          ...commonMetadata,
+          category: category,
+          total_test_cases: testCases.length,
+          description: `${category}に関する自然言語テストケース（詳細版）。具体的で実行可能なテストシナリオを含む。`,
+          version_type: 'category_detailed'
+        },
+        testCases: testCases
+      };
+      
+      fs.writeFileSync(categoryFilePath, JSON.stringify(categoryData, null, 2), 'utf8');
+      const fileSize = fs.statSync(categoryFilePath).size;
+      fileSizes[category] = fileSize;
+      savedFiles.push(categoryFilePath);
+      
+      console.log(`   📂 ${category}: ${categoryFileName} (${(fileSize/1024).toFixed(1)}KB, ${testCases.length}件)`);
     });
+
+    // 2. 統合インデックスファイルを保存（軽量版）
+    const indexFileName = `${baseFileName}_index.json`;
+    const indexFilePath = path.join(this.outputDir, indexFileName);
     
-    return filePath;
+    const categoryIndex = Object.entries(testCasesData.byCategory).map(([category, testCases]) => ({
+      category: category,
+      file: `${baseFileName}_${category}.json`,
+      count: testCases.length,
+      size_kb: Math.round(fileSizes[category] / 1024 * 10) / 10,
+      sample_titles: testCases.slice(0, 3).map(tc => tc.title)
+    }));
+
+    const indexData = {
+      metadata: {
+        ...commonMetadata,
+        total_categories: Object.keys(testCasesData.byCategory).length,
+        total_test_cases: testCasesData.all.length,
+        description: '分類別テストケースファイルのインデックス。generateSmartRoutes.jsでの一括処理に使用。',
+        version_type: 'category_index'
+      },
+      categories: categoryIndex,
+      execution_order: Object.keys(testCasesData.byCategory), // 実行順序の推奨
+      files: savedFiles.map(fp => path.basename(fp))
+    };
+
+    fs.writeFileSync(indexFilePath, JSON.stringify(indexData, null, 2), 'utf8');
+    const indexSize = fs.statSync(indexFilePath).size;
+    savedFiles.push(indexFilePath);
+
+    // 3. レガシー互換用統合ファイル（軽量版）
+    const compactFileName = `${baseFileName}_compact.json`;
+    const compactFilePath = path.join(this.outputDir, compactFileName);
+    
+    const compactTestCases = testCasesData.all.map(testCase => ({
+      id: testCase.id,
+      title: testCase.title,
+      category: testCase.category,
+      middle_category: testCase.middle_category,
+      priority: testCase.priority,
+      scenarios: testCase.test_scenarios.slice(0, 3), // 最初の3つのみ
+      expected: testCase.expected_results.slice(0, 2), // 最初の2つのみ
+      original_viewpoint: testCase.original_viewpoint.substring(0, 100) + (testCase.original_viewpoint.length > 100 ? '...' : '')
+    }));
+
+    const compactData = {
+      metadata: {
+        ...commonMetadata,
+        total_test_cases: compactTestCases.length,
+        categories: this.getCategorySummary(testCasesData.all),
+        description: '全カテゴリ統合の軽量版テストケース。レガシー互換性のため。',
+        version_type: 'legacy_compact'
+      },
+      testCases: compactTestCases
+    };
+
+    fs.writeFileSync(compactFilePath, JSON.stringify(compactData, null, 2), 'utf8');
+    const compactSize = fs.statSync(compactFilePath).size;
+    savedFiles.push(compactFilePath);
+
+    // 結果サマリー表示
+    console.log(`\n📊 ファイル生成完了:`);
+    console.log(`   📋 インデックス: ${path.basename(indexFilePath)} (${(indexSize/1024).toFixed(1)}KB)`);
+    console.log(`   📦 統合軽量版: ${path.basename(compactFilePath)} (${(compactSize/1024).toFixed(1)}KB)`);
+    console.log(`   📂 分類別詳細: ${Object.keys(testCasesData.byCategory).length}ファイル`);
+    
+    const totalDetailedSize = Object.values(fileSizes).reduce((sum, size) => sum + size, 0);
+    console.log(`   💽 総サイズ: ${(totalDetailedSize/1024).toFixed(1)}KB（分類別詳細）`);
+
+    // サンプルテストケースを表示
+    console.log(`\n📝 生成されたカテゴリ別テストケース例:`);
+    Object.entries(testCasesData.byCategory).slice(0, 3).forEach(([category, cases]) => {
+      const sampleCase = cases[0];
+      if (sampleCase) {
+        console.log(`\n📂 ${category}:`);
+        console.log(`   - ${sampleCase.title}`);
+        console.log(`   - シナリオ例: ${sampleCase.test_scenarios[0] || 'N/A'}`);
+      }
+    });
+
+    console.log(`\n💡 推奨使用方法:`);
+    console.log(`   🚀 一括処理: インデックスファイル (${path.basename(indexFilePath)})`);
+    console.log(`   📂 分類別実行: 各カテゴリファイル`);
+    console.log(`   🔄 レガシー互換: 統合軽量版 (${path.basename(compactFilePath)})`);
+    
+    return {
+      indexFile: indexFilePath,
+      categoryFiles: savedFiles.filter(f => f.includes('_') && !f.includes('_index.json') && !f.includes('_compact.json')),
+      compactFile: compactFilePath,
+      allFiles: savedFiles
+    };
   }
 
   /**
@@ -525,25 +820,50 @@ class NaturalLanguageTestCaseGenerator {
   /**
    * メイン処理実行
    * @param {string} testPointsFile - テスト観点ファイルパス
-   * @param {string} outputFile - 出力ファイル名（オプション）
+   * @param {Object} options - オプション設定
    */
-  async run(testPointsFile, outputFile = null) {
+  async run(testPointsFile, options = {}) {
     try {
       console.log('🚀 自然言語テストケース生成を開始します...');
       console.log(`📊 入力ファイル: ${testPointsFile}`);
       
-      // 1. テスト観点を読み込み
+      // 1. 設定情報を読み込み
+      this.loadConfig();
+      
+      // 2. オプション情報の設定
+      this.targetUrl = options.url || (this.config && this.config.targetUrl) || null;
+      this.userStory = options.goal || (this.config && this.config.userStory && this.config.userStory.content) || null;
+      
+      // 3. PDFファイル情報を読み込み
+      if (options.pdfFile) {
+        await this.loadPdfContent(options.pdfFile);
+      }
+      
+      // 4. コンテキスト情報の表示
+      if (this.targetUrl) {
+        console.log(`🎯 対象URL: ${this.targetUrl}`);
+      }
+      if (this.userStory) {
+        console.log(`📖 ユーザーストーリー: ${this.userStory.substring(0, 100)}${this.userStory.length > 100 ? '...' : ''}`);
+      }
+      if (this.pdfSpecContent) {
+        console.log(`📄 仕様書: ${this.pdfSpecContent}`);
+      }
+      
+      // 5. テスト観点を読み込み
       const testPoints = this.loadTestPoints(testPointsFile);
       
-      // 2. 自然言語テストケースを生成
-      const testCases = this.generateNaturalLanguageTestCases(testPoints);
+      // 6. 自然言語テストケースを生成（分類別）
+      const testCasesData = this.generateNaturalLanguageTestCases(testPoints);
       
-      // 3. テストケースを保存
-      const savedFilePath = this.saveNaturalLanguageTestCases(testCases, outputFile);
+      // 7. テストケースを保存（分類別分割）
+      const savedFiles = this.saveNaturalLanguageTestCases(testCasesData, options.outputFile);
       
       console.log('✅ 自然言語テストケース生成が完了しました！');
-      console.log('🔄 次のステップ: generateSmartRoutes.js でDOM解析とPlaywright実装に変換');
-      return savedFilePath;
+      console.log('🔄 次のステップ: generateSmartRoutes.js で各カテゴリを順次実行');
+      console.log(`📋 メインファイル: ${path.basename(savedFiles.indexFile)}`);
+      
+      return savedFiles;
       
     } catch (error) {
       console.error('❌ 自然言語テストケース生成に失敗:', error.message);
@@ -556,17 +876,47 @@ class NaturalLanguageTestCaseGenerator {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   
+  // CLI引数解析
+  const parseCliArgs = (args) => {
+    const options = {};
+    const nonOptionArgs = [];
+    
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--url' && i + 1 < args.length) {
+        options.url = args[++i];
+      } else if (args[i] === '--goal' && i + 1 < args.length) {
+        options.goal = args[++i];
+      } else if (args[i] === '--spec-pdf' && i + 1 < args.length) {
+        options.pdfFile = args[++i];
+      } else if (args[i] === '--output' && i + 1 < args.length) {
+        options.outputFile = args[++i];
+      } else if (!args[i].startsWith('--')) {
+        nonOptionArgs.push(args[i]);
+      }
+    }
+    
+    return { options, nonOptionArgs };
+  };
+  
   if (args.length === 0) {
     console.log(`
 🔧 使用方法:
-  node generateTestCases.js <testPointsJsonFile> [outputFile]
+  node generateTestCases.js <testPointsJsonFile> [オプション]
   
 📋 例:
   node generateTestCases.js testPoints_250626114042.json
-  node generateTestCases.js testPoints_250626114042.json myNaturalTestCases.json
+  node generateTestCases.js testPoints_250626114042.json --output myTestCases.json
+  node generateTestCases.js testPoints_250626114042.json --url https://example.com --goal "ユーザーストーリー"
   
-📊 機能:
+📊 オプション:
+  --url <URL>          対象サイトのURL
+  --goal <text>        ユーザーストーリー
+  --spec-pdf <path>    仕様書PDFファイルパス
+  --output <filename>  出力ファイル名
+  
+📝 機能:
   - generateTestPoints.jsで生成されたテスト観点JSONから自然言語テストケースを生成
+  - URL、ユーザーストーリー、PDF仕様書を活用してより具体的なテストケースを作成
   - 理解しやすい日本語でテストシナリオを記述
   - DOM解析やPlaywright実装は含まない（generateSmartRoutes.jsで実装）
   - カテゴリ分類とトレーサビリティを提供
@@ -583,13 +933,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   
-  const generator = new NaturalLanguageTestCaseGenerator();
-  const testPointsFile = args[0];
-  const outputFile = args[1] || null;
+  const { options, nonOptionArgs } = parseCliArgs(args);
+  const testPointsFile = nonOptionArgs[0];
   
-  generator.run(testPointsFile, outputFile)
-    .then(filePath => {
-      console.log(`🎉 自然言語テストケース生成完了: ${filePath}`);
+  if (!testPointsFile) {
+    console.error('❌ テスト観点JSONファイルを指定してください');
+    process.exit(1);
+  }
+  
+  const generator = new NaturalLanguageTestCaseGenerator();
+  
+  generator.run(testPointsFile, options)
+    .then(savedFiles => {
+      console.log(`🎉 分類別自然言語テストケース生成完了！`);
+      console.log(`📋 インデックスファイル: ${savedFiles.indexFile}`);
+      console.log(`📂 分類別ファイル数: ${savedFiles.categoryFiles.length}`);
+      console.log(`📦 レガシー互換ファイル: ${savedFiles.compactFile}`);
       process.exit(0);
     })
     .catch(error => {
@@ -598,4 +957,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     });
 }
 
-export default NaturalLanguageTestCaseGenerator; 
+export default NaturalLanguageTestCaseGenerator;

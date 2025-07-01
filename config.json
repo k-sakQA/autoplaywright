@@ -2,20 +2,34 @@
   "targetUrl": "https://hotel-example-site.takeyaqa.dev/ja/reserve.html?plan-id=0",
   "openai": {
     "apiKeyEnv": "OPENAI_API_KEY",
-    "model": "gpt-4o-mini",
+    "model": "gpt-4o",
     "temperature": 0.2,
-    "max_tokens": 4000,
+    "max_tokens": 5000,
     "top_p": 0.2,
     "timeout": 60000,
     "maxRetries": 3
   },
   "googleSheets": {
-    "shareEmail": "",
-    "driveFolder": "",
+    "shareEmail": "sakata1977@gmail.com",
+    "driveFolder": "1Z_hcriF8IMbj_uLVr7yGiWFD4dGGj-3g",
     "spreadsheetTitle": "AutoPlaywright テスト結果",
-    "autoUpload": false
+    "autoUpload": true
   },
   "userStory": {
-    "currentId": null
+    "currentId": 2,
+    "content": "予約内容の確認画面での情報の統合表示",
+    "timestamp": "2025-06-30T06:25:21.644Z",
+    "history": [
+      {
+        "id": 1,
+        "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\r\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。\r\n（例）\r\n    {\r\n      \"label\": \"確認のご連絡方法を選択\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\\\"contact\\\"]\",\r\n      \"value\": \"email\"\r\n    },\r\n    {\r\n      \"label\": \"メールアドレスを入力\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\"email\"]\",\r\n      \"value\": \"hogefuga@example.com\"\r\n      },",
+        "timestamp": "2025-06-30T05:27:30.509Z"
+      },
+      {
+        "id": 2,
+        "content": "予約内容の確認画面での情報の統合表示",
+        "timestamp": "2025-06-30T06:25:21.644Z"
+      }
+    ]
   }
 }

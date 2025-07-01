@@ -36,6 +36,9 @@ async function readCsvFile(filePath) {
 function createTraceableTestReport(testPoints, route, result, userStoryInfo = null) {
   const executionTime = new Date().toISOString();
   
+  // 修正ルートかどうかを判定
+  const isFixedRoute = result?.is_fixed_route || false;
+  
   // URL取得の優先順位を改善：ルート、結果、実行ステップのloadアクションから取得
   let testUrl = route.url || result.url || '';
   
@@ -102,7 +105,8 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           testSteps: formatTestSteps(step),
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
-          url: testUrl
+          url: testUrl,
+          isFixedRoute: isFixedRoute
         });
       } else {
         // 観点にマッピングできなかった場合は追加ステップとして扱う
@@ -119,7 +123,8 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           testSteps: formatTestSteps(step),
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
-          url: testUrl
+          url: testUrl,
+          isFixedRoute: isFixedRoute
         });
       }
     });
@@ -450,6 +455,10 @@ function formatTestSteps(step) {
 }
 
 function generateTraceableCSVReport(reportData) {
+  // 修正ルートかどうかを判定（reportDataの最初の要素から判定）
+  const isFixedRoute = reportData.length > 0 && reportData[0].isFixedRoute;
+  const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
+  
   // CSVヘッダー（階層的トレーサビリティ対応）
   const headers = [
     '実行日時',
@@ -458,9 +467,10 @@ function generateTraceableCSVReport(reportData) {
     '機能',
     '観点',
     'テスト手順',
-    '実行結果',
+    resultHeader,
     'エラー詳細',
-    'URL'
+    'URL',
+    '実行種別'
   ];
   
   /**
@@ -486,6 +496,7 @@ function generateTraceableCSVReport(reportData) {
   const csvRows = [headers.join(',')];
   
   reportData.forEach(data => {
+    const executionType = data.isFixedRoute ? '再実行' : '初回実行';
     const row = [
       escapeCSVField(data.executionTime),
       escapeCSVField(data.id),
@@ -495,7 +506,8 @@ function generateTraceableCSVReport(reportData) {
       escapeCSVField(data.testSteps),
       escapeCSVField(data.executionResult),
       escapeCSVField(data.errorDetail),
-      escapeCSVField(data.url || '')
+      escapeCSVField(data.url || ''),
+      escapeCSVField(executionType)
     ];
     csvRows.push(row.join(','));
   });
@@ -506,26 +518,149 @@ function generateTraceableCSVReport(reportData) {
   return csvRows.join('\n');
 }
 
-async function generateTestReport(testPointFormat, testPoints, route, result, userStoryInfo = null) {
-  console.log('📊 トレーサブルなテストレポートを生成中...');
+/**
+ * 分類別バッチ処理結果のレポートを生成
+ */
+function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo = null) {
+  const executionTime = new Date().toISOString();
   
-  try {
-    // 新しいトレーサブルレポート形式を生成（config.jsonのユーザーストーリー情報を使用）
-    const reportData = createTraceableTestReport(testPoints, route, result, userStoryInfo);
+  // ユーザーストーリー情報の取得
+  let userStory, userStoryId;
+  if (userStoryInfo && userStoryInfo.currentId && userStoryInfo.content) {
+    userStory = userStoryInfo.content.replace(/[\r\n]+/g, ' ').trim();
+    userStoryId = userStoryInfo.currentId;
+    console.log(`🔗 分類別バッチレポート: ユーザーストーリーID ${userStoryId}`);
+  } else {
+    userStory = 'テスト自動実行（分類別一括処理）';
+    userStoryId = 1;
+    console.log(`⚠️ 分類別バッチレポート: デフォルトユーザーストーリーID ${userStoryId}`);
+  }
+
+  // URL取得
+  let testUrl = '';
+  if (batchResult.categories && batchResult.categories.length > 0) {
+    const firstCategory = batchResult.categories[0];
+    if (firstCategory.routes && firstCategory.routes.length > 0) {
+      const firstRoute = firstCategory.routes[0];
+      if (firstRoute.steps && Array.isArray(firstRoute.steps)) {
+        const loadStep = firstRoute.steps.find(step => 
+          step.action === 'load' || step.action === 'goto'
+        );
+        if (loadStep) {
+          testUrl = loadStep.target || loadStep.value || '';
+        }
+      }
+    }
+  }
+
+  /**
+   * CSV用の文字列をエスケープ（分類別バッチ版）
+   */
+  function escapeCSVField(str) {
+    if (str == null) return '""';
     
-    if (reportData.length === 0) {
-      console.log('⚠️ レポートデータが生成されませんでした');
-      return generateFallbackReport(route, result, userStoryInfo);
+    const stringValue = String(str);
+    
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
     }
     
-    const csvReport = generateTraceableCSVReport(reportData);
+    return stringValue;
+  }
+
+  // 修正ルートかどうかを判定
+  const isFixedRoute = executionResult?.is_fixed_route || false;
+  const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
+  const executionType = isFixedRoute ? '再実行' : '初回実行';
+  
+  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別'];
+  const csvRows = [headers.join(',')];
+  
+  let totalRoutes = 0;
+  let successfulRoutes = 0;
+
+  // 各分類ごとにレポート行を生成
+  batchResult.categories.forEach((category, categoryIndex) => {
+    const categoryLetter = String.fromCharCode(65 + categoryIndex); // A, B, C...
     
-    console.log(`✅ ${reportData.length}件のテストケースを含むレポートを生成しました`);
-    console.log('📋 IDトレーサビリティ: 観点生成 → シナリオ → 実行の追跡可能');
+    if (category.routes && category.routes.length > 0) {
+      category.routes.forEach((route, routeIndex) => {
+        totalRoutes++;
+        
+        // テスト手順の整形
+        const testSteps = route.steps ? route.steps.map(step => {
+          return `${step.action}: ${step.target || ''}${step.value ? ` (${step.value})` : ''}`;
+        }).join(' → ') : 'テストルート実行';
+        
+        // 実行結果の判定（実際の実行結果があれば使用、なければルート生成成功として扱う）
+        const executionSuccess = route.feasibility_score >= 0.7;
+        if (executionSuccess) successfulRoutes++;
+        
+        // ID: {userStoryId}.{categoryLetter}.{routeIndex+1}
+        const uniqueTestCaseId = `${userStoryId}.${categoryLetter}.${routeIndex + 1}`;
+        
+        const row = [
+          escapeCSVField(executionTime),
+          escapeCSVField(uniqueTestCaseId),
+          escapeCSVField(userStory),
+          escapeCSVField(category.category || '未分類'),
+          escapeCSVField(`${category.category}系テスト${routeIndex + 1}`),
+          escapeCSVField(testSteps),
+          escapeCSVField(executionSuccess ? 'success' : 'low_feasibility'),
+          escapeCSVField(executionSuccess ? '' : `実行可能性スコア: ${route.feasibility_score?.toFixed(2) || 'N/A'}`),
+          escapeCSVField(testUrl || ''),
+          escapeCSVField(executionType)
+        ];
+        csvRows.push(row.join(','));
+      });
+    } else {
+      // ルートが生成されなかった分類
+      const uniqueTestCaseId = `${userStoryId}.${categoryLetter}.0`;
+      
+      const row = [
+        escapeCSVField(executionTime),
+        escapeCSVField(uniqueTestCaseId),
+        escapeCSVField(userStory),
+        escapeCSVField(category.category || '未分類'),
+        escapeCSVField(`${category.category}系テスト（未生成）`),
+        escapeCSVField('テストルート生成不可'),
+        escapeCSVField('not_generated'),
+        escapeCSVField(category.error || '実行可能なテストケースが見つかりませんでした'),
+        escapeCSVField(testUrl || ''),
+        escapeCSVField(executionType)
+      ];
+      csvRows.push(row.join(','));
+    }
+  });
+
+  console.log(`📊 分類別バッチレポート生成完了: ${batchResult.categories.length}分類, ${totalRoutes}ルート（成功${successfulRoutes}件）`);
+  
+  return csvRows.join('\n');
+}
+
+async function generateTestReport(testPointFormat, testPoints, route, result, userStoryInfo = null) {
+  console.log('📊 テストレポートを生成中...');
+  
+  // 分類別バッチ処理結果の場合
+  if (route && route.processing_mode === 'category_batch') {
+    console.log('📂 分類別バッチ処理結果のレポートを生成します');
+    return generateCategoryBatchReport(route, result, userStoryInfo);
+  }
+  
+  // 単一分類またはレガシー処理結果の場合
+  if (testPoints && Array.isArray(testPoints) && testPoints.length > 0) {
+    console.log(`📋 ${testPoints.length}件の観点を使用してトレーサブルレポートを生成中...`);
     
-    return csvReport;
-  } catch (error) {
-    console.error('❌ トレーサブルレポート生成エラー:', error);
+    const reportData = createTraceableTestReport(testPoints, route, result, userStoryInfo);
+    
+    if (reportData.length > 0) {
+      return generateTraceableCSVReport(reportData);
+    } else {
+      console.log('⚠️ 有効なレポートデータが生成されませんでした。フォールバックレポートを生成します。');
+      return generateFallbackReport(route, result, userStoryInfo);
+    }
+  } else {
+    console.log('⚠️ 有効なテスト観点データがありません。フォールバックレポートを生成します。');
     return generateFallbackReport(route, result, userStoryInfo);
   }
 }
@@ -593,7 +728,12 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
     return stringValue;
   }
 
-  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', '実行結果', 'エラー詳細', 'URL'];
+  // 修正ルートかどうかを判定
+  const isFixedRoute = result?.is_fixed_route || false;
+  const executionType = isFixedRoute ? '再実行' : '初回実行';
+  const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
+  
+  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別'];
   const csvRows = [headers.join(',')];
   
   if (result.steps && Array.isArray(result.steps)) {
@@ -612,7 +752,8 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
         escapeCSVField(formatTestSteps(step)),
         escapeCSVField(step.status === 'success' ? 'success' : 'failed'),
         escapeCSVField(step.error || ''),
-        escapeCSVField(testUrl || '')
+        escapeCSVField(testUrl || ''),
+        escapeCSVField(executionType)
       ];
       csvRows.push(row.join(','));
     });
@@ -629,7 +770,8 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
       escapeCSVField('テストシナリオの実行'),
       escapeCSVField('completed'),
       escapeCSVField(''),
-      escapeCSVField(testUrl || '')
+      escapeCSVField(testUrl || ''),
+      escapeCSVField(executionType)
     ];
     csvRows.push(row.join(','));
   }
@@ -725,21 +867,81 @@ async function main() {
   const report = await generateTestReport(testPointFormat, testPoints, latestRoute, latestResult, userStoryInfo);
   
   if (report) {
-    // 統一されたファイル名形式: AutoPlaywright テスト結果 - TestResults_YYYY-MM-DD_HHMM.csv
-    const now = new Date();
-    const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
-    const fileName = `AutoPlaywright テスト結果 - TestResults_${timestamp}.csv`;
-    const outputPath = path.join(testResultsDir, fileName);
+    // 修正ルート実行かどうかで処理を分岐
+    const isFixedRoute = latestResult?.is_fixed_route || false;
+    let outputPath, fileName;
     
-    await fs.promises.writeFile(outputPath, report);
-    console.log(`📊 トレーサブルテストレポートを生成しました: ${fileName}`);
+    if (isFixedRoute) {
+      // 修正ルート実行時：既存のCSVファイルに追記
+      console.log('🔧 修正ルート実行結果を既存CSVファイルに追記します...');
+      
+      // 元のルートIDから対応するCSVファイルを探す
+      const originalRouteId = latestResult.original_route_id || latestRoute.route_id;
+      const existingCsvFiles = files.filter(f => f.startsWith('AutoPlaywright テスト結果') && f.endsWith('.csv')).sort().reverse();
+      
+      let targetCsvFile = null;
+      
+      // 最新のCSVファイルを使用（同じユーザーストーリーの場合）
+      if (existingCsvFiles.length > 0) {
+        targetCsvFile = existingCsvFiles[0];
+        console.log(`📝 既存CSVファイルを使用: ${targetCsvFile}`);
+      }
+      
+      if (targetCsvFile) {
+        outputPath = path.join(testResultsDir, targetCsvFile);
+        fileName = targetCsvFile;
+        
+        // 既存のCSVファイルを読み込み
+        let existingContent = '';
+        try {
+          existingContent = await fs.promises.readFile(outputPath, 'utf-8');
+        } catch (error) {
+          console.log('⚠️ 既存CSVファイルの読み込みに失敗。新規作成します。');
+        }
+        
+        // 新しいレポートからヘッダーを除いてデータ行のみ取得
+        const reportLines = report.split('\n');
+        const dataRows = reportLines.slice(1); // ヘッダーを除く
+        
+        if (existingContent) {
+          // 既存ファイルに追記
+          const appendContent = '\n' + dataRows.join('\n');
+          await fs.promises.appendFile(outputPath, appendContent);
+          console.log(`✅ 修正ルート結果を既存CSVに追記完了: ${fileName}`);
+          console.log(`📋 追記されたテストケース数: ${dataRows.length}件`);
+        } else {
+          // ファイルが存在しない場合は新規作成
+          await fs.promises.writeFile(outputPath, report);
+          console.log(`📊 新規CSVファイルを作成: ${fileName}`);
+        }
+      } else {
+        // 対応するCSVファイルが見つからない場合は新規作成
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+        fileName = `AutoPlaywright テスト結果 - TestResults_${timestamp}_修正.csv`;
+        outputPath = path.join(testResultsDir, fileName);
+        
+        await fs.promises.writeFile(outputPath, report);
+        console.log(`📊 修正ルート用新規CSVファイルを作成: ${fileName}`);
+      }
+    } else {
+      // 初回実行時：新規CSVファイル作成
+      const now = new Date();
+      const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+      fileName = `AutoPlaywright テスト結果 - TestResults_${timestamp}.csv`;
+      outputPath = path.join(testResultsDir, fileName);
+      
+      await fs.promises.writeFile(outputPath, report);
+      console.log(`📊 トレーサブルテストレポートを生成しました: ${fileName}`);
+    }
+    
     console.log(`📁 保存先: ${outputPath}`);
     
     // レポート内容のサマリーを表示
     const lines = report.split('\n');
     const testCaseCount = lines.length - 1; // ヘッダーを除く
     if (testCaseCount > 0) {
-      console.log(`📋 生成されたテストケース数: ${testCaseCount}件`);
+      console.log(`📋 ${isFixedRoute ? '追記された' : '生成された'}テストケース数: ${testCaseCount}件`);
     }
   } else {
     console.error('❌ テストレポートの生成に失敗しました');

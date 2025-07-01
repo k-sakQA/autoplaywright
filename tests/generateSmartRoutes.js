@@ -218,10 +218,62 @@ function loadNaturalLanguageTestCases(naturalTestCasesFile) {
     const data = fs.readFileSync(filePath, 'utf8');
     const testCasesData = JSON.parse(data);
     
-    console.log(`✅ ${testCasesData.metadata.total_test_cases}件の自然言語テストケースを読み込みました`);
-    console.log(`📊 カテゴリ内訳:`, testCasesData.metadata.categories);
+    // インデックスファイルの場合は分類別ファイルを読み込み
+    if (testCasesData.metadata.version_type === 'category_index') {
+      console.log(`📂 インデックスファイルを検出: ${testCasesData.metadata.total_categories}カテゴリ`);
+      
+      const combinedTestCases = [];
+      const categoryResults = [];
+      const baseDir = path.dirname(filePath);
+      
+      for (const categoryInfo of testCasesData.categories) {
+        const categoryFilePath = path.join(baseDir, categoryInfo.file);
+        
+        if (fs.existsSync(categoryFilePath)) {
+          console.log(`   📁 読み込み中: ${categoryInfo.category} (${categoryInfo.count}件)`);
+          
+          const categoryData = JSON.parse(fs.readFileSync(categoryFilePath, 'utf8'));
+          
+          // 分類別データを統合
+          combinedTestCases.push(...categoryData.testCases);
+          categoryResults.push({
+            category: categoryInfo.category,
+            testCases: categoryData.testCases,
+            metadata: categoryData.metadata
+          });
+        } else {
+          console.warn(`⚠️ 分類ファイルが見つかりません: ${categoryFilePath}`);
+        }
+      }
+      
+      // 統合データを返す
+      return {
+        metadata: {
+          ...testCasesData.metadata,
+          loaded_categories: categoryResults.length,
+          processing_mode: 'category_batch'
+        },
+        testCases: combinedTestCases,
+        categoryData: categoryResults
+      };
+    }
     
-    return testCasesData;
+    // 単一ファイル（分類別または統合）の場合
+    console.log(`✅ ${testCasesData.metadata.total_test_cases}件の自然言語テストケースを読み込みました`);
+    
+    if (testCasesData.metadata.version_type === 'category_detailed') {
+      console.log(`📂 分類: ${testCasesData.metadata.category}`);
+    } else {
+      console.log(`📊 カテゴリ内訳:`, testCasesData.metadata.categories);
+    }
+    
+    return {
+      ...testCasesData,
+      metadata: {
+        ...testCasesData.metadata,
+        processing_mode: testCasesData.metadata.version_type === 'category_detailed' ? 'single_category' : 'legacy'
+      }
+    };
   } catch (error) {
     console.error('❌ 自然言語テストケース読み込みに失敗:', error.message);
     throw error;
@@ -1005,6 +1057,124 @@ function generateTestValueForInput(inputType) {
   }
 }
 
+/**
+ * 分類別一括処理モード
+ */
+async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo) {
+  const batchResults = {
+    batch_id: `batch_${getTimestamp()}`,
+    processing_mode: 'category_batch',
+    processed_at: new Date().toISOString(),
+    categories: [],
+    summary: {
+      total_categories: testCasesData.categoryData.length,
+      total_test_cases: testCasesData.testCases.length,
+      feasible_categories: 0,
+      generated_routes: 0
+    }
+  };
+
+  console.log(`📊 ${batchResults.summary.total_categories}分類の一括処理を開始...`);
+
+  for (const categoryData of testCasesData.categoryData) {
+    console.log(`\n🔄 処理中: ${categoryData.category} (${categoryData.testCases.length}件)`);
+    
+    try {
+      const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, categoryData.testCases);
+      
+      const categoryResult = {
+        category: categoryData.category,
+        test_case_count: categoryData.testCases.length,
+        feasible_count: feasibilityAnalysis.feasibleCases.length,
+        problematic_count: feasibilityAnalysis.problematicCases.length,
+        routes: []
+      };
+
+      if (feasibilityAnalysis.suggestedCases.length > 0) {
+        // 各分類で最大3つのテストルートを生成
+        const routesToGenerate = feasibilityAnalysis.suggestedCases.slice(0, 3);
+        
+        for (const selectedCase of routesToGenerate) {
+          const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+          playwrightRoute.category = categoryData.category;
+          playwrightRoute.feasibility_score = selectedCase.feasibilityScore;
+          
+          categoryResult.routes.push(playwrightRoute);
+          batchResults.summary.generated_routes++;
+        }
+        
+        batchResults.summary.feasible_categories++;
+        console.log(`   ✅ ${categoryResult.routes.length}件のルートを生成`);
+      } else {
+        console.log(`   ⚠️ 実行可能なテストケースが見つかりませんでした`);
+      }
+
+      batchResults.categories.push(categoryResult);
+      
+    } catch (error) {
+      console.error(`   ❌ ${categoryData.category}の処理に失敗:`, error.message);
+      batchResults.categories.push({
+        category: categoryData.category,
+        error: error.message,
+        routes: []
+      });
+    }
+  }
+
+  console.log(`\n📊 一括処理完了: ${batchResults.summary.feasible_categories}/${batchResults.summary.total_categories}分類, ${batchResults.summary.generated_routes}ルート生成`);
+  return batchResults;
+}
+
+/**
+ * 単一分類処理モード
+ */
+async function processSingleCategory(testCasesData, pageInfo, url, userStoryInfo) {
+  const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
+  
+  if (feasibilityAnalysis.suggestedCases.length === 0) {
+    console.log('⚠️ 実行可能なテストケースが見つかりませんでした');
+    console.log('📋 問題のあるケース:', feasibilityAnalysis.problematicCases.length);
+    throw new Error(`${testCasesData.metadata.category}分類で実行可能なテストケースが見つかりませんでした`);
+  }
+
+  // 最も適したテストケースをPlaywright実装に変換
+  const selectedCase = feasibilityAnalysis.suggestedCases[0];
+  console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
+  
+  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+  playwrightRoute.category = testCasesData.metadata.category;
+  playwrightRoute.feasibility_score = selectedCase.feasibilityScore;
+  playwrightRoute.processing_mode = 'single_category';
+  
+  console.log('✅ DOM照合によるPlaywright実装生成が完了しました');
+  return playwrightRoute;
+}
+
+/**
+ * レガシー互換モード
+ */
+async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo) {
+  const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
+  
+  if (feasibilityAnalysis.suggestedCases.length === 0) {
+    console.log('⚠️ 実行可能なテストケースが見つかりませんでした');
+    console.log('📋 問題のあるケース:', feasibilityAnalysis.problematicCases.length);
+    // フォールバックとして従来のAI生成を実行
+    console.log('🔄 フォールバック: AI生成モードに切り替えます');
+    return null; // 後続のAI生成処理にフォールバック
+  }
+
+  // 最も適したテストケースをPlaywright実装に変換
+  const selectedCase = feasibilityAnalysis.suggestedCases[0];
+  console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
+  
+  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+  playwrightRoute.processing_mode = 'legacy';
+  
+  console.log('✅ DOM照合によるPlaywright実装生成が完了しました');
+  return playwrightRoute;
+}
+
 // スマートテストルート生成
 async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null, naturalTestCasesFile = null) {
   // 自然言語テストケースが指定されている場合はDOM照合モードで実行
@@ -1014,25 +1184,20 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
     // 1. 自然言語テストケースを読み込み
     const testCasesData = loadNaturalLanguageTestCases(naturalTestCasesFile);
     
-    // 2. DOM情報と照合して実行可能性を分析
-    const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
-    
-    // 3. 実行可能なケースから最適なものを選択
-    if (feasibilityAnalysis.suggestedCases.length === 0) {
-      console.log('⚠️ 実行可能なテストケースが見つかりませんでした');
-      console.log('📋 問題のあるケース:', feasibilityAnalysis.problematicCases.length);
-      // フォールバックとして従来のAI生成を実行
-      console.log('🔄 フォールバック: AI生成モードに切り替えます');
+    // 処理モード別に分岐
+    if (testCasesData.metadata.processing_mode === 'category_batch') {
+      console.log('📂 分類別一括処理モードで実行します');
+      return await processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo);
+    } else if (testCasesData.metadata.processing_mode === 'single_category') {
+      console.log(`📁 単一分類処理モード: ${testCasesData.metadata.category}`);
+      return await processSingleCategory(testCasesData, pageInfo, url, userStoryInfo);
     } else {
-      // 最も適したテストケースをPlaywright実装に変換
-      const selectedCase = feasibilityAnalysis.suggestedCases[0];
-      console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
-      
-      // DOM照合版の簡易実装を生成
-      const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
-      
-      console.log('✅ DOM照合によるPlaywright実装生成が完了しました');
-      return playwrightRoute;
+      console.log('🔄 レガシー互換モードで実行します');
+      const legacyResult = await processLegacyMode(testCasesData, pageInfo, url, userStoryInfo);
+      if (legacyResult) {
+        return legacyResult;
+      }
+      // nullの場合は従来のAI生成にフォールバック
     }
   }
 

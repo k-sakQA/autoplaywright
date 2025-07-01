@@ -391,13 +391,21 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
                     .sort()
                     .reverse();
                 if (testPointsFiles.length > 0) {
-                    const latestTestPoints = path.join(testResultsDir, testPointsFiles[0]);
-                    args.push(latestTestPoints);
+                    const latestTestPoints = testPointsFiles[0]; // ファイル名のみ
+                    args.push('--test-points', latestTestPoints);
                     console.log(`📊 最新のテスト観点ファイルを使用: ${testPointsFiles[0]}`);
+                } else {
+                    return res.status(400).json({ success: false, error: 'テスト観点ファイルが見つかりません。先にテスト観点生成を実行してください。' });
                 }
             } catch (error) {
                 console.warn('⚠️ テスト観点ファイルの自動検索に失敗:', error.message);
+                return res.status(400).json({ success: false, error: 'テスト観点ファイルの検索に失敗しました。' });
             }
+            
+            // URL、ユーザーストーリー、PDFファイル情報を追加
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             break;
 
         case 'generateSmartRoutes':
@@ -407,14 +415,25 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
             
-            // 自然言語テストケースファイルが存在する場合は自動使用
+            // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
             const testResultsDir2 = path.join(__dirname, 'test-results');
             try {
                 const files = fs.readdirSync(testResultsDir2);
-                const naturalTestCasesFiles = files
-                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json'))
+                
+                // 軽量版を優先的に検索
+                let naturalTestCasesFiles = files
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
                     .sort()
                     .reverse();
+                
+                // 軽量版が見つからない場合は従来のファイルを検索
+                if (naturalTestCasesFiles.length === 0) {
+                    naturalTestCasesFiles = files
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+                        .sort()
+                        .reverse();
+                }
+                
                 if (naturalTestCasesFiles.length > 0) {
                     const latestNaturalTestCases = path.join(testResultsDir2, naturalTestCasesFiles[0]);
                     args.push('--natural-test-cases', latestNaturalTestCases);

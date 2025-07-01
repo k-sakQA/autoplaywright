@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import fs from "fs";
 import path from "path";
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -227,6 +228,180 @@ export class PlaywrightRunner {
   }
 }
 
+/**
+ * 分類別バッチ処理結果を実行
+ */
+async function executeCategoryBatchRoutes(batchRoute) {
+  const startTime = Date.now();
+  const allResults = {
+    batch_id: batchRoute.batch_id,
+    timestamp: new Date().toISOString(),
+    processing_mode: 'category_batch',
+    categories: [],
+    summary: {
+      total_categories: batchRoute.categories.length,
+      total_routes: 0,
+      executed_routes: 0,
+      success_routes: 0,
+      failed_routes: 0,
+      skipped_routes: 0
+    },
+    execution_time: 0
+  };
+
+  console.log(`📊 ${batchRoute.categories.length}分類のルートを順次実行します...`);
+
+  const runner = new PlaywrightRunner();
+  await runner.initialize();
+
+  try {
+    for (const category of batchRoute.categories) {
+      console.log(`\n🔄 実行中: ${category.category}分類 (${category.routes.length}ルート)`);
+      
+      const categoryResult = {
+        category: category.category,
+        test_case_count: category.test_case_count,
+        route_count: category.routes.length,
+        executed_count: 0,
+        success_count: 0,
+        failed_count: 0,
+        routes: []
+      };
+
+      allResults.summary.total_routes += category.routes.length;
+
+      if (category.routes.length === 0) {
+        console.log(`   ⚠️ 実行可能なルートがありません`);
+        allResults.summary.skipped_routes += 1;
+        categoryResult.routes.push({
+          route_id: `${category.category}_no_routes`,
+          status: 'skipped',
+          reason: '実行可能なルートが生成されませんでした',
+          steps: []
+        });
+        allResults.categories.push(categoryResult);
+        continue;
+      }
+
+      for (const route of category.routes) {
+        console.log(`\n  📝 ルート実行: ${route.route_id || 'Unknown'}`);
+        console.log(`     観点: ${route.original_viewpoint?.substring(0, 80)}...`);
+        
+        allResults.summary.executed_routes++;
+        categoryResult.executed_count++;
+
+        const routeResult = {
+          route_id: route.route_id,
+          original_viewpoint: route.original_viewpoint,
+          feasibility_score: route.feasibility_score,
+          steps: [],
+          success: true,
+          failed_steps: 0,
+          execution_time: 0
+        };
+
+        const routeStartTime = Date.now();
+        
+        try {
+          // 各ステップを実行
+          for (const step of route.steps) {
+            const stepLabel = step.label || `${step.action} ${step.target}`;
+            console.log(`     🔧 ${stepLabel}`);
+            
+            try {
+              await runner.executeStep(step);
+              console.log(`     ✅ 成功`);
+              routeResult.steps.push({
+                label: stepLabel,
+                action: step.action,
+                target: step.target,
+                status: 'success',
+                error: null
+              });
+            } catch (stepError) {
+              const errorMessage = stepError.message.split('\n')[0];
+              console.log(`     ❌ 失敗: ${errorMessage}`);
+              routeResult.steps.push({
+                label: stepLabel,
+                action: step.action,
+                target: step.target,
+                status: 'failed',
+                error: errorMessage
+              });
+              routeResult.failed_steps++;
+              routeResult.success = false;
+            }
+          }
+          
+          routeResult.execution_time = Date.now() - routeStartTime;
+          
+          if (routeResult.success) {
+            console.log(`  ✅ ルート成功: ${route.route_id}`);
+            allResults.summary.success_routes++;
+            categoryResult.success_count++;
+          } else {
+            console.log(`  ❌ ルート失敗: ${route.route_id} (${routeResult.failed_steps}/${routeResult.steps.length}ステップ失敗)`);
+            allResults.summary.failed_routes++;
+            categoryResult.failed_count++;
+          }
+          
+        } catch (routeError) {
+          console.log(`  🚨 ルート実行エラー: ${routeError.message}`);
+          routeResult.success = false;
+          routeResult.error = routeError.message;
+          allResults.summary.failed_routes++;
+          categoryResult.failed_count++;
+        }
+        
+        categoryResult.routes.push(routeResult);
+      }
+      
+      console.log(`📊 ${category.category}分類完了: ${categoryResult.success_count}/${categoryResult.executed_count}ルート成功`);
+      allResults.categories.push(categoryResult);
+    }
+
+    allResults.execution_time = Date.now() - startTime;
+
+    // コンソール出力
+    console.log('\n=== 分類別バッチ実行結果 ===');
+    console.log(`🔷 バッチID: ${allResults.batch_id}`);
+    console.log(`🔷 総分類数: ${allResults.summary.total_categories}`);
+    console.log(`🔷 総ルート数: ${allResults.summary.total_routes}`);
+    console.log(`🔷 実行ルート数: ${allResults.summary.executed_routes}`);
+    console.log(`🔷 成功ルート数: ${allResults.summary.success_routes}`);
+    console.log(`🔷 失敗ルート数: ${allResults.summary.failed_routes}`);
+    console.log(`🔷 スキップ分類数: ${allResults.summary.skipped_routes}`);
+
+    // 分類別サマリー
+    console.log('\n📊 分類別結果:');
+    allResults.categories.forEach(cat => {
+      if (cat.executed_count > 0) {
+        console.log(`  - ${cat.category}: ${cat.success_count}/${cat.executed_count}成功`);
+      } else {
+        console.log(`  - ${cat.category}: スキップ（ルート未生成）`);
+      }
+    });
+
+    // 結果をJSONファイルとして保存
+    const timestamp = batchRoute.batch_id.replace('batch_', '');
+    const testResultsDir = path.join(process.cwd(), 'test-results');
+    const resultPath = path.join(testResultsDir, `result_${timestamp}.json`);
+    fs.writeFileSync(resultPath, JSON.stringify(allResults, null, 2));
+    console.log(`\n📝 バッチ実行結果を保存しました: ${resultPath}`);
+
+    const hasFailures = allResults.summary.failed_routes > 0;
+    console.log(hasFailures ? 
+      '\n⚠️ 一部のルートで失敗が発生しました' : 
+      '\n🎉 すべてのルートが正常に完了しました'
+    );
+
+    process.exit(hasFailures ? 1 : 0);
+
+  } finally {
+    await runner.cleanup();
+  }
+}
+
 // メイン処理
 (async () => {
   const startTime = Date.now();
@@ -313,6 +488,14 @@ export class PlaywrightRunner {
 
     // 3. ルートを読み込む
     const route = JSON.parse(fs.readFileSync(routePath, 'utf-8'));
+    
+    // 分類別バッチ処理結果の場合
+    if (route.processing_mode === 'category_batch') {
+      console.log('📂 分類別バッチ処理結果を実行します');
+      return await executeCategoryBatchRoutes(route);
+    }
+    
+    // 従来の単一ルート処理
     if (!route.steps || !Array.isArray(route.steps)) {
       throw new Error('ルートJSONにstepsが含まれていません。正しい形式のJSONを作成してください。');
     }
@@ -474,6 +657,57 @@ export class PlaywrightRunner {
     // 修正ルートの場合、Google Sheetsに結果を追加
     if (isFixedRoute) {
       await uploadFixedRouteResultsToSheets(testResults, route);
+      
+      // CSVレポートも生成（修正ルート実行後）
+      try {
+        console.log('📊 修正ルート結果のCSVレポートを生成中...');
+        
+        const reportArgs = ['tests/generateTestReport.js'];
+        
+        // 元の引数情報があれば引き継ぐ
+        if (route.analysis_context) {
+          if (route.analysis_context.target_url) {
+            reportArgs.push('--url', route.analysis_context.target_url);
+          }
+          if (route.analysis_context.user_story) {
+            reportArgs.push('--goal', route.analysis_context.user_story);
+          }
+          if (route.analysis_context.spec_pdf) {
+            reportArgs.push('--spec-pdf', route.analysis_context.spec_pdf);
+          }
+          if (route.analysis_context.test_csv) {
+            reportArgs.push('--test-csv', route.analysis_context.test_csv);
+          }
+        }
+        
+        console.log(`🔧 実行コマンド: node ${reportArgs.join(' ')}`);
+        
+        const reportProcess = spawn('node', reportArgs, {
+          cwd: path.resolve(__dirname, '..'),
+          stdio: 'inherit'
+        });
+        
+        await new Promise((resolve, reject) => {
+          reportProcess.on('close', (code) => {
+            if (code === 0) {
+              console.log('✅ 修正ルート結果のCSVレポート生成完了');
+              resolve();
+            } else {
+              console.error(`❌ CSVレポート生成でエラー（終了コード: ${code}）`);
+              resolve(); // エラーでも続行
+            }
+          });
+          
+          reportProcess.on('error', (error) => {
+            console.error('❌ CSVレポート生成プロセスエラー:', error.message);
+            resolve(); // エラーでも続行
+          });
+        });
+        
+      } catch (error) {
+        console.error('❌ CSVレポート生成エラー:', error.message);
+        // エラーでも続行
+      }
     }
 
     // 失敗したテストがある場合でも、プロセスは正常終了

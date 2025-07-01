@@ -43,6 +43,7 @@ class GoogleSheetsUploader {
     try {
       const drive = google.drive({ version: 'v3', auth: this.auth });
       
+      // まず完全一致で検索
       let query = `name='${title}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
       
       // フォルダIDが指定されている場合はフォルダ内を検索
@@ -50,7 +51,7 @@ class GoogleSheetsUploader {
         query += ` and '${folderId}' in parents`;
       }
       
-      const response = await drive.files.list({
+      let response = await drive.files.list({
         q: query,
         fields: 'files(id, name, createdTime)',
         orderBy: 'createdTime desc'
@@ -58,11 +59,37 @@ class GoogleSheetsUploader {
       
       if (response.data.files && response.data.files.length > 0) {
         const spreadsheet = response.data.files[0];
-        console.log(`既存スプレッドシートを発見: ${spreadsheet.name} (ID: ${spreadsheet.id})`);
+        console.log(`既存スプレッドシートを発見（完全一致）: ${spreadsheet.name} (ID: ${spreadsheet.id})`);
+        return spreadsheet.id;
+      }
+      
+      // 完全一致で見つからない場合は部分一致で検索
+      console.log(`完全一致では見つかりませんでした。部分一致で検索中...`);
+      
+      // 「AutoPlaywright テスト結果」で始まるスプレッドシートを検索
+      const baseTitle = title.split(' - ')[0]; // 「AutoPlaywright テスト結果」部分のみ抽出
+      let partialQuery = `name contains '${baseTitle}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+      
+      if (folderId) {
+        partialQuery += ` and '${folderId}' in parents`;
+      }
+      
+      response = await drive.files.list({
+        q: partialQuery,
+        fields: 'files(id, name, createdTime)',
+        orderBy: 'createdTime desc',
+        pageSize: 10 // 最新の10件まで検索
+      });
+      
+      if (response.data.files && response.data.files.length > 0) {
+        const spreadsheet = response.data.files[0];
+        console.log(`既存スプレッドシートを発見（部分一致）: ${spreadsheet.name} (ID: ${spreadsheet.id})`);
+        console.log(`🔄 部分一致で見つかったため、こちらを使用します`);
         return spreadsheet.id;
       }
       
       console.log(`指定されたタイトルのスプレッドシートが見つかりませんでした: ${title}`);
+      console.log(`💡 新しいスプレッドシートを作成します`);
       return null;
     } catch (error) {
       console.error('スプレッドシート検索エラー:', error.message);
