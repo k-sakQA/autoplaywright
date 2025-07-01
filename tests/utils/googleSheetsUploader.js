@@ -10,6 +10,112 @@ class GoogleSheetsUploader {
   }
 
   /**
+   * データをサニタイズして利用規約違反を防ぐ
+   * @param {string} content - サニタイズするコンテンツ
+   * @returns {string} - サニタイズされたコンテンツ
+   */
+  sanitizeContent(content) {
+    if (!content) return '';
+    
+    let sanitized = String(content);
+    
+    // 許可されたドメインのリスト
+    const allowedDomains = ['example.com', 'localhost', '127.0.0.1'];
+    const isAllowedUrl = allowedDomains.some(domain => sanitized.includes(domain));
+    
+    // 1. 不適切なURLパターンを除去/置換（許可ドメイン以外）
+    if (!isAllowedUrl) {
+      sanitized = sanitized
+        .replace(/https?:\/\/[^\s,]+/g, '[URL_REMOVED]')  // URLを [URL_REMOVED] に置換
+        .replace(/www\.[^\s,]+/g, '[DOMAIN_REMOVED]')    // ドメインを [DOMAIN_REMOVED] に置換
+        .replace(/[a-zA-Z0-9.-]+\.(com|org|net|jp|dev)[^\s,]*/g, '[DOMAIN_REMOVED]');  // ドメイン全般（example除く）
+    } else {
+      // 許可ドメインの場合は基本的なサニタイズのみ
+      sanitized = sanitized.replace(/[<>'"]/g, '');  // 危険な文字のみ除去
+    }
+    
+    // 2. 個人情報のパターンを除去
+    sanitized = sanitized
+      .replace(/\b\d{4}-\d{4}-\d{4}-\d{4}\b/g, '[CARD]')  // カード番号
+      .replace(/\b\d{3}-\d{4}-\d{4}\b/g, '[PHONE]')       // 電話番号
+      .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL]')  // メール
+      
+    // 3. 過度に長いテキストを短縮
+      .substring(0, 500)  // 500文字制限
+      
+    // 4. 制御文字を除去
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      
+    // 5. 連続する改行を制限
+      .replace(/\n{3,}/g, '\n\n')
+      
+    // 6. HTMLタグを除去
+      .replace(/<[^>]*>/g, '')
+      
+    // 7. SQLインジェクションパターンを除去
+      .replace(/('|(\\?;)|(\\?\|)|(\\?\*)|(%27)|(%3B)|(%7C)|(%2A))/gi, '');
+      
+    return sanitized.trim();
+  }
+
+  /**
+   * CSVデータのサイズをチェックして制限する
+   * @param {string} csvContent - CSVコンテンツ
+   * @param {number} maxSizeKB - 最大サイズ（KB）
+   * @returns {Object} - {content: string, truncated: boolean, originalSize: number, newSize: number}
+   */
+  limitCSVSize(csvContent, maxSizeKB = 15) {
+    const originalSizeKB = Buffer.byteLength(csvContent, 'utf8') / 1024;
+    
+    if (originalSizeKB <= maxSizeKB) {
+      return {
+        content: csvContent,
+        truncated: false,
+        originalSize: Math.round(originalSizeKB * 100) / 100,
+        newSize: Math.round(originalSizeKB * 100) / 100
+      };
+    }
+    
+    console.log(`⚠️ CSVサイズが大きすぎます (${originalSizeKB.toFixed(1)}KB > ${maxSizeKB}KB)。データを制限します。`);
+    
+    const lines = csvContent.split('\n');
+    const header = lines[0];
+    let dataLines = lines.slice(1);
+    
+    // データ行を段階的に削減
+    while (dataLines.length > 0) {
+      const limitedContent = [header, ...dataLines].join('\n');
+      const currentSizeKB = Buffer.byteLength(limitedContent, 'utf8') / 1024;
+      
+      if (currentSizeKB <= maxSizeKB) {
+        console.log(`📊 データを${dataLines.length}行に制限しました (${currentSizeKB.toFixed(1)}KB)`);
+        return {
+          content: limitedContent,
+          truncated: true,
+          originalSize: Math.round(originalSizeKB * 100) / 100,
+          newSize: Math.round(currentSizeKB * 100) / 100,
+          originalRows: lines.length - 1,
+          newRows: dataLines.length
+        };
+      }
+      
+      // 10%ずつ削減
+      const reduceCount = Math.max(1, Math.floor(dataLines.length * 0.1));
+      dataLines = dataLines.slice(0, -reduceCount);
+    }
+    
+    // 最低限ヘッダーだけは残す
+    return {
+      content: header,
+      truncated: true,
+      originalSize: Math.round(originalSizeKB * 100) / 100,
+      newSize: Buffer.byteLength(header, 'utf8') / 1024,
+      originalRows: lines.length - 1,
+      newRows: 0
+    };
+  }
+
+  /**
    * Google Sheets APIの認証を初期化
    * @param {string} credentialsPath - サービスアカウントのJSONファイルパス
    */
@@ -106,10 +212,16 @@ class GoogleSheetsUploader {
    */
   async createSpreadsheet(title, shareEmail = null, folderId = null) {
     try {
+      // タイトルをサニタイズ（短縮版）
+      const sanitizedTitle = title
+        .replace(/[<>:"/\\|?*]/g, '-')  // ファイル名に使えない文字を除去
+        .substring(0, 100)  // 100文字制限
+        .trim();
+      
       const response = await this.sheets.spreadsheets.create({
         resource: {
           properties: {
-            title: title
+            title: sanitizedTitle
           }
         }
       });
@@ -202,28 +314,44 @@ class GoogleSheetsUploader {
   async uploadCSV(csvFilePath, spreadsheetId, sheetName = 'Sheet1', appendMode = false) {
     try {
       // CSVファイルを読み込み
-      const csvContent = fs.readFileSync(csvFilePath, 'utf8');
+      let csvContent = fs.readFileSync(csvFilePath, 'utf8');
+      
+      // ファイルサイズを制限
+      const sizeInfo = this.limitCSVSize(csvContent, 15);
+      if (sizeInfo.truncated) {
+        console.log(`📊 CSVサイズ制限適用: ${sizeInfo.originalSize}KB → ${sizeInfo.newSize}KB`);
+        if (sizeInfo.originalRows !== undefined) {
+          console.log(`📊 データ行数制限: ${sizeInfo.originalRows}行 → ${sizeInfo.newRows}行`);
+        }
+      }
+      csvContent = sizeInfo.content;
+      
       const rows = this.parseCSV(csvContent);
+      
+      // データをサニタイズ
+      const sanitizedRows = rows.map(row => 
+        row.map(cell => this.sanitizeContent(cell))
+      );
 
-      if (rows.length === 0) {
+      if (sanitizedRows.length === 0) {
         console.log('CSVファイルが空です');
         return;
       }
 
       // デバッグ情報：CSVの構造をチェック
       console.log(`🛠️ [Debug] CSV構造チェック:`);
-      console.log(`  総行数: ${rows.length}`);
-      if (rows.length > 0) {
-        console.log(`  ヘッダー列数: ${rows[0].length}`);
-        console.log(`  ヘッダー: [${rows[0].join(', ')}]`);
+      console.log(`  総行数: ${sanitizedRows.length}`);
+      if (sanitizedRows.length > 0) {
+        console.log(`  ヘッダー列数: ${sanitizedRows[0].length}`);
+        console.log(`  ヘッダー: [${sanitizedRows[0].join(', ')}]`);
         
-        if (rows.length > 1) {
-          console.log(`  データ行1列数: ${rows[1].length}`);
+        if (sanitizedRows.length > 1) {
+          console.log(`  データ行1列数: ${sanitizedRows[1].length}`);
           
           // 列数の不一致をチェック
-          if (rows[0].length !== rows[1].length) {
+          if (sanitizedRows[0].length !== sanitizedRows[1].length) {
             console.log(`⚠️ 警告: ヘッダーとデータの列数が不一致です`);
-            console.log(`    ヘッダー: ${rows[0].length}列, データ: ${rows[1].length}列`);
+            console.log(`    ヘッダー: ${sanitizedRows[0].length}列, データ: ${sanitizedRows[1].length}列`);
           }
         }
       }
@@ -246,12 +374,12 @@ class GoogleSheetsUploader {
         range,
         valueInputOption: 'RAW',
         resource: {
-          values: rows
+          values: sanitizedRows
         }
       });
 
       console.log(`✅ CSVアップロード完了: ${path.basename(csvFilePath)} → ${spreadsheetId}`);
-      console.log(`📊 範囲: ${range}, 行数: ${rows.length}`);
+      console.log(`📊 範囲: ${range}, 行数: ${sanitizedRows.length}`);
 
     } catch (error) {
       console.error('❌ CSVアップロードエラー:', error.message);

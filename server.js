@@ -55,7 +55,50 @@ const upload = multer({
 
 // 静的ファイルの提供
 app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'test-results')));
 app.use(express.json());
+
+// ルートページでHTMLレポート一覧を表示
+app.get('/', (req, res) => {
+  try {
+    const resultsDir = path.join(__dirname, 'test-results');
+    if (!fs.existsSync(resultsDir)) {
+      return res.send(`
+        <html><body style="font-family:Arial,sans-serif;padding:20px;">
+        <h1>🧪 AutoPlaywright</h1>
+        <p>テストレポートディレクトリが見つかりません。</p>
+        </body></html>
+      `);
+    }
+
+    const files = fs.readdirSync(resultsDir)
+      .filter(f => f.endsWith('.html') && f.startsWith('TestCoverage_'))
+      .sort()
+      .reverse(); // 新しい順
+
+    const fileList = files.map(file => {
+      const stat = fs.statSync(path.join(resultsDir, file));
+      const date = stat.mtime.toLocaleString('ja-JP');
+      return `<li><a href="/${file}">${file}</a> <span style="color:#666;">(${date})</span></li>`;
+    }).join('');
+
+    res.send(`
+      <html><body style="font-family:Arial,sans-serif;padding:20px;">
+        <h1>🧪 AutoPlaywright</h1>
+        <h2>📊 テストカバレッジレポート</h2>
+        ${files.length > 0 ? `<ul>${fileList}</ul>` : '<p>レポートファイルが見つかりません。</p>'}
+        <p style="margin-top:30px;padding:15px;background:#e3f2fd;border-radius:5px;">
+          💡 <strong>API機能付きサーバー</strong><br>
+          このサーバーはHTMLレポート表示とAPI機能を統合しています。<br>
+          HTMLレポート内の「未自動化ケース用ルート生成」ボタンが使用できます。
+        </p>
+      </body></html>
+    `);
+  } catch (error) {
+    console.error('ルートページエラー:', error);
+    res.status(500).send('サーバーエラー');
+  }
+});
 
 // config.json読み込みAPI
 app.get('/api/config', (req, res) => {
@@ -277,10 +320,34 @@ app.post('/api/execute-json', express.json(), async (req, res) => {
     
     child.on('close', (code) => {
       if (code === 0) {
+        let finalOutput = output.trim();
+        let htmlReportUrl = null;
+        let htmlReportFile = null;
+        
+        // テストレポート生成後、HTMLレポートURLを出力から抽出
+        if (command === 'generateTestReport') {
+          try {
+            // 出力からHTMLファイル名を抽出
+            const htmlFileMatch = finalOutput.match(/HTMLレポート: (TestCoverage_.*?\.html)/);
+            if (htmlFileMatch) {
+              htmlReportFile = htmlFileMatch[1];
+              htmlReportUrl = `http://localhost:3001/${htmlReportFile}`;
+              console.log('🛠️ [Debug] Found HTML report from output:', htmlReportFile);
+            } else {
+              console.log('🛠️ [Debug] No HTML report found in output');
+              console.log('🛠️ [Debug] Output sample:', finalOutput.substring(0, 500));
+            }
+          } catch (error) {
+            console.error('HTMLレポート抽出エラー:', error);
+          }
+        }
+        
         res.json({
           success: true,
-          output: output.trim(),
-          command: command
+          output: finalOutput,
+          command: command,
+          htmlReportUrl: htmlReportUrl,
+          htmlReportFile: htmlReportFile
         });
       } else {
         res.json({
@@ -505,103 +572,70 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
       if (code === 0) {
         let finalOutput = output.trim();
         
-        // テストレポート生成後、Google Sheets自動アップロードを確認
-        if (commandName === 'generateTestReport') {
+        // テストレポート生成後、HTMLレポートを優先表示
+        console.log('🛠️ [Debug] Command check:', command, 'equals generateTestReport?', command === 'generateTestReport');
+        if (command === 'generateTestReport') {
           try {
-            const configPath = path.join(__dirname, 'config.json');
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            
-            // Google Sheets自動アップロード設定が有効な場合
-            if (config.googleSheets && config.googleSheets.autoUpload) {
-              console.log('📈 Google Sheets自動アップロードを開始します...');
+            // ファイルシステムから最新のHTMLレポートを検索
+            const testResultsDir = path.join(__dirname, 'test-results');
+            console.log('🛠️ [Debug] Test results dir:', testResultsDir);
+            console.log('🛠️ [Debug] Directory exists:', fs.existsSync(testResultsDir));
+            if (fs.existsSync(testResultsDir)) {
+              const files = fs.readdirSync(testResultsDir);
+              console.log('🛠️ [Debug] All files:', files.length);
+              const htmlReports = files.filter(f => f.startsWith('TestCoverage_') && f.endsWith('.html'))
+                                      .map(f => {
+                                        const filePath = path.join(testResultsDir, f);
+                                        const stats = fs.statSync(filePath);
+                                        return { name: f, mtime: stats.mtime };
+                                      })
+                                      .sort((a, b) => b.mtime - a.mtime); // 最新のファイルを先頭に
               
-              // Google Sheetsアップロードスクリプトを実行
-              let uploadArgs = ['tests/uploadToGoogleSheets.js', '--verbose'];
-              
-              if (config.googleSheets.shareEmail) {
-                uploadArgs.push('--share-email', config.googleSheets.shareEmail);
-              }
-              
-              if (config.googleSheets.driveFolder) {
-                uploadArgs.push('--drive-folder', config.googleSheets.driveFolder);
-              }
-              
-              if (config.googleSheets.spreadsheetTitle) {
-                uploadArgs.push('--title', config.googleSheets.spreadsheetTitle);
-              }
-              
-              console.log(`Google Sheets自動アップロード実行: node ${uploadArgs.join(' ')}`);
-              
-              const uploadChild = spawn('node', uploadArgs, {
-                cwd: __dirname,
-                env: { ...process.env }
-              });
-              
-              let uploadOutput = '';
-              let uploadError = '';
-              
-              uploadChild.stdout.on('data', (data) => {
-                const text = data.toString();
-                uploadOutput += text;
-                console.log('SHEETS AUTO UPLOAD STDOUT:', text);
-              });
-              
-              uploadChild.stderr.on('data', (data) => {
-                const text = data.toString();
-                uploadError += text;
-                console.error('SHEETS AUTO UPLOAD STDERR:', text);
-              });
-              
-              uploadChild.on('close', (uploadCode) => {
-                if (uploadCode === 0) {
-                  // スプレッドシートURLを出力から抽出
-                  const urlMatch = uploadOutput.match(/🔗 スプレッドシートURL: (https:\/\/docs\.google\.com\/spreadsheets\/d\/[^\/]+\/edit)/);
-                  const spreadsheetUrl = urlMatch ? urlMatch[1] : null;
-                  
-                  finalOutput += '\n\n📈 Google Sheets自動アップロード完了\n' + uploadOutput.trim();
-                  
-                  res.json({
-                    success: true,
-                    output: finalOutput,
-                    command: command,
-                    spreadsheetUrl: spreadsheetUrl
-                  });
-                } else {
-                  finalOutput += '\n\n❌ Google Sheets自動アップロード失敗\n' + (uploadError || uploadOutput);
-                  
-                  res.json({
-                    success: true,
-                    output: finalOutput,
-                    command: command,
-                    uploadError: uploadError || `アップロードがエラーコード${uploadCode}で終了しました`
-                  });
-                }
-              });
-              
-              uploadChild.on('error', (uploadErr) => {
-                console.error('Google Sheets自動アップロードエラー:', uploadErr);
-                finalOutput += '\n\n❌ Google Sheets自動アップロードエラー\n' + uploadErr.message;
+              console.log('🛠️ [Debug] HTML reports found:', htmlReports.length);
+              if (htmlReports.length > 0) {
+                console.log('🛠️ [Debug] Latest HTML report:', htmlReports[0].name);
+                const latestHtmlReport = htmlReports[0].name;
+                const htmlReportUrl = `http://localhost:3001/${latestHtmlReport}`;
                 
+                finalOutput += `\n\n📊 HTMLテストレポートが生成されました！`;
+                finalOutput += `\n🔗 レポートURL: ${htmlReportUrl}`;
+                finalOutput += `\n📁 ファイル: ${latestHtmlReport}`;
+                finalOutput += `\n\n💡 簡易Webサーバーでレポートを確認:`;
+                finalOutput += `\n   node tests/utils/simpleWebServer.js 3001`;
+                
+                console.log('🛠️ [Debug] Sending response with HTML URL:', htmlReportUrl);
                 res.json({
                   success: true,
                   output: finalOutput,
                   command: command,
-                  uploadError: uploadErr.message
+                  htmlReportUrl: htmlReportUrl,
+                  htmlReportFile: latestHtmlReport,
+                  debug: {
+                    testResultsDir: testResultsDir,
+                    filesCount: files.length,
+                    htmlReportsCount: htmlReports.length,
+                    latestFile: latestHtmlReport
+                  }
                 });
-              });
-              
-              return; // 非同期処理のため、ここでreturn
+                return;
+              } else {
+                console.log('🛠️ [Debug] No HTML reports found');
+                finalOutput += `\n\n⚠️ HTMLレポートが見つかりませんでした`;
+              }
             }
+            
           } catch (configError) {
-            console.error('Google Sheets設定読み込みエラー:', configError);
-            finalOutput += '\n\n⚠️ Google Sheets設定読み込みエラー: ' + configError.message;
+            console.error('設定読み込みエラー:', configError);
+            finalOutput += `\n\n⚠️ 設定読み込みエラー: ${configError.message}`;
           }
         }
         
         res.json({
           success: true,
           output: finalOutput,
-          command: command
+          command: command,
+          commandName: command,
+          debugInfo: `Command: ${command}, CommandName: ${command}, Match: ${command === 'generateTestReport'}`
         });
       } else {
         res.json({
@@ -748,7 +782,7 @@ app.get('/api/config/user-story', (req, res) => {
   }
 });
 
-// ユーザーストーリーIDリセットAPI
+// ユーザーストーリーIDリセットAPI (後方互換性維持)
 app.post('/api/config/user-story/reset', (req, res) => {
   try {
     const configPath = path.join(__dirname, 'config.json');
@@ -778,6 +812,83 @@ app.post('/api/config/user-story/reset', (req, res) => {
   } catch (error) {
     console.error('ユーザーストーリーIDリセットエラー:', error);
     res.json({ success: false, error: 'ユーザーストーリーIDリセットエラー' });
+  }
+});
+
+// テスト履歴リセットAPI（累積カバレッジリセット）
+app.post('/api/reset-test-history', (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    const resultsDir = path.join(__dirname, 'test-results');
+    
+    let deletedResults = 0;
+    let deletedRoutes = 0;
+    let deletedReports = 0;
+    
+    // test-resultsディレクトリのテスト履歴ファイルを削除
+    if (fs.existsSync(resultsDir)) {
+      const files = fs.readdirSync(resultsDir);
+      
+      files.forEach(file => {
+        const filePath = path.join(resultsDir, file);
+        const stat = fs.statSync(filePath);
+        
+        if (stat.isFile()) {
+          // リセット対象のファイルを判定
+          if (file.startsWith('result_') && file.endsWith('.json')) {
+            fs.unlinkSync(filePath);
+            deletedResults++;
+          } else if (file.startsWith('route_') && file.endsWith('.json')) {
+            fs.unlinkSync(filePath);
+            deletedRoutes++;
+          } else if (file.startsWith('fixed_route_') && file.endsWith('.json')) {
+            fs.unlinkSync(filePath);
+            deletedRoutes++;
+          } else if (file.startsWith('TestCoverage_') && (file.endsWith('.html') || file.endsWith('.csv') || file.endsWith('.json'))) {
+            fs.unlinkSync(filePath);
+            deletedReports++;
+          } else if (file.startsWith('AutoPlaywright テスト結果') && file.endsWith('.csv')) {
+            fs.unlinkSync(filePath);
+            deletedReports++;
+          }
+        }
+      });
+    }
+    
+    // config.jsonのユーザーストーリー設定もリセット
+    let config = {};
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+    
+    config.userStory = {
+      currentId: null,
+      resetAt: new Date().toISOString(),
+      testCycleReset: true
+    };
+    
+    // .last-run.jsonもリセット（最後の実行情報）
+    const lastRunPath = path.join(resultsDir, '.last-run.json');
+    if (fs.existsSync(lastRunPath)) {
+      fs.unlinkSync(lastRunPath);
+    }
+    
+    // 設定を保存
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    
+    res.json({ 
+      success: true, 
+      message: 'テスト履歴をリセットしました',
+      deletedResults: deletedResults,
+      deletedRoutes: deletedRoutes,
+      deletedReports: deletedReports,
+      resetAt: config.userStory.resetAt
+    });
+    
+    console.log(`🔄 テスト履歴リセット完了: 結果${deletedResults}件, ルート${deletedRoutes}件, レポート${deletedReports}件`);
+  } catch (error) {
+    console.error('テスト履歴リセットエラー:', error);
+    res.json({ success: false, error: 'テスト履歴リセットエラー' });
   }
 });
 
@@ -819,6 +930,156 @@ app.get('/api/check-fixed-routes', (req, res) => {
   } catch (error) {
     console.error('修正ルートチェックエラー:', error);
     res.json({ success: false, error: '修正ルートチェックエラー' });
+  }
+});
+
+// 未自動化ケース用ルート生成API
+app.post('/api/generate-routes-unautomated', express.json(), async (req, res) => {
+  console.log('📋 未自動化ケース用ルート生成リクエストを受信');
+  
+  try {
+    const { unautomatedCount } = req.body;
+    console.log(`🎯 未自動化ケース数: ${unautomatedCount}件`);
+    
+    // 最新の自然言語テストケースファイルを探す
+    const resultsDir = path.join(__dirname, 'test-results');
+    const naturalLanguageFiles = fs.readdirSync(resultsDir)
+      .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    
+    if (naturalLanguageFiles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'テストケースファイルが見つかりません'
+      });
+    }
+    
+    const latestTestCaseFile = naturalLanguageFiles[0];
+    console.log(`📊 使用するテストケースファイル: ${latestTestCaseFile}`);
+    
+    // generateRoutesForUnautomated.jsを実行
+    const routesForUnautomatedPath = path.join(__dirname, 'tests', 'generateRoutesForUnautomated.js');
+    
+    console.log(`⚡ 未自動化ケース用ルート生成を実行: ${routesForUnautomatedPath}`);
+    
+    const child = spawn('node', [routesForUnautomatedPath], {
+      stdio: 'pipe',
+      env: { ...process.env, NODE_ENV: 'production' }
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log(`[ルート生成] ${data.toString().trim()}`);
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.error(`[ルート生成エラー] ${data.toString().trim()}`);
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ 未自動化ケース用ルート生成完了');
+        
+        // 生成されたルート数を抽出
+        const generatedCountMatch = stdout.match(/(\d+)件のルートを生成/);
+        const generatedCount = generatedCountMatch ? parseInt(generatedCountMatch[1]) : unautomatedCount;
+        
+        res.json({
+          success: true,
+          message: '未自動化ケース用ルート生成完了',
+          generatedCount: generatedCount,
+          stdout: stdout.substring(0, 1000) // 最初の1000文字のみ
+        });
+      } else {
+        console.error(`❌ 未自動化ケース用ルート生成失敗 (exit code: ${code})`);
+        res.status(500).json({
+          success: false,
+          error: 'ルート生成プロセスが失敗しました',
+          stderr: stderr.substring(0, 1000),
+          stdout: stdout.substring(0, 1000)
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 未自動化ケース用ルート生成エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// レポート更新API
+app.post('/api/refresh-report', express.json(), async (req, res) => {
+  console.log('📋 レポート更新リクエストを受信');
+  
+  try {
+    // generateTestReport.jsを実行
+    const reportPath = path.join(__dirname, 'tests', 'generateTestReport.js');
+    const command = `node ${reportPath}`;
+    
+    console.log(`🔄 レポート更新を実行: ${command}`);
+    
+    const child = spawn('node', [reportPath], {
+      stdio: 'pipe',
+      env: { ...process.env, NODE_ENV: 'production' }
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    let htmlReportUrl = null;
+    
+    child.stdout.on('data', (data) => {
+      const output = data.toString();
+      stdout += output;
+      console.log(`[レポート更新] ${output.trim()}`);
+      
+      // HTMLレポートURLを抽出
+      const htmlMatch = output.match(/HTMLレポート: (TestCoverage_.*?\.html)/);
+      if (htmlMatch) {
+        const htmlReportFile = htmlMatch[1];
+        htmlReportUrl = `http://localhost:3000/${htmlReportFile}`;
+        console.log(`📊 HTMLレポートURL抽出: ${htmlReportUrl}`);
+      }
+    });
+    
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.error(`[レポート更新エラー] ${data.toString().trim()}`);
+    });
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ レポート更新完了');
+        res.json({
+          success: true,
+          message: 'レポート更新完了',
+          htmlReportUrl: htmlReportUrl,
+          stdout: stdout.substring(0, 1000)
+        });
+      } else {
+        console.error(`❌ レポート更新失敗 (exit code: ${code})`);
+        res.status(500).json({
+          success: false,
+          error: 'レポート更新プロセスが失敗しました',
+          stderr: stderr.substring(0, 1000),
+          stdout: stdout.substring(0, 1000)
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ レポート更新エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 

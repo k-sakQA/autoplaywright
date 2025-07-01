@@ -58,6 +58,33 @@ function getLatestTestResultCSV() {
 }
 
 /**
+ * 最新のテストカバレッジCSVファイルを取得
+ * @returns {string|null} - カバレッジCSVファイルのパス
+ */
+function getLatestTestCoverageCSV() {
+  const testResultsDir = path.join(__dirname, '../test-results');
+  
+  if (!fs.existsSync(testResultsDir)) {
+    return null;
+  }
+
+  const csvFiles = fs.readdirSync(testResultsDir)
+    .filter(file => file.startsWith('TestCoverage_') && file.endsWith('.csv'))
+    .map(file => ({
+      name: file,
+      path: path.join(testResultsDir, file),
+      stats: fs.statSync(path.join(testResultsDir, file))
+    }))
+    .sort((a, b) => b.stats.mtime - a.stats.mtime);
+
+  if (csvFiles.length === 0) {
+    return null;
+  }
+
+  return csvFiles[0].path;
+}
+
+/**
  * テスト結果を構造化データに変換
  * @param {string} csvFilePath - CSVファイルのパス
  * @returns {Object} - 構造化されたテスト結果
@@ -185,6 +212,23 @@ async function main() {
           options.driveFolder
         );
       }
+      
+      // カバレッジシートを追加
+      const coverageCsvPath = getLatestTestCoverageCSV();
+      if (coverageCsvPath) {
+        console.log('📊 テストカバレッジシートを追加中...');
+        try {
+          const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+          const coverageSheetName = `TestCoverage_${timestamp}`;
+          await uploader.createSheet(spreadsheetId, coverageSheetName);
+          await uploader.uploadCSV(coverageCsvPath, spreadsheetId, coverageSheetName);
+          console.log(`✅ カバレッジシート追加完了: ${coverageSheetName}`);
+        } catch (error) {
+          console.log(`⚠️ カバレッジシート追加中にエラーが発生: ${error.message}`);
+        }
+      } else {
+        console.log('📊 カバレッジファイルが見つからないため、カバレッジシートはスキップします');
+      }
     } else {
       // 指定されたスプレッドシートIDを使用
       console.log('📊 指定されたスプレッドシートを使用中...');
@@ -201,6 +245,40 @@ async function main() {
       } else {
         await uploader.uploadTestResults(testResults, spreadsheetId, sheetName);
       }
+      
+      // カバレッジシートを追加
+      const coverageCsvPath = getLatestTestCoverageCSV();
+      if (coverageCsvPath) {
+        console.log('📊 テストカバレッジシートを追加中...');
+        try {
+          const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+          const coverageSheetName = `TestCoverage_${timestamp}`;
+          await uploader.createSheet(spreadsheetId, coverageSheetName);
+          await uploader.uploadCSV(coverageCsvPath, spreadsheetId, coverageSheetName);
+          console.log(`✅ カバレッジシート追加完了: ${coverageSheetName}`);
+        } catch (error) {
+          console.log(`⚠️ カバレッジシート追加中にエラーが発生: ${error.message}`);
+        }
+      } else {
+        console.log('📊 カバレッジファイルが見つからないため、カバレッジシートはスキップします');
+      }
+    }
+
+    // カバレッジシートを追加
+    const coverageCsvPath = getLatestTestCoverageCSV();
+    if (coverageCsvPath && spreadsheetId) {
+      console.log('📊 テストカバレッジシートを追加中...');
+      try {
+        const timestamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+        const coverageSheetName = `TestCoverage_${timestamp}`;
+        await uploader.createSheet(spreadsheetId, coverageSheetName);
+        await uploader.uploadCSV(coverageCsvPath, spreadsheetId, coverageSheetName);
+        console.log(`✅ カバレッジシート追加完了: ${coverageSheetName}`);
+      } catch (error) {
+        console.log(`⚠️ カバレッジシート追加中にエラーが発生: ${error.message}`);
+      }
+    } else {
+      console.log('📊 カバレッジファイルが見つからないため、カバレッジシートはスキップします');
     }
 
     if (options.verbose) {

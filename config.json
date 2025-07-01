@@ -13,22 +13,22 @@
     "shareEmail": "sakata1977@gmail.com",
     "driveFolder": "1Z_hcriF8IMbj_uLVr7yGiWFD4dGGj-3g",
     "spreadsheetTitle": "AutoPlaywright テスト結果",
-    "autoUpload": true
+    "autoUpload": false
   },
   "userStory": {
-    "currentId": 2,
-    "content": "予約内容の確認画面での情報の統合表示",
-    "timestamp": "2025-06-30T06:25:21.644Z",
+    "currentId": 1,
+    "content": "ストーリー：宿泊予約の入力・選択ができる\nルート：宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。",
+    "timestamp": "2025-07-01T08:14:09.565Z",
     "history": [
       {
         "id": 1,
         "content": "ストーリー：宿泊予約の入力・選択ができる\r\nルート：宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する。\r\n特に「確認のご連絡」をタップした後のプルダウン選択では、選択した内容によってその後の必須入力が変わるので注意すること。\r\n（例）\r\n    {\r\n      \"label\": \"確認のご連絡方法を選択\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\\\"contact\\\"]\",\r\n      \"value\": \"email\"\r\n    },\r\n    {\r\n      \"label\": \"メールアドレスを入力\",\r\n      \"action\": \"fill\",\r\n      \"target\": \"[name=\"email\"]\",\r\n      \"value\": \"hogefuga@example.com\"\r\n      },",
-        "timestamp": "2025-06-30T05:27:30.509Z"
+        "timestamp": "2025-07-01T04:16:54.668Z"
       },
       {
         "id": 2,
-        "content": "予約内容の確認画面での情報の統合表示",
-        "timestamp": "2025-06-30T06:25:21.644Z"
+        "content": "表示確認: 必須項目が未入力の場合、エラーメッセージが表示されることを確認する。例えば、宿泊日、宿泊数、人数、氏名、確認のご連絡が未入力の場合にエラーメッセージが表示されること。",
+        "timestamp": "2025-07-01T08:14:09.565Z"
       }
     ]
   }

@@ -35,4 +35,4 @@ Thumbs.db
 specs/*.pdf
 
 # Google Sheets API credentials (private)
-credentials.json 
+credentials.json *.json

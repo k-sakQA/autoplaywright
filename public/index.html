@@ -882,8 +882,8 @@
                         <small>具体的なテスト手順や確認したい内容を記述してください</small>
                         <div id="userStoryId" class="user-story-id" style="display: none;">
                             🔗 <strong>トレーサビリティID:</strong> <span id="currentUserStoryId">-</span>
-                            <button type="button" class="btn" onclick="resetTraceabilityId()">
-                                ID No,をリセットする
+                            <button type="button" class="btn" onclick="resetTestHistory()">
+                                過去のテスト情報をリセットする
                             </button>
                         </div>
                     </div>
@@ -1040,44 +1040,7 @@
                     </button>
                 </div>
             </div>
-            
-            <!-- Google Sheets設定セクション -->
-            <div class="section">
-                <h2>📈 Google Sheets設定</h2>
-                
-                <div class="form-group">
-                    <label for="shareEmail">共有メールアドレス:</label>
-                    <input type="email" id="shareEmail" placeholder="your-email@gmail.com" value="sakata1977@gmail.com">
-                    <small>作成されたスプレッドシートを共有するGoogleアカウント</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="driveFolder">保存フォルダID (オプション):</label>
-                    <input type="text" id="driveFolder" placeholder="1yx5b2egdjrtB4LTIruSatikTcTW7KOSD">
-                    <small>Google DriveのフォルダIDを指定すると、そのフォルダに保存されます</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="spreadsheetTitle">スプレッドシートタイトル:</label>
-                    <input type="text" id="spreadsheetTitle" value="AutoPlaywright テスト結果" placeholder="スプレッドシート名">
-                </div>
-                
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="autoUpload" checked>
-                        レポート生成後に自動でGoogle Sheetsにアップロード
-                    </label>
-                </div>
-                
-                <div class="ai-config-actions">
-                    <button type="button" class="btn-info" onclick="testGoogleSheetsConnection()">
-                        🔗 接続テスト
-                    </button>
-                    <button type="button" class="btn-primary" onclick="saveGoogleSheetsConfig()">
-                        💾 設定を保存
-                    </button>
-                </div>
-            </div>
+
             
                 <!-- 手動ガイドセクション -->
                 <div class="section">
@@ -1587,6 +1550,16 @@
                             console.log('🛠️ [Debug] Full output for parsing:', result.output);
                             parseTestResults(result.output);
                             showStatus(`テストを実行しました！`, 'success');
+                        } else if (command === 'generateTestReport') {
+                            // HTMLレポートの自動開く処理
+                            if (result.htmlReportUrl) {
+                                showStatus(`レポート生成完了！HTMLレポートを開いています...`, 'success');
+                                setTimeout(() => {
+                                    window.open(result.htmlReportUrl, '_blank');
+                                }, 500);
+                            } else {
+                                showStatus(`${getCommandName(command)} 完了`, 'success');
+                            }
                         } else if (command === 'analyzeFailures') {
                             // 自動改善タブでもテスト結果を解析
                             parseTestResultsAI(result.output);
@@ -1690,14 +1663,18 @@
             }
         }
 
-        // トレーサビリティIDリセット機能
-        async function resetTraceabilityId() {
-            if (!confirm('トレーサビリティIDをリセットしますか？\n\n現在のID番号がリセットされ、新しいテスト実行時に新しいIDが採番されます。')) {
+        // テスト履歴リセット機能（累積カバレッジリセット）
+        async function resetTestHistory() {
+            if (!confirm('過去のテスト情報をリセットしますか？\n\n✨ 以下の情報がリセットされます：\n' +
+                       '• トレーサビリティID (新しいテストサイクル開始)\n' +
+                       '• 累積カバレッジ情報\n' +
+                       '• 過去のテスト結果履歴\n\n' +
+                       '次回のテスト実行時に新しいテストサイクルとして開始されます。')) {
                 return;
             }
             
             try {
-                const response = await fetch('/api/config/user-story/reset', {
+                const response = await fetch('/api/reset-test-history', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1712,15 +1689,19 @@
                     document.getElementById('userStoryId').style.display = 'none';
                     
                     // 成功メッセージを表示
-                    alert('✅ トレーサビリティIDをリセットしました。\n次回のテスト実行時に新しいIDが採番されます。');
-                    console.log('🔄 トレーサビリティIDをリセットしました');
+                    alert(`✅ テスト履歴をリセットしました。\n\n📊 削除された項目：\n` +
+                          `• テスト結果ファイル: ${result.deletedResults || 0}件\n` +
+                          `• ルートファイル: ${result.deletedRoutes || 0}件\n` +
+                          `• レポートファイル: ${result.deletedReports || 0}件\n\n` +
+                          '次回のテスト実行時に新しいテストサイクルとして開始されます。');
+                    console.log('🔄 テスト履歴をリセットしました:', result);
                 } else {
                     alert(`❌ リセットに失敗しました: ${result.error}`);
                     console.error('リセットエラー:', result.error);
                 }
             } catch (error) {
                 alert(`❌ 通信エラーが発生しました: ${error.message}`);
-                console.error('トレーサビリティIDリセット通信エラー:', error);
+                console.error('テスト履歴リセット通信エラー:', error);
             }
         }
 
@@ -1795,9 +1776,15 @@
                 
                 // 5. レポート生成
                 updateBulkProgress('step-report', 'active', '📊 レポートを生成中...');
-                await executeCommand('generateTestReport');
+                const reportResult = await executeCommandWithResult('generateTestReport');
                 await delay(1000);
                 updateBulkProgress('step-report', 'completed', '✅ レポート生成完了');
+                
+                // HTMLレポートがあれば保存
+                let htmlReportUrl = null;
+                if (reportResult && reportResult.htmlReportUrl) {
+                    htmlReportUrl = reportResult.htmlReportUrl;
+                }
                 
                 // 6. 失敗分析（失敗がある場合）
                 if (hasFailures) {
@@ -1838,11 +1825,22 @@
                 updateBulkCurrentAction('🎉 すべてのワークフローが完了しました！');
                 
                 setTimeout(() => {
-                    alert('🎉 一括実行が完了しました！\n\n' +
-                        '各タブで詳細な結果を確認してください：\n' +
-                        '• 🧪 テスト実行: 実行結果とサマリー\n' +
-                        '• 🤖 自動改善・学習機能: 失敗分析と修正結果\n' +
-                        '• 📖 新しいストーリー: 発見された新ストーリー');
+                    // HTMLレポートがあれば自動で開く
+                    if (htmlReportUrl) {
+                        if (confirm('🎉 一括実行が完了しました！\n\nHTMLテストレポートを自動で開きますか？\n\n' +
+                                    '各タブで詳細な結果も確認できます：\n' +
+                                    '• 🧪 テスト実行: 実行結果とサマリー\n' +
+                                    '• 🤖 自動改善・学習機能: 失敗分析と修正結果\n' +
+                                    '• 📖 新しいストーリー: 発見された新ストーリー')) {
+                            window.open(htmlReportUrl, '_blank');
+                        }
+                    } else {
+                        alert('🎉 一括実行が完了しました！\n\n' +
+                            '各タブで詳細な結果を確認してください：\n' +
+                            '• 🧪 テスト実行: 実行結果とサマリー\n' +
+                            '• 🤖 自動改善・学習機能: 失敗分析と修正結果\n' +
+                            '• 📖 新しいストーリー: 発見された新ストーリー');
+                    }
                 }, 1000);
                 
             } catch (error) {
@@ -1852,6 +1850,48 @@
             }
         }
         
+        // 結果を返すコマンド実行関数（一括実行用）
+        async function executeCommandWithResult(command) {
+            const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            const csvFile = document.getElementById('csvFile').files[0];
+            
+            try {
+                const formData = new FormData();
+                formData.append('command', command);
+                if (url) formData.append('url', url);
+                if (testGoal) formData.append('goal', testGoal);
+                if (pdfFile) formData.append('pdf', pdfFile);
+                if (csvFile) formData.append('csv', csvFile);
+                
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                // ログに結果を出力（通常のexecuteCommandと同じ処理）
+                if (result.success) {
+                    addLog(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    if (result.output) {
+                        addLog(result.output);
+                    }
+                } else {
+                    addLog(`❌ エラー: ${result.error}`);
+                    if (result.output) {
+                        addLog(result.output);
+                    }
+                }
+                
+                return result;
+            } catch (error) {
+                addLog(`❌ 通信エラー: ${error.message}`);
+                return null;
+            }
+        }
+
         // 一括実行用のユーティリティ関数
         function showBulkStatus() {
             document.getElementById('bulkStatus').style.display = 'block';
@@ -2515,93 +2555,7 @@
             showStatus('AI設定をデフォルトに戻しました', 'info');
         }
 
-        // Google Sheets設定関数
-        async function saveGoogleSheetsConfig() {
-            const sheetsConfig = {
-                shareEmail: document.getElementById('shareEmail').value,
-                driveFolder: document.getElementById('driveFolder').value,
-                spreadsheetTitle: document.getElementById('spreadsheetTitle').value,
-                autoUpload: document.getElementById('autoUpload').checked
-            };
-            
-            try {
-                const response = await fetch('/api/config/sheets', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(sheetsConfig)
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    addLog('💾 Google Sheets設定を保存しました');
-                    showStatus('Google Sheets設定を保存しました', 'success');
-                } else {
-                    addLog(`❌ Google Sheets設定保存エラー: ${result.error}`);
-                    showStatus('Google Sheets設定の保存に失敗しました', 'error');
-                }
-            } catch (error) {
-                addLog(`❌ Google Sheets設定保存エラー: ${error.message}`);
-                showStatus('Google Sheets設定の保存に失敗しました', 'error');
-            }
-        }
-        
-        async function testGoogleSheetsConnection() {
-            const shareEmail = document.getElementById('shareEmail').value;
-            const driveFolder = document.getElementById('driveFolder').value;
-            
-            if (!shareEmail) {
-                showStatus('共有メールアドレスを入力してください', 'error');
-                return;
-            }
-            
-            try {
-                addLog('🔗 Google Sheets接続テスト中...');
-                showStatus('Google Sheets接続テスト中...', 'info');
-                
-                const response = await fetch('/api/sheets/test', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        shareEmail: shareEmail,
-                        driveFolder: driveFolder
-                    })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    addLog(`✅ Google Sheets接続テスト成功`);
-                    addLog(`📊 テストスプレッドシート: ${result.spreadsheetUrl}`);
-                    showStatus('Google Sheets接続テスト成功！', 'success');
-                    
-                    // ポップアップでURLを表示
-                    const openSheet = confirm(`Google Sheets接続テスト成功！\n\nテストスプレッドシートを開きますか？\n${result.spreadsheetUrl}`);
-                    if (openSheet) {
-                        window.open(result.spreadsheetUrl, '_blank');
-                    }
-                } else {
-                    addLog(`❌ Google Sheets接続テストエラー: ${result.error}`);
-                    showStatus('Google Sheets接続テストに失敗しました', 'error');
-                }
-            } catch (error) {
-                addLog(`❌ Google Sheets接続テストエラー: ${error.message}`);
-                showStatus('Google Sheets接続テストに失敗しました', 'error');
-            }
-        }
-        
-        function loadGoogleSheetsConfig(config) {
-            if (config.googleSheets) {
-                document.getElementById('shareEmail').value = config.googleSheets.shareEmail || 'sakata1977@gmail.com';
-                document.getElementById('driveFolder').value = config.googleSheets.driveFolder || '';
-                document.getElementById('spreadsheetTitle').value = config.googleSheets.spreadsheetTitle || 'AutoPlaywright テスト結果';
-                document.getElementById('autoUpload').checked = config.googleSheets.autoUpload !== false;
-            }
-        }
+
 
         // 手動ガイドポップアップ表示
         function showManualGuide() {
@@ -2846,22 +2800,7 @@
                     addLogAI(result.output);
                     showStatusAI('修正ルート実行完了！', 'success');
                     
-                    // Google Sheetsアップロードのチェック
-                    if (result.output.includes('修正ルート結果をGoogle Sheetsに追加完了')) {
-                        const urlMatch = result.output.match(/🔗 スプレッドシート: (https:\/\/[^\s]+)/);
-                        if (urlMatch) {
-                            const spreadsheetUrl = urlMatch[1];
-                            addLogAI(`📊 Google Sheetsに「再）実行結果」列を追加しました`);
-                            
-                            // スプレッドシートを開くかどうか確認
-                            setTimeout(() => {
-                                const openSheet = confirm('修正ルート実行結果をGoogle Sheetsに追加しました！\n\nスプレッドシートを開いて結果を確認しますか？');
-                                if (openSheet) {
-                                    window.open(spreadsheetUrl, '_blank');
-                                }
-                            }, 1000);
-                        }
-                    }
+
                     
                     // モーダルを閉じる
                     closeModal();
@@ -2913,9 +2852,7 @@
                     loadAIConfig(config);
                     addLog(`🤖 AI設定を読み込みました`);
                     
-                    // Google Sheets設定を読み込み
-                    loadGoogleSheetsConfig(config);
-                    addLog(`📈 Google Sheets設定を読み込みました`);
+
                     
                     // ユーザーストーリーID表示（トレーサビリティ確保）
                     showUserStoryId();

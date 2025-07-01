@@ -253,9 +253,9 @@ class NaturalLanguageTestCaseGenerator {
     };
     
     const categoryName = categoryNames[category] || '機能確認';
-    const shortViewpoint = viewpoint.substring(0, 30) + (viewpoint.length > 30 ? '...' : '');
+    // 省略処理を削除：完全なviewpointを使用
     
-    return `${categoryName}: ${shortViewpoint}`;
+    return `${categoryName}: ${viewpoint}`;
   }
 
   /**
