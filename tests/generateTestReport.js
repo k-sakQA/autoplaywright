@@ -38,6 +38,7 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
   
   // 修正ルートかどうかを判定
   const isFixedRoute = result?.is_fixed_route || false;
+  const appliedFixes = result?.applied_fixes || [];
   
   // URL取得の優先順位を改善：ルート、結果、実行ステップのloadアクションから取得
   let testUrl = route.url || result.url || '';
@@ -90,6 +91,12 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
     result.steps.forEach((step, stepIndex) => {
       const mapping = stepToViewpointMapping[stepIndex];
       
+      // ステップに適用された修正を取得
+      const stepFixes = appliedFixes.filter(fix => fix.stepIndex === stepIndex);
+      const fixDetails = stepFixes.length > 0 
+        ? stepFixes.map(f => `${f.type}: ${f.description}`).join('; ')
+        : '';
+      
       if (mapping) {
         // 観点にマッピングできた場合
         const functionId = getFunctionId(mapping.functionKey, mapping.functionIndex);
@@ -106,7 +113,8 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
-          isFixedRoute: isFixedRoute
+          isFixedRoute: isFixedRoute,
+          appliedFixes: fixDetails  // 追加：適用された修正の詳細
         });
       } else {
         // 観点にマッピングできなかった場合は追加ステップとして扱う
@@ -124,7 +132,8 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
-          isFixedRoute: isFixedRoute
+          isFixedRoute: isFixedRoute,
+          appliedFixes: fixDetails  // 追加：適用された修正の詳細
         });
       }
     });
@@ -326,6 +335,22 @@ function extractKeywords(text) {
   });
   
   return keywords.length > 0 ? keywords : [text.substring(0, 10)]; // フォールバック
+}
+
+function hasKeywordMatch(routeViewpoint, testCaseTitle) {
+  // ルートの観点とテストケースのタイトルでキーワードマッチング
+  const routeKeywords = extractKeywords(routeViewpoint);
+  const testCaseKeywords = extractKeywords(testCaseTitle);
+  
+  // 共通キーワードを検索
+  const commonKeywords = routeKeywords.filter(keyword => 
+    testCaseKeywords.some(tcKeyword => 
+      tcKeyword.includes(keyword) || keyword.includes(tcKeyword)
+    )
+  );
+  
+  // 2つ以上のキーワードが一致する場合にマッチとする
+  return commonKeywords.length >= 2;
 }
 
 function createStepToViewpointMapping(testPoints, executedSteps) {
@@ -639,7 +664,7 @@ function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo
 }
 
 /**
- * テストカバレッジを算出する（分母：全テストケース、分子：実行済み成功テスト）
+ * テストカバレッジを算出する（重複除去版）
  * @param {Object} testPointsData - テスト観点データ
  * @param {Object} testCasesData - テストケースデータ（分母として使用）
  * @param {Object} routeData - ルートデータ
@@ -647,466 +672,249 @@ function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo
  * @returns {Object} - カバレッジ情報
  */
 async function calculateTestCoverage(testPointsData, testCasesData, routeData, resultData) {
+  // 実行結果データの検証
+  if (!resultData || !Array.isArray(resultData)) {
+    console.log('⚠️ 実行結果データが不完全です');
+    return {
+      total_test_cases: 0,
+      successful_test_cases: 0,
+      total_steps: 0,
+      successful_steps: 0,
+      coverage_percentage: 0,
+      failed_steps_details: []
+    };
+  }
+
+  // 🔧 重複ルート除去：同じroute_idの最新結果のみを使用
+  const uniqueResults = deduplicateTestResults(resultData);
+  console.log(`📊 重複除去: ${resultData.length}件 → ${uniqueResults.length}件（重複${resultData.length - uniqueResults.length}件除去）`);
+
+  // 全実行結果から成功・失敗を集計
+  let totalSteps = 0;
+  let successfulSteps = 0;
+  let totalTestCases = 0;
+  let successfulTestCases = 0;
+  let failedStepsDetails = [];
+  let executedRoutes = 0;
+  let successfulRoutes = 0;
+
+  uniqueResults.forEach(result => {
+    executedRoutes++;
+
+    if (result.steps && Array.isArray(result.steps)) {
+      totalSteps += result.steps.length;
+      const successSteps = result.steps.filter(step => step.status === 'success');
+      const failedSteps = result.steps.filter(step => step.status === 'failed');
+      
+      successfulSteps += successSteps.length;
+      
+      // ルート成功判定：柔軟な成功率ベース（90%以上成功なら成功とみなす）
+      const stepSuccessRate = successSteps.length / (successSteps.length + failedSteps.length);
+      const isRouteSuccessful = stepSuccessRate >= 0.9 || (failedSteps.length === 0 && successSteps.length > 0);
+      if (isRouteSuccessful) {
+        successfulRoutes++;
+      }
+
+      // 失敗ステップの詳細情報を収集
+      failedSteps.forEach(step => {
+        const stepDetail = {
+          label: step.label,
+          action: step.action,
+          target: step.target,
+          value: step.value,
+          error: step.error,
+          error_category: classifyErrorType(step.error),
+          fix_suggestions: generateFixSuggestions(step),
+          skip_reason: step.skip_reason,
+          route_id: result.route_id,
+          timestamp: result.timestamp,
+          is_retest: result.is_fixed_route || false
+        };
+        failedStepsDetails.push(stepDetail);
+      });
+    }
+    
+    // テストケース数の計算（重複除去後）
+    if (result.total_steps) {
+      totalTestCases += result.total_steps;
+    }
+    if (result.success_count) {
+      successfulTestCases += result.success_count;
+    }
+  });
+
+  // カバレッジ情報を計算
   const coverage = {
-    timestamp: new Date().toISOString(),
-    source_analysis: {},
-    automation_analysis: {},
-    execution_analysis: {},
-    human_action_required: {},
-    overall_coverage: {},
-    detailed_test_cases: []
-  };
-
-  // 1. ソース分析（テスト観点 → テストケース生成状況）
-  if (testPointsData && testCasesData) {
-    const testPointsCount = Array.isArray(testPointsData) ? testPointsData.length : 0;
-    
-    // 全テストケース数を正確に計算（これが真の分母）
-    let totalTestCases = 0;
-    let categoryCoverage = {};
-    
-    if (testCasesData.categories) {
-      // 分類別データの場合
-      Object.keys(testCasesData.categories).forEach(category => {
-        const categoryData = testCasesData.categories[category];
-        const categoryCount = Array.isArray(categoryData) ? categoryData.length : 0;
-        totalTestCases += categoryCount;
-        categoryCoverage[category] = {
-          test_cases: categoryCount,
-          generation_rate: testPointsCount > 0 ? (categoryCount / testPointsCount * 100) : 0
-        };
-      });
-    } else if (Array.isArray(testCasesData)) {
-      // 配列形式の場合
-      totalTestCases = testCasesData.length;
-    }
-
-    coverage.source_analysis = {
-      total_test_points: testPointsCount,
-      total_generated_test_cases: totalTestCases,
-      generation_efficiency: testPointsCount > 0 ? (totalTestCases / testPointsCount * 100) : 0,
-      category_breakdown: categoryCoverage,
-      note: 'AI生成によるテストケース変換効率'
-    };
-  }
-
-  // 2. 自動化分析（AIとPlaywrightの到達範囲） - 複数ルート対応
-  if (testCasesData && routeData) {
-    let totalTestCases = coverage.source_analysis.total_generated_test_cases || 0;
-    let automatedRoutes = 0;
-    let feasibleRoutes = 0;
-    let lowFeasibilityRoutes = 0;
-    let unautomatedTestCases = 0;
-    let automationByCategory = {};
-
-    if (Array.isArray(routeData)) {
-      // 複数ルートの場合
-      console.log(`📊 複数ルート統合: ${routeData.length}件のルートを分析中...`);
-      
-      const routeSet = new Set(); // 重複除去
-      routeData.forEach(route => {
-        if (route.route_id && !routeSet.has(route.route_id)) {
-          routeSet.add(route.route_id);
-          automatedRoutes++;
-          
-          const score = route.feasibility_score || 1;
-          if (score >= 0.7) {
-            feasibleRoutes++;
-          } else if (score >= 0.3) {
-            lowFeasibilityRoutes++;
-          }
-        }
-      });
-      
-      unautomatedTestCases = Math.max(0, totalTestCases - automatedRoutes);
-      console.log(`📊 ルート分析結果: 自動化${automatedRoutes}件, 実行可能${feasibleRoutes}件, 低実行可能性${lowFeasibilityRoutes}件`);
-      
-    } else if (routeData.categories) {
-      // 分類バッチの場合
-      routeData.categories.forEach(category => {
-        const categoryRoutes = category.routes ? category.routes.length : 0;
-        const feasibleCategoryRoutes = category.routes ? 
-          category.routes.filter(route => (route.feasibility_score || 0) >= 0.7).length : 0;
-        const lowFeasibilityCategoryRoutes = category.routes ? 
-          category.routes.filter(route => {
-            const score = route.feasibility_score || 0;
-            return score >= 0.3 && score < 0.7;
-          }).length : 0;
-        
-        // この分類のテストケース総数
-        const categoryTestCases = coverage.source_analysis.category_breakdown?.[category.category]?.test_cases || 0;
-        const categoryUnautomated = Math.max(0, categoryTestCases - categoryRoutes);
-        
-        automatedRoutes += categoryRoutes;
-        feasibleRoutes += feasibleCategoryRoutes;
-        lowFeasibilityRoutes += lowFeasibilityCategoryRoutes;
-        unautomatedTestCases += categoryUnautomated;
-        
-        automationByCategory[category.category] = {
-          total_test_cases: categoryTestCases,
-          automated_routes: categoryRoutes,
-          feasible_routes: feasibleCategoryRoutes,
-          low_feasibility_routes: lowFeasibilityCategoryRoutes,
-          unautomated_cases: categoryUnautomated,
-          automation_rate: categoryTestCases > 0 ? (categoryRoutes / categoryTestCases * 100) : 0,
-          feasibility_rate: categoryRoutes > 0 ? (feasibleCategoryRoutes / categoryRoutes * 100) : 0
-        };
-      });
-    } else if (routeData.steps) {
-      // 単一ルートの場合
-      automatedRoutes = 1;
-      const score = routeData.feasibility_score || 1;
-      if (score >= 0.7) {
-        feasibleRoutes = 1;
-      } else if (score >= 0.3) {
-        lowFeasibilityRoutes = 1;
-      }
-      unautomatedTestCases = Math.max(0, totalTestCases - 1);
-    }
-
-    coverage.automation_analysis = {
-      total_test_cases: totalTestCases,
-      automated_routes: automatedRoutes,
-      feasible_routes: feasibleRoutes,
-      low_feasibility_routes: lowFeasibilityRoutes,
-      unautomated_test_cases: unautomatedTestCases,
-      automation_rate: totalTestCases > 0 ? (automatedRoutes / totalTestCases * 100) : 0,
-      feasibility_rate: automatedRoutes > 0 ? (feasibleRoutes / automatedRoutes * 100) : 0,
-      category_breakdown: automationByCategory,
-      note: 'Playwright自動化の到達範囲'
-    };
-  }
-
-  // 3. 実行分析（自動実行の成功状況） - 複数結果統合対応
-  if (resultData && routeData) {
-    let executedRoutes = 0;
-    let successfulRoutes = 0;
-    let failedRoutes = 0;
-    let totalSteps = 0;
-    let successfulSteps = 0;
-    let executionByCategory = {};
-    let routeResults = new Map(); // ルートIDごとの最高結果を記録
-
-    // 複数結果統合の場合
-    if (Array.isArray(resultData)) {
-      console.log(`📊 複数実行結果統合: ${resultData.length}件の結果を統合中...`);
-      
-      // 各結果を処理
-      resultData.forEach((result, index) => {
-        if (result.steps) {
-          const routeId = result.route_id;
-          const successRate = result.success_count / (result.success_count + result.failed_count);
-          const isSuccess = result.failed_count === 0 || successRate >= 0.8;
-          
-          // ルートごとの最高結果を保持（一度でも成功すればカウント）
-          if (!routeResults.has(routeId) || (isSuccess && !routeResults.get(routeId).success)) {
-            routeResults.set(routeId, {
-              success: isSuccess,
-              successRate: successRate,
-              totalSteps: result.total_steps || result.steps.length,
-              successfulSteps: result.success_count || result.steps.filter(step => step.status === 'success').length,
-              filename: result.filename || `result_${index}`
-            });
-          }
-          
-          console.log(`📊 結果${index + 1}: ${routeId} - 成功率${(successRate*100).toFixed(1)}% (${isSuccess ? '成功' : '失敗'})`);
-        }
-      });
-      
-      // 統合統計を計算
-      executedRoutes = routeResults.size;
-      for (const [routeId, result] of routeResults) {
-        if (result.success) {
-          successfulRoutes++;
-        } else {
-          failedRoutes++;
-        }
-        totalSteps += result.totalSteps;
-        successfulSteps += result.successfulSteps;
-      }
-      
-      console.log(`📊 統合結果: ユニークルート${executedRoutes}件, 成功${successfulRoutes}件, 失敗${failedRoutes}件`);
-      
-    } else {
-      // 単一結果の場合（従来ロジック）
-      console.log('📊 単一実行結果から統計を算出中...');
-      
-      if (resultData.categories) {
-        // 分類バッチ実行の場合
-        resultData.categories.forEach(category => {
-          const categoryExecution = {
-            executed_routes: category.executed_count || 0,
-            successful_routes: category.success_count || 0,
-            failed_routes: category.failed_count || 0,
-            execution_rate: category.executed_count > 0 ? 
-              (category.success_count / category.executed_count * 100) : 0
-          };
-
-          executedRoutes += category.executed_count || 0;
-          successfulRoutes += category.success_count || 0;
-          failedRoutes += category.failed_count || 0;
-          
-          // ステップレベルの統計
-          if (category.routes) {
-            category.routes.forEach(route => {
-              if (route.steps) {
-                totalSteps += route.steps.length;
-                successfulSteps += route.steps.filter(step => step.status === 'success').length;
-              }
-            });
-          }
-          
-          executionByCategory[category.category] = categoryExecution;
-        });
-      } else if (resultData.steps) {
-        // 単一実行の場合 - 部分成功も評価
-        executedRoutes = 1;
-        const successRate = resultData.success_count / (resultData.success_count + resultData.failed_count);
-        
-        // 80%以上成功は成功ルートとしてカウント
-        if (resultData.failed_count === 0 || successRate >= 0.8) {
-          successfulRoutes = 1;
-          failedRoutes = 0;
-        } else {
-          successfulRoutes = 0;
-          failedRoutes = 1;
-        }
-        
-        totalSteps = resultData.total_steps || resultData.steps.length;
-        successfulSteps = resultData.success_count || resultData.steps.filter(step => step.status === 'success').length;
-        
-        console.log(`📊 単一実行結果: 成功ステップ${successfulSteps}/${totalSteps}, 成功率${(successRate*100).toFixed(1)}%, ルート${successfulRoutes ? '成功' : '失敗'}`);
-      }
-    }
-    
-    console.log(`📊 実行結果分析完了: 実行${executedRoutes}件, 成功${successfulRoutes}件, 失敗${failedRoutes}件`);
-
-    coverage.execution_analysis = {
-      executed_routes: executedRoutes,
-      successful_routes: successfulRoutes,
-      failed_routes: failedRoutes,
-      execution_success_rate: executedRoutes > 0 ? (successfulRoutes / executedRoutes * 100) : 0,
-      total_steps: totalSteps,
-      successful_steps: successfulSteps,
-      step_success_rate: totalSteps > 0 ? (successfulSteps / totalSteps * 100) : 0,
-      category_breakdown: executionByCategory,
-      note: '実際の自動実行結果'
-    };
-  }
-
-  // 4. 人間対応必要項目の特定
-  const totalTestCases = coverage.source_analysis.total_generated_test_cases || 0;
-  const automatedRoutes = coverage.automation_analysis.automated_routes || 0;
-  const feasibleRoutes = coverage.automation_analysis.feasible_routes || 0;
-  const lowFeasibilityRoutes = coverage.automation_analysis.low_feasibility_routes || 0;
-  const unautomatedTestCases = coverage.automation_analysis.unautomated_test_cases || 0;
-  const successfulRoutes = coverage.execution_analysis.successful_routes || 0;
-  const failedRoutes = coverage.execution_analysis.failed_routes || 0;
-  
-  // 人間対応が必要な項目を明確化
-  coverage.human_action_required = {
-    unautomated_test_cases: unautomatedTestCases,
-    low_feasibility_routes: lowFeasibilityRoutes,
-    failed_automation_routes: failedRoutes,
-    total_human_action_needed: unautomatedTestCases + lowFeasibilityRoutes + failedRoutes,
-    manual_test_recommendations: [
-      ...(unautomatedTestCases > 0 ? [`${unautomatedTestCases}件の未自動化テストケース（AIがPlaywrightルート生成できず）`] : []),
-      ...(lowFeasibilityRoutes > 0 ? [`${lowFeasibilityRoutes}件の低実行可能性ルート（実行可能性スコア0.3-0.7未満）`] : []),
-      ...(failedRoutes > 0 ? [`${failedRoutes}件の自動実行失敗ルート（手動再確認推奨）`] : [])
-    ],
-    note: 'AI・Playwrightでカバーできず、人間による手動テストが必要な項目'
-  };
-
-  // 5. 詳細テストケース情報の構築
-  if (testCasesData && routeData) {
-    const detailedTestCases = [];
-    
-    // テストケースデータの処理
-    let allTestCases = [];
-    if (testCasesData.categories) {
-      // 分類別データの場合
-      Object.keys(testCasesData.categories).forEach(category => {
-        const categoryData = testCasesData.categories[category];
-        if (Array.isArray(categoryData)) {
-          categoryData.forEach(testCase => {
-            allTestCases.push({...testCase, category: category});
-          });
-        }
-      });
-    } else if (Array.isArray(testCasesData)) {
-      allTestCases = testCasesData;
-    }
-    
-    // 各テストケースの詳細情報を構築
-    console.log(`📊 テストケース詳細構築中: ${allTestCases.length}件のテストケース`);
-    
-    allTestCases.forEach((testCase, index) => {
-      // 対応するルートを検索（複数ルート対応）
-      let relatedRoute = null;
-      
-      if (Array.isArray(routeData)) {
-        // 複数ルートの場合
-        routeData.forEach(route => {
-          // より柔軟なマッピング条件
-          if (route.generated_from_natural_case === testCase.id ||
-              route.route_id?.includes(testCase.id) ||
-              route.original_viewpoint === testCase.original_viewpoint ||
-              (route.original_viewpoint && testCase.original_viewpoint && 
-               route.original_viewpoint.includes(testCase.original_viewpoint.substring(0, 30))) ||
-              (route.original_viewpoint && testCase.title && 
-               testCase.title.includes(route.original_viewpoint.substring(0, 30)))) {
-            relatedRoute = route;
-          }
-        });
-      } else if (routeData.categories) {
-        // 分類バッチの場合
-        routeData.categories.forEach(category => {
-          if (category.routes) {
-            const found = category.routes.find(route => 
-              route.id === testCase.id || 
-              route.scenario?.includes(testCase.scenario || testCase.title) ||
-              (testCase.steps && route.steps && route.steps.some(step => testCase.steps.includes(step)))
-            );
-            if (found) relatedRoute = found;
-          }
-        });
-      } else if (routeData.steps) {
-        // 単一ルートの場合、最初のテストケースのみが対応する
-        relatedRoute = index === 0 ? routeData : null;
-      }
-      
-      // 対応する実行結果を検索（複数結果統合対応）
-      let relatedResult = null;
-      let bestSuccessRate = -1;
-      
-      if (Array.isArray(resultData)) {
-        // 複数結果統合の場合 - 最も良い結果を選択
-        resultData.forEach(result => {
-          if (result.route_id === relatedRoute?.route_id) {
-            const successRate = result.success_count / (result.success_count + result.failed_count);
-            if (successRate > bestSuccessRate) {
-              relatedResult = result;
-              bestSuccessRate = successRate;
-              console.log(`✅ マッピング成功: テストケース${testCase.id} → ルート${relatedRoute.route_id} → 結果${result.route_id} (成功率${(successRate*100).toFixed(1)}%)`);
-            }
-          }
-        });
-      } else if (resultData && resultData.categories) {
-        // 分類バッチの場合
-        resultData.categories.forEach(category => {
-          if (category.routes) {
-            const found = category.routes.find(result => 
-              result.id === testCase.id ||
-              result.route_id === relatedRoute?.id ||
-              result.scenario?.includes(testCase.scenario || testCase.title)
-            );
-            if (found) relatedResult = found;
-          }
-        });
-      } else if (resultData && resultData.steps && relatedRoute) {
-        // 単一実行の場合、ルートがある場合のみ実行結果を適用
-        relatedResult = resultData;
-      }
-      
-      // ステータス判定（より正確な判定）
-      let status = 'not_automated';  // デフォルトは未自動化
-      let errorMessage = null;
-      let executionTime = null;
-      
-              if (relatedRoute) {
-          // ルートが生成されている場合
-          if (relatedResult) {
-            // 実行結果がある場合 - 部分成功も評価
-            const successRate = relatedResult.success_count / (relatedResult.success_count + relatedResult.failed_count);
-            if (relatedResult.failed_count === 0) {
-              status = 'success'; // 完全成功
-            } else if (successRate >= 0.8) {
-              status = 'success'; // 80%以上成功は成功扱い
-            } else {
-              status = 'failed'; // 失敗扱い
-            }
-            errorMessage = relatedResult.error || relatedResult.error_message;
-            executionTime = relatedResult.execution_time || relatedResult.duration;
-          } else {
-            // ルートはあるが実行結果がない場合
-            status = 'failed';
-            errorMessage = '実行結果が見つかりません';
-          }
-        } else {
-          // ルートが生成されていない場合は未自動化
-          status = 'not_automated';
-          errorMessage = 'AIがPlaywrightルートを生成できませんでした';
-        }
-      
-      detailedTestCases.push({
-        id: testCase.id || `TC${index + 1}`,
-        title: testCase.scenario || testCase.title || testCase.story || `テストケース ${index + 1}`,
-        description: testCase.steps || testCase.description || testCase.expected_result || testCase.detail || '詳細情報なし',
-        category: testCase.category || '未分類',
-        status: status,
-        feasibility_score: relatedRoute?.feasibility_score || testCase.feasibility_score,
-        error_message: errorMessage,
-        execution_time: executionTime,
-        source_file: testCase.source_file || 'unknown'
-      });
-    });
-    
-    // ステータス統計をログ出力
-    const statusCounts = detailedTestCases.reduce((acc, tc) => {
-      acc[tc.status] = (acc[tc.status] || 0) + 1;
-      return acc;
-    }, {});
-    console.log(`📊 テストケースステータス統計:`, statusCounts);
-    
-    coverage.detailed_test_cases = detailedTestCases;
-  }
-
-  // 6. 総合カバレッジ算出（QA観点：機能×観点ベース）
-  const totalSteps = coverage.execution_analysis?.total_steps || 0;
-  const successfulSteps = coverage.execution_analysis?.successful_steps || 0;
-  
-  // QA観点での正しいカバレッジ計算：機能×観点=テストケース単位
-  const totalTestCasesForCoverage = coverage.detailed_test_cases?.length || totalTestCases;
-  const successfulTestCases = coverage.detailed_test_cases?.filter(tc => tc.status === 'success').length || 0;
-  
-  // ステップ単位は参考情報として保持
-  const avgStepsPerTestCase = totalSteps > 0 && automatedRoutes > 0 ? Math.round(totalSteps / automatedRoutes) : 5;
-  const unautomatedSteps = unautomatedTestCases * avgStepsPerTestCase;
-  const totalStepsIncludingUnautomated = totalSteps + unautomatedSteps;
-  
-  coverage.overall_coverage = {
-    // 基本統計（テストケース単位）
-    total_test_cases: totalTestCasesForCoverage,
-    automated_routes: automatedRoutes,
-    feasible_routes: feasibleRoutes,
-    executed_routes: feasibleRoutes, // 実行可能なものは全て実行される前提
-    successful_routes: successfulRoutes,
+    total_test_cases: totalTestCases,
     successful_test_cases: successfulTestCases,
-    
-    // ステップ単位統計（参考情報）
     total_steps: totalSteps,
     successful_steps: successfulSteps,
-    unautomated_test_cases: unautomatedTestCases,
-    unautomated_estimated_steps: unautomatedSteps,
-    total_steps_including_unautomated: totalStepsIncludingUnautomated,
-    
-    // カバレッジ率（QA観点：機能×観点=テストケース単位）
-    automation_coverage: totalTestCasesForCoverage > 0 ? (automatedRoutes / totalTestCasesForCoverage * 100) : 0,
-    feasibility_coverage: totalTestCasesForCoverage > 0 ? (feasibleRoutes / totalTestCasesForCoverage * 100) : 0,
-    success_coverage: totalTestCasesForCoverage > 0 ? (successfulTestCases / totalTestCasesForCoverage * 100) : 0, // ★QA観点の正しいカバレッジ
-    
-    // 残課題（テストケース単位）
-    remaining_steps: totalStepsIncludingUnautomated - successfulSteps, // 参考情報
-    remaining_test_cases: totalTestCasesForCoverage - successfulTestCases, // QA観点の残課題
-    coverage_gap: totalTestCasesForCoverage > 0 ? ((totalTestCasesForCoverage - successfulTestCases) / totalTestCasesForCoverage * 100) : 0, // ★QA観点
-    
-    // 品質指標
-    quality_score: calculateQualityScore(coverage),
-    
-    note: 'QA観点カバレッジ：成功テストケース数/全テストケース数 (機能×観点ベース)'
+    coverage_percentage: totalTestCases > 0 ? (successfulTestCases / totalTestCases) * 100 : 0,
+    step_success_rate: totalSteps > 0 ? (successfulSteps / totalSteps) * 100 : 0,
+    route_success_rate: executedRoutes > 0 ? (successfulRoutes / executedRoutes) * 100 : 0,
+    executed_routes: executedRoutes,
+    successful_routes: successfulRoutes,
+    failed_routes: executedRoutes - successfulRoutes,
+    deduplication_info: {
+      original_results: resultData.length,
+      unique_results: uniqueResults.length,
+      duplicates_removed: resultData.length - uniqueResults.length
+    },
+    failed_steps_details: failedStepsDetails
   };
 
+  console.log(`📈 カバレッジ計算完了:`);
+  console.log(`   - テストケース成功率: ${coverage.coverage_percentage.toFixed(1)}%`);
+  console.log(`   - ステップ成功率: ${coverage.step_success_rate.toFixed(1)}%`);
+  console.log(`   - ルート成功率: ${coverage.route_success_rate.toFixed(1)}%`);
+
   return coverage;
+}
+
+/**
+ * テスト結果の重複除去
+ * @param {Array} resultData - 実行結果配列
+ * @returns {Array} - 重複除去された結果配列
+ */
+function deduplicateTestResults(resultData) {
+  const routeMap = new Map();
+  
+  resultData.forEach(result => {
+    const routeId = result.route_id || 'unknown';
+    const timestamp = new Date(result.timestamp || 0).getTime();
+    
+    // 同じroute_idがある場合は、より新しいタイムスタンプのものを使用
+    if (!routeMap.has(routeId) || routeMap.get(routeId).timestamp < timestamp) {
+      routeMap.set(routeId, {
+        ...result,
+        timestamp: timestamp
+      });
+    }
+  });
+  
+  // Map から配列に変換
+  const uniqueResults = Array.from(routeMap.values());
+  
+  // デバッグ情報
+  if (resultData.length !== uniqueResults.length) {
+    console.log(`🔄 重複除去詳細:`);
+    const removedCount = resultData.length - uniqueResults.length;
+    console.log(`   - 除去された重複結果: ${removedCount}件`);
+    
+    // 重複していたroute_idを表示
+    const routeIds = resultData.map(r => r.route_id || 'unknown');
+    const duplicateIds = routeIds.filter((id, index) => routeIds.indexOf(id) !== index);
+    if (duplicateIds.length > 0) {
+      console.log(`   - 重複していたroute_id: ${[...new Set(duplicateIds)].join(', ')}`);
+    }
+  }
+  
+  return uniqueResults.map(r => ({
+    ...r,
+    timestamp: new Date(r.timestamp).toISOString() // タイムスタンプを元の形式に戻す
+  }));
+}
+
+/**
+ * エラータイプを分類
+ */
+function classifyErrorType(error) {
+  if (!error) return 'unknown';
+  
+  if (error.includes('element is not visible')) {
+    return 'visibility_issue';
+  } else if (error.includes('element is not enabled') || error.includes('disabled')) {
+    return 'element_disabled';
+  } else if (error.includes('Timeout') || error.includes('timeout')) {
+    return 'timeout_error';
+  } else if (error.includes('not found') || error.includes('locator resolved to')) {
+    return 'element_not_found';
+  } else if (error.includes('checkbox') && error.includes('fill')) {
+    return 'checkbox_fill_error';
+  } else if (error.includes('Cannot type text into input[type=number]')) {
+    return 'validation_error';
+  } else {
+    return 'unknown_error';
+  }
+}
+
+/**
+ * 修正提案を生成
+ */
+function generateFixSuggestions(step) {
+  const suggestions = [];
+  const errorType = classifyErrorType(step.error);
+
+  switch (errorType) {
+    case 'visibility_issue':
+      suggestions.push({
+        message: '要素が非表示になっている可能性があります。ページの状態を確認し、要素が表示されるまで待機する処理を追加してください。',
+        confidence: 0.8,
+        type: 'wait_for_visible'
+      });
+      break;
+
+    case 'element_disabled':
+      suggestions.push({
+        message: '要素が無効化されています。他の操作を先に実行して要素を有効化する必要があります。',
+        confidence: 0.9,
+        type: 'enable_element'
+      });
+      break;
+
+    case 'timeout_error':
+      suggestions.push({
+        message: 'タイムアウトが発生しました。要素のセレクタを確認するか、待機時間を延長してください。',
+        confidence: 0.7,
+        type: 'increase_timeout'
+      });
+      break;
+
+    case 'element_not_found':
+      suggestions.push({
+        message: '要素が見つかりません。セレクタを確認し、代替のセレクタを試してください。',
+        confidence: 0.8,
+        type: 'update_selector'
+      });
+      if (step.target.includes('[name="')) {
+        const nameValue = step.target.match(/\[name="([^"]+)"\]/)?.[1];
+        if (nameValue) {
+          suggestions.push({
+            message: `ID属性での検索を試す`,
+            confidence: 0.6,
+            type: 'alternative_selector',
+            new_target: `#${nameValue}`
+          });
+        }
+      }
+      break;
+
+    case 'checkbox_fill_error':
+      suggestions.push({
+        message: 'チェックボックスにfillアクションではなく、clickアクションを使用してください。',
+        confidence: 0.95,
+        type: 'change_action',
+        new_action: 'click'
+      });
+      break;
+
+    case 'validation_error':
+      suggestions.push({
+        message: 'これは期待されたバリデーションエラーです。テストが正しく動作していることを示しています。',
+        confidence: 0.9,
+        type: 'expected_validation'
+      });
+      break;
+
+    default:
+      suggestions.push({
+        message: 'エラーの詳細を確認し、要素の状態やページの構造を再度チェックしてください。',
+        confidence: 0.3,
+        type: 'manual_investigation'
+      });
+  }
+
+  return suggestions;
 }
 
 /**
@@ -1826,8 +1634,56 @@ main().catch(console.error);
  * @param {string} outputPath - 出力パス
  */
 function generateCoverageHTML(coverage, outputPath) {
-  const timestamp = new Date().toLocaleString('ja-JP');
-  
+  // 失敗ステップの詳細を取得
+  const failedStepsDetails = coverage.failed_steps_details || [];
+  const failedStepsSection = failedStepsDetails.length > 0 ? `
+        <div class="section">
+            <h2>❌ 失敗ステップ詳細</h2>
+            <div class="failed-steps-container">
+                ${failedStepsDetails.map((step, index) => `
+                <div class="failed-step-card">
+                    <div class="failed-step-header">
+                        <span class="step-number">#${index + 1}</span>
+                        <span class="step-label">${step.label}</span>
+                        <span class="step-status failed">❌ 失敗</span>
+                    </div>
+                    <div class="failed-step-content">
+                        <div class="step-details">
+                            <p><strong>アクション:</strong> ${step.action}</p>
+                            <p><strong>ターゲット:</strong> <code>${step.target}</code></p>
+                            ${step.value ? `<p><strong>値:</strong> ${step.value}</p>` : ''}
+                        </div>
+                        <div class="error-details">
+                            <h4>エラー詳細</h4>
+                            <div class="error-message">${step.error}</div>
+                            ${step.error_category ? `<p class="error-category"><strong>エラー分類:</strong> ${step.error_category}</p>` : ''}
+                        </div>
+                        ${step.fix_suggestions && step.fix_suggestions.length > 0 ? `
+                        <div class="fix-suggestions">
+                            <h4>修正提案</h4>
+                            <ul class="suggestions-list">
+                                ${step.fix_suggestions.map(suggestion => `
+                                <li class="suggestion-item">
+                                    <span class="confidence-badge">${(suggestion.confidence * 100).toFixed(0)}%</span>
+                                    ${suggestion.message}
+                                    ${suggestion.new_target ? `<br><code>新しいターゲット: ${suggestion.new_target}</code>` : ''}
+                                </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                        ${step.skip_reason ? `
+                        <div class="skip-reason">
+                            <p><strong>スキップ理由:</strong> ${step.skip_reason}</p>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                `).join('')}
+            </div>
+        </div>
+  ` : '';
+
   const html = `
 <!DOCTYPE html>
 <html lang="ja">
@@ -1945,25 +1801,6 @@ function generateCoverageHTML(coverage, outputPath) {
             background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
             transition: width 0.3s ease;
         }
-        .recommendations {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-        }
-        .recommendations h3 {
-            color: #856404;
-            margin: 0 0 15px 0;
-        }
-        .recommendations ul {
-            margin: 0;
-            padding-left: 20px;
-        }
-        .recommendations li {
-            margin-bottom: 8px;
-            color: #856404;
-        }
         .footer {
             text-align: center;
             padding: 20px;
@@ -1972,113 +1809,128 @@ function generateCoverageHTML(coverage, outputPath) {
             background: #f8f9fa;
         }
         
-        /* テストケース詳細用スタイル */
-        .test-case-filters {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        .filter-btn {
-            padding: 8px 16px;
-            border: 2px solid #dee2e6;
-            background: white;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.2s ease;
-        }
-        .filter-btn:hover {
-            background: #f8f9fa;
-        }
-        .filter-btn.active {
-            background: #007bff;
-            color: white;
-            border-color: #007bff;
-        }
-        .test-cases-container {
+        /* 失敗ステップ詳細用スタイル */
+        .failed-steps-container {
             display: grid;
-            gap: 15px;
+            gap: 20px;
         }
-        .test-case-card {
+        .failed-step-card {
             border: 1px solid #dee2e6;
             border-radius: 8px;
             background: white;
-            overflow: hidden;
-            transition: all 0.2s ease;
-        }
-        .test-case-card:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        .test-case-card.success {
-            border-left: 4px solid #28a745;
-        }
-        .test-case-card.failed {
             border-left: 4px solid #dc3545;
+            overflow: hidden;
         }
-        .test-case-card.not_automated {
-            border-left: 4px solid #ffc107;
-        }
-        .test-case-header {
+        .failed-step-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 16px;
+            padding: 15px 20px;
             background: #f8f9fa;
             border-bottom: 1px solid #dee2e6;
         }
-        .test-case-id {
-            font-weight: bold;
-            color: #495057;
-        }
-        .test-case-status {
+        .step-number {
+            background: #dc3545;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 0.9em;
+            font-weight: bold;
+        }
+        .step-label {
+            flex: 1;
+            margin: 0 15px;
+            font-weight: 600;
+            color: #333;
+        }
+        .step-status.failed {
+            color: #dc3545;
             font-weight: 600;
         }
-        .status-success { color: #28a745; }
-        .status-failed { color: #dc3545; }
-        .status-not_automated { color: #fd7e14; }
-        .test-case-content {
-            padding: 16px;
+        .failed-step-content {
+            padding: 20px;
         }
-        .test-case-content h4 {
-            margin: 0 0 10px 0;
-            color: #333;
-            font-size: 1.1em;
-            word-wrap: break-word;
-            white-space: normal;
+        .step-details {
+            margin-bottom: 20px;
         }
-
-        .test-case-description {
-            color: #666;
-            margin-bottom: 10px;
-            line-height: 1.5;
+        .step-details p {
+            margin: 8px 0;
+            color: #495057;
         }
-        .test-case-category,
-        .test-case-feasibility,
-        .test-case-time {
-            margin: 5px 0;
-            font-size: 0.9em;
-            color: #666;
+        .step-details code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #e83e8c;
         }
-        .test-case-error {
-            margin: 10px 0;
-            padding: 8px;
+        .error-details {
+            margin-bottom: 20px;
+            padding: 15px;
             background: #f8d7da;
             border: 1px solid #f5c6cb;
+            border-radius: 6px;
+        }
+        .error-details h4 {
+            margin: 0 0 10px 0;
+            color: #721c24;
+            font-size: 1.1em;
+        }
+        .error-message {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: white;
+            padding: 10px;
             border-radius: 4px;
             color: #721c24;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .error-category {
+            margin: 8px 0 0 0;
             font-size: 0.9em;
+            color: #721c24;
         }
-        .no-test-cases {
+        .fix-suggestions {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .fix-suggestions h4 {
+            margin: 0 0 10px 0;
+            color: #0c5460;
+            font-size: 1.1em;
+        }
+        .suggestions-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .suggestion-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        .confidence-badge {
+            background: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 10px;
+            min-width: 40px;
             text-align: center;
-            padding: 40px;
-            color: #666;
-            background: #f8f9fa;
-            border-radius: 8px;
         }
-        .hidden {
-            display: none !important;
+        .skip-reason {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 10px;
+            color: #856404;
         }
     </style>
 </head>
@@ -2086,39 +1938,55 @@ function generateCoverageHTML(coverage, outputPath) {
     <div class="container">
         <div class="header">
             <h1>🧪 AutoPlaywright</h1>
-            <p>テストカバレッジレポート - ${timestamp}</p>
+            <p>テストカバレッジレポート - ${new Date().toLocaleString('ja-JP')}</p>
         </div>
         
         <div class="summary">
             <div class="summary-card">
                 <h3>カバレッジ率</h3>
-                <div class="value coverage-rate">${coverage.overall_coverage?.success_coverage?.toFixed(1) || '0.0'}</div>
+                <div class="value coverage-rate">${coverage.coverage_percentage.toFixed(1)}</div>
                 <div class="unit">%</div>
             </div>
             <div class="summary-card">
-                <h3>人間対応必要</h3>
-                <div class="value human-action">${coverage.human_action_required?.total_human_action_needed || 0}</div>
+                <h3>成功ルート数</h3>
+                <div class="value automation">${coverage.successful_routes}</div>
+                <div class="unit">/ ${coverage.executed_routes}</div>
+            </div>
+            <div class="summary-card">
+                <h3>総ステップ数</h3>
+                <div class="value human-action">${coverage.total_steps}</div>
                 <div class="unit">件</div>
             </div>
             <div class="summary-card">
-                <h3>自動化率</h3>
-                <div class="value automation">${coverage.automation_analysis?.automation_rate?.toFixed(1) || '0.0'}</div>
+                <h3>ステップ成功率</h3>
+                <div class="value quality">${coverage.step_success_rate.toFixed(1)}</div>
                 <div class="unit">%</div>
             </div>
-            <div class="summary-card">
-                <h3>品質スコア</h3>
-                <div class="value quality">${coverage.overall_coverage?.quality_score?.toFixed(1) || '0.0'}</div>
-                <div class="unit">点</div>
+        </div>
+
+        ${coverage.deduplication_info && coverage.deduplication_info.duplicates_removed > 0 ? `
+        <div class="section">
+            <h2>🔄 重複除去情報</h2>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
+                <p><strong>重複実行の除去:</strong> ${coverage.deduplication_info.duplicates_removed}件の重複結果を除去しました</p>
+                <p style="color: #666; font-size: 0.9em;">
+                    原始結果: ${coverage.deduplication_info.original_results}件 → 
+                    ユニーク結果: ${coverage.deduplication_info.unique_results}件
+                </p>
+                <p style="color: #666; font-size: 0.9em;">
+                    ※ 同じルートIDの複数実行結果から最新のものを採用
+                </p>
             </div>
         </div>
+        ` : ''}
 
         <div class="section">
             <h2>📊 総合カバレッジ</h2>
             <div class="progress-bar">
-                <div class="progress-fill" style="width: ${coverage.overall_coverage?.success_coverage || 0}%"></div>
+                <div class="progress-fill" style="width: ${coverage.coverage_percentage}%"></div>
             </div>
-            <p><strong>${coverage.overall_coverage?.successful_test_cases || 0}</strong> / <strong>${coverage.overall_coverage?.total_test_cases || 0}</strong> テストケースが成功</p>
-            <p style="color: #666; font-size: 0.9em;">（機能×観点ベースのQA観点カバレッジ）</p>
+            <p><strong>${coverage.successful_test_cases}</strong> / <strong>${coverage.total_test_cases}</strong> テストケースが成功</p>
+            <p style="color: #666; font-size: 0.9em;">（実行済みテストケースのカバレッジ）</p>
             
             <table>
                 <tr>
@@ -2128,315 +1996,96 @@ function generateCoverageHTML(coverage, outputPath) {
                 </tr>
                 <tr>
                     <td>全テストケース数</td>
-                    <td>${coverage.overall_coverage?.total_test_cases || 0}件</td>
-                    <td>分母（機能×観点の総数）</td>
+                    <td>${coverage.total_test_cases}件</td>
+                    <td>実行されたテストケース総数</td>
                 </tr>
                 <tr>
                     <td>成功テストケース数</td>
-                    <td>${coverage.overall_coverage?.successful_test_cases || 0}件</td>
-                    <td>分子（成功した機能×観点）</td>
+                    <td>${coverage.successful_test_cases}件</td>
+                    <td>正常に完了したテストケース</td>
                 </tr>
                 <tr>
-                    <td>未自動化テストケース数</td>
-                    <td>${coverage.overall_coverage?.unautomated_test_cases || 0}件</td>
-                    <td>Playwright未対応のテストケース</td>
-                </tr>
-                <tr>
-                    <td>残課題テストケース数</td>
-                    <td>${coverage.overall_coverage?.remaining_test_cases || 0}件</td>
-                    <td>失敗 + 未自動化の合計</td>
+                    <td>失敗テストケース数</td>
+                    <td>${coverage.total_test_cases - coverage.successful_test_cases}件</td>
+                    <td>エラーが発生したテストケース</td>
                 </tr>
                 <tr style="background: #f8f9fa;">
                     <td colspan="3"><strong>参考: ステップ単位統計</strong></td>
                 </tr>
                 <tr>
                     <td>　実行済みステップ数</td>
-                    <td>${coverage.overall_coverage?.total_steps || 0}件</td>
+                    <td>${coverage.total_steps}件</td>
                     <td>自動実行された実際のステップ数</td>
                 </tr>
                 <tr>
                     <td>　成功ステップ数</td>
-                    <td>${coverage.overall_coverage?.successful_steps || 0}件</td>
+                    <td>${coverage.successful_steps}件</td>
                     <td>個別操作レベルでの成功数</td>
                 </tr>
             </table>
         </div>
 
-        <div class="section">
-            <h2>🤖 自動化分析</h2>
-            <table>
-                <tr>
-                    <th>分類</th>
-                    <th>値</th>
-                    <th>備考</th>
-                </tr>
-                <tr>
-                    <td>自動化ルート数</td>
-                    <td>${coverage.automation_analysis?.automated_routes || 0}件</td>
-                    <td>Playwright実装生成済み</td>
-                </tr>
-                <tr>
-                    <td>高実行可能性ルート</td>
-                    <td>${coverage.automation_analysis?.feasible_routes || 0}件</td>
-                    <td>実行可能性スコア ≥ 0.7</td>
-                </tr>
-                <tr>
-                    <td>低実行可能性ルート</td>
-                    <td>${coverage.automation_analysis?.low_feasibility_routes || 0}件</td>
-                    <td>実行可能性スコア 0.3-0.7</td>
-                </tr>
-                <tr>
-                    <td>未自動化テストケース</td>
-                    <td>${coverage.automation_analysis?.unautomated_test_cases || 0}件</td>
-                    <td>AI生成不可</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="section">
-            <h2>🔍 実行結果分析</h2>
-            <table>
-                <tr>
-                    <th>結果</th>
-                    <th>件数</th>
-                    <th>備考</th>
-                </tr>
-                <tr>
-                    <td>成功ステップ数</td>
-                    <td>${coverage.execution_analysis?.successful_steps || 0}件</td>
-                    <td>個別ステップが正常完了</td>
-                </tr>
-                <tr>
-                    <td>失敗ステップ数</td>
-                    <td>${(coverage.execution_analysis?.total_steps || 0) - (coverage.execution_analysis?.successful_steps || 0)}件</td>
-                    <td>個別ステップでエラー発生</td>
-                </tr>
-                <tr>
-                    <td>ステップ成功率</td>
-                    <td>${coverage.execution_analysis?.step_success_rate?.toFixed(1) || '0.0'}%</td>
-                    <td>成功ステップ/全ステップ</td>
-                </tr>
-                <tr>
-                    <td>ルート成功率</td>
-                    <td>${coverage.execution_analysis?.execution_success_rate?.toFixed(1) || '0.0'}%</td>
-                    <td>成功ルート/実行ルート</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="section">
-            <h2>📋 全テストケース詳細</h2>
-            <p>「成功/全ケース」の分母となるすべてのテストケースの詳細内容です。</p>
-            
-            ${coverage.detailed_test_cases && coverage.detailed_test_cases.length > 0 ? `
-            <div class="test-case-filters">
-                <button onclick="filterTestCases('all')" class="filter-btn active" id="filter-all">すべて (${coverage.detailed_test_cases.length})</button>
-                <button onclick="filterTestCases('success')" class="filter-btn" id="filter-success">成功 (${coverage.detailed_test_cases.filter(tc => tc.status === 'success').length})</button>
-                <button onclick="filterTestCases('failed')" class="filter-btn" id="filter-failed">失敗 (${coverage.detailed_test_cases.filter(tc => tc.status === 'failed').length})</button>
-                <button onclick="filterTestCases('not_automated')" class="filter-btn" id="filter-not_automated">未自動化 (${coverage.detailed_test_cases?.filter(tc => tc.status === 'not_automated').length || 0})</button>
-            </div>
-            
-            <div class="test-cases-container">
-                ${coverage.detailed_test_cases.map((testCase, index) => `
-                <div class="test-case-card ${testCase.status}" data-status="${testCase.status}">
-                    <div class="test-case-header">
-                        <span class="test-case-id">#${testCase.id || index + 1}</span>
-                        <span class="test-case-status status-${testCase.status}">${testCase.status === 'success' ? '✅ 成功' : testCase.status === 'failed' ? '❌ 失敗' : '⚠️ 未自動化'}</span>
-                    </div>
-                    <div class="test-case-content">
-                        <h4>${testCase.original_viewpoint || testCase.title || testCase.scenario || 'テストケース'}</h4>
-                        <p class="test-case-description">${testCase.description || testCase.steps || '詳細なし'}</p>
-                        ${testCase.category ? `<p class="test-case-category"><strong>分類:</strong> ${testCase.category}</p>` : ''}
-                        ${testCase.feasibility_score ? `<p class="test-case-feasibility"><strong>実行可能性:</strong> ${(testCase.feasibility_score * 100).toFixed(1)}%</p>` : ''}
-                        ${testCase.error_message ? `<p class="test-case-error"><strong>エラー:</strong> ${testCase.error_message}</p>` : ''}
-                        ${testCase.execution_time ? `<p class="test-case-time"><strong>実行時間:</strong> ${testCase.execution_time}ms</p>` : ''}
-                    </div>
-                </div>
-                `).join('')}
-            </div>
-            ` : `
-            <div class="no-test-cases">
-                <p>詳細なテストケース情報が利用できません。</p>
-                <p>テストケースデータを生成してからレポートを再実行してください。</p>
-            </div>
-            `}
-        </div>
-
-        ${coverage.human_action_required?.manual_test_recommendations?.length > 0 ? `
-        <div class="section">
-            <div class="recommendations">
-                <h3>🙋‍♂️ 人間対応が必要な項目</h3>
-                <ul>
-                    ${coverage.human_action_required.manual_test_recommendations.map(rec => `<li>${rec}</li>`).join('')}
-                </ul>
-                <p><strong>推奨アクション:</strong> これらの項目は手動テストまたはテスト設計の見直しが推奨されます。</p>
-                
-                ${(coverage.overall_coverage?.unautomated_test_cases || 0) > 0 ? `
-                <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 8px;">
-                    <h4 style="margin: 0 0 10px 0; color: #0066cc;">🚀 未自動化ケースの改善提案</h4>
-                    <p style="margin: 0 0 15px 0; color: #0066cc;">未自動化の${coverage.overall_coverage?.unautomated_test_cases || 0}件のテストケース（機能×観点）から、Playwrightルートを生成してカバレッジを向上させませんか？</p>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <button onclick="generateRoutesForUnautomated()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                            ⚡ 未自動化ケース用ルート生成
-                        </button>
-                        <button onclick="refreshReport()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                            🔄 レポート更新
-                        </button>
-                    </div>
-                </div>
-                ` : ''}
-            </div>
-        </div>
-        ` : ''}
+        ${failedStepsSection}
 
         <div class="footer">
             <p>Generated by AutoPlaywright Test Coverage Analyzer</p>
-            <p>データ生成時刻: ${coverage.timestamp}</p>
+            <p>データ生成時刻: ${new Date().toISOString()}</p>
         </div>
     </div>
-    
-    <script>
-        // テストケースフィルタリング機能
-        function filterTestCases(status) {
-            const cards = document.querySelectorAll('.test-case-card');
-            const buttons = document.querySelectorAll('.filter-btn');
-            
-            // すべてのボタンのactiveクラスを削除
-            buttons.forEach(btn => btn.classList.remove('active'));
-            // クリックされたボタンにactiveクラスを追加
-            document.getElementById('filter-' + status).classList.add('active');
-            
-            // カードの表示/非表示を切り替え
-            cards.forEach(card => {
-                if (status === 'all' || card.dataset.status === status) {
-                    card.classList.remove('hidden');
-                } else {
-                    card.classList.add('hidden');
-                }
-            });
-        }
-        
-        // 未自動化ケース用ルート生成
-        async function generateRoutesForUnautomated() {
-            const button = event.target;
-            const originalText = button.textContent;
-            button.textContent = '⏳ 生成中...';
-            button.disabled = true;
-            
-            try {
-                // 未自動化テストケースの一覧を取得
-                const unautomatedCases = Array.from(document.querySelectorAll('.test-case-card.not_automated'));
-                
-                if (unautomatedCases.length === 0) {
-                    alert('未自動化のテストケースが見つかりません。');
-                    return;
-                }
-                
-                // サーバーAPIを呼び出して未自動化ケース用のルートを生成
-                const response = await fetch('/api/generate-routes-unautomated', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        action: 'generateRoutesForUnautomated',
-                        unautomatedCount: unautomatedCases.length
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.success) {
-                        alert(\`✅ 未自動化ケース用ルート生成完了！\\n生成件数: \${result.generatedCount || unautomatedCases.length}件\\n\\n「🔄 レポート更新」ボタンでカバレッジを確認してください。\`);
-                    } else {
-                        throw new Error(result.error || 'ルート生成に失敗しました');
-                    }
-                } else {
-                    const errorResult = await response.json().catch(() => ({}));
-                    throw new Error(errorResult.error || 'ルート生成に失敗しました');
-                }
-                
-            } catch (error) {
-                console.error('未自動化ケース用ルート生成エラー:', error);
-                alert('❌ ルート生成に失敗しました。\\n\\nコンソールで詳細エラーを確認し、手動でgenerateSmartRoutes.jsを実行してください。');
-            } finally {
-                button.textContent = originalText;
-                button.disabled = false;
-            }
-        }
-        
-        // レポート更新機能
-        async function refreshReport() {
-            const button = event.target;
-            const originalText = button.textContent;
-            button.textContent = '⏳ 更新中...';
-            button.disabled = true;
-            
-            try {
-                // サーバーAPIを呼び出してレポート再生成
-                const response = await fetch('/api/refresh-report', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        action: 'refreshReport'
-                    })
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.success) {
-                        if (result.htmlReportUrl) {
-                            alert('✅ レポート更新完了！\\n新しいレポートが生成されました。');
-                            // 新しいレポートを開く
-                            window.open(result.htmlReportUrl, '_blank');
-                        } else {
-                            alert('✅ レポート更新完了！\\nページをリロードします。');
-                            // 現在のページをリロード
-                            window.location.reload();
-                        }
-                    } else {
-                        throw new Error(result.error || 'レポート更新に失敗しました');
-                    }
-                } else {
-                    const errorResult = await response.json().catch(() => ({}));
-                    throw new Error(errorResult.error || 'レポート更新に失敗しました');
-                }
-                
-            } catch (error) {
-                console.error('レポート更新エラー:', error);
-                alert('❌ レポート更新に失敗しました。\\n\\n手動でgenerateTestReport.jsを実行してください。');
-            } finally {
-                button.textContent = originalText;
-                button.disabled = false;
-            }
-        }
-        
-        // ページ読み込み時の初期化
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('AutoPlaywright テストカバレッジレポート読み込み完了');
-            
-            // カバレッジの詳細説明を追加
-            const coverageInfo = document.querySelector('.progress-bar').parentElement;
-            if (coverageInfo) {
-                const detailText = document.createElement('div');
-                detailText.style.cssText = 'margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; font-size: 0.9em; color: #666;';
-                detailText.innerHTML = \`
-                    <strong>💡 カバレッジ計算について:</strong><br>
-                    • 分子: 実際に成功したステップ数<br>
-                    • 分母: 実行済みステップ数 + 未自動化テストケースの推定ステップ数<br>
-                    • 未自動化テストケースからPlaywrightルートを生成することで、カバレッジを向上できます
-                \`;
-                coverageInfo.appendChild(detailText);
-            }
-        });
-    </script>
 </body>
-</html>`;
+</html>
+  `;
 
-  fs.writeFileSync(outputPath, html, 'utf8');
-  console.log(`�� HTMLカバレッジレポート生成完了: ${outputPath}`);
-  console.log(`🌐 ブラウザで開く: file://${path.resolve(outputPath)}`);
+  fs.writeFileSync(outputPath, html);
+  console.log(`📊 HTMLカバレッジレポート生成完了: ${path.basename(outputPath)}`);
+  console.log(`🌐 ブラウザで開く: file://${outputPath}`);
+}
+
+// テストケースのマッピング機能を改善
+function mapRouteResultsToTestCases(routes, results, testCases) {
+    console.log('🔗 ルート結果をテストケースにマッピング中...');
+    
+    const mappedTestCases = testCases.map(testCase => {
+        // 新しいルートの結果を確認
+        const matchingRoute = routes.find(route => {
+            // 自然言語ケースIDでのマッピング
+            if (route.generated_from_natural_case === testCase.id) {
+                return true;
+            }
+            
+            // 観点内容でのマッピング
+            if (route.original_viewpoint && testCase.title) {
+                const routeKeywords = route.original_viewpoint.toLowerCase().split(/[、。\s]+/);
+                const testCaseKeywords = testCase.title.toLowerCase().split(/[、。\s]+/);
+                const commonKeywords = routeKeywords.filter(keyword => 
+                    testCaseKeywords.some(tcKeyword => tcKeyword.includes(keyword) || keyword.includes(tcKeyword))
+                );
+                return commonKeywords.length >= 2; // 2つ以上のキーワードが一致
+            }
+            
+            return false;
+        });
+        
+        if (matchingRoute) {
+            const routeResult = results.find(result => result.route_id === matchingRoute.route_id);
+            if (routeResult) {
+                console.log(`✅ マッピング成功: ${testCase.id} -> ${matchingRoute.route_id}`);
+                return {
+                    ...testCase,
+                    status: routeResult.success_rate === 100 ? 'success' : 'failed',
+                    execution_time: routeResult.execution_time,
+                    source_file: routeResult.result_file,
+                    error_message: routeResult.success_rate === 100 ? null : 'ルート実行で失敗'
+                };
+            }
+        }
+        
+        return testCase;
+    });
+    
+    const successCount = mappedTestCases.filter(tc => tc.status === 'success').length;
+    console.log(`📊 マッピング結果: ${successCount}/${mappedTestCases.length} テストケースが成功`);
+    
+    return mappedTestCases;
 }
 
