@@ -571,6 +571,132 @@ function generateInputValidationSteps(testCase, domInfo, steps) {
 }
 
 /**
+ * 入力検証系のステップをDOM情報から生成（依存関係対応版）
+ */
+function generateInputValidationStepsFromDOM(steps, domInfo) {
+  console.log('🔍 DOM情報から入力検証ステップを生成中...');
+  
+  // 動的要素の依存関係パターン
+  const dynamicElementPatterns = [
+    {
+      name: 'email_field',
+      targetPattern: /email/i,
+      dependencies: [
+        {
+          label: '確認のご連絡方法のプルダウンから「メールでのご連絡」を選択',
+          action: 'fill',
+          target: '[name="contact"]',
+          value: 'email'
+        },
+        {
+          label: 'メールアドレス入力欄が表示されるまで待機',
+          action: 'waitForSelector',
+          target: '[name="email"]'
+        }
+      ]
+    },
+    {
+      name: 'phone_field',
+      targetPattern: /phone|tel/i,
+      dependencies: [
+        {
+          label: '確認のご連絡方法のプルダウンから「電話でのご連絡」を選択',
+          action: 'fill',
+          target: '[name="contact"]',
+          value: 'tel'
+        },
+        {
+          label: '電話番号入力欄が表示されるまで待機',
+          action: 'waitForSelector',
+          target: '[name="phone"]'
+        }
+      ]
+    }
+  ];
+
+  // 入力要素を処理
+  domInfo.elements.inputs.forEach(input => {
+    const inputSelector = input.recommendedSelector;
+    
+    // 動的要素の依存関係をチェック
+    let dependencies = [];
+    for (const pattern of dynamicElementPatterns) {
+      if (pattern.targetPattern.test(input.name || input.id || '')) {
+        dependencies = pattern.dependencies;
+        break;
+      }
+    }
+
+    // 依存ステップを先に追加
+    dependencies.forEach(dep => {
+      steps.push({
+        label: dep.label,
+        action: dep.action,
+        target: dep.target,
+        value: dep.value
+      });
+    });
+
+    // 入力要素のテストステップを追加
+    if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
+      // 有効な値の入力
+      const validValue = generateTestValueForInput(input.type);
+      steps.push({
+        label: `${input.name || input.id || input.type}に有効な値を入力`,
+        action: 'fill',
+        target: inputSelector,
+        value: validValue
+      });
+
+      // 必須チェック（required属性がある場合）
+      if (input.required) {
+        steps.push({
+          label: `${input.name || input.id || input.type}を空にして必須チェック`,
+          action: 'fill',
+          target: inputSelector,
+          value: ''
+        });
+      }
+
+      // 無効な値のテスト（適切な場合）
+      if (input.type === 'email' || input.type === 'number') {
+        const invalidValue = generateInvalidValue(input.type);
+        steps.push({
+          label: `${input.name || input.id || input.type}に無効な値を入力してバリデーション確認`,
+          action: 'fill',
+          target: inputSelector,
+          value: invalidValue
+        });
+      }
+    } else if (input.tagName === 'SELECT') {
+      // セレクトボックスの場合
+      steps.push({
+        label: `${input.name || input.id}から有効な値を選択`,
+        action: 'selectOption',
+        target: inputSelector,
+        value: 'option1' // 実際のオプション値に置き換える必要がある
+      });
+    }
+  });
+
+  // 送信ボタンの操作
+  const submitButton = domInfo.elements.buttons.find(btn => 
+    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.type === 'submit'
+  );
+  
+  if (submitButton) {
+    steps.push({
+      label: `「${submitButton.text}」ボタンをクリック`,
+      action: "click",
+      target: submitButton.selector
+    });
+  }
+
+  console.log(`✅ 入力検証ステップ生成完了: ${steps.length}ステップ`);
+  return steps;
+}
+
+/**
  * インタラクション系Playwright実装生成
  */
 function generateInteractionSteps(testCase, domInfo, steps) {
@@ -715,7 +841,7 @@ function generateTestValue(inputType) {
     case 'number':
       return '123';
     case 'date':
-      return '2025-07-25';
+      return '2025/07/25';
     case 'tel':
       return '090-1234-5678';
     default:
@@ -837,56 +963,34 @@ function generateDisplayStepsFromDOM(steps, domInfo) {
 }
 
 /**
- * 入力検証系のステップをDOM情報から生成
- */
-function generateInputValidationStepsFromDOM(steps, domInfo) {
-  // 各入力フィールドに対する検証
-  domInfo.elements.inputs.forEach((input, index) => {
-    if (input.type === 'text' || input.type === 'email' || input.type === 'number' || input.type === 'date') {
-      const testValue = generateTestValueForInput(input.type);
-      const fieldLabel = input.name || input.placeholder || `入力フィールド${index + 1}`;
-      
-      steps.push({
-        label: `${fieldLabel}に有効な値を入力`,
-        action: "fill",
-        target: input.recommendedSelector,
-        value: testValue
-      });
-
-      // 必須フィールドの場合は空文字テストも追加
-      if (input.required) {
-        steps.push({
-          label: `${fieldLabel}を空にして必須チェック`,
-          action: "fill",
-          target: input.recommendedSelector,
-          value: ""
-        });
-      }
-    }
-  });
-
-  // 送信ボタンの操作
-  const submitButton = domInfo.elements.buttons.find(btn => 
-    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.type === 'submit'
-  );
-  
-  if (submitButton) {
-    steps.push({
-      label: `「${submitButton.text}」ボタンをクリック`,
-      action: "click",
-      target: submitButton.selector
-    });
-  }
-}
-
-/**
  * インタラクション系のステップをDOM情報から生成
  */
 function generateInteractionStepsFromDOM(steps, domInfo) {
-  // プルダウン選択
+  // プルダウン選択（確認のご連絡の動的表示対応）
   const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
   selectInputs.forEach((select, index) => {
-    if (index < 2) {
+    if (select.name === 'contact') {
+      // 確認のご連絡の特別処理
+      steps.push({
+        label: "確認のご連絡方法のプルダウンから「メールでのご連絡」を選択",
+        action: "fill",
+        target: select.recommendedSelector,
+        value: "email"
+      });
+      
+      steps.push({
+        label: "メールアドレス入力欄が表示されるまで待機",
+        action: "waitForSelector",
+        target: "[name='email']"
+      });
+      
+      steps.push({
+        label: "メールアドレスを入力",
+        action: "fill",
+        target: "[name='email']",
+        value: "test@example.com"
+      });
+    } else if (index < 2) {
       const fieldLabel = select.name || `プルダウン${index + 1}`;
       steps.push({
         label: `${fieldLabel}で選択`,
@@ -966,15 +1070,30 @@ function generateDataVerificationStepsFromDOM(steps, domInfo) {
     }
   });
 
-  // プルダウン選択
+  // プルダウン選択（確認のご連絡の動的表示対応）
   const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
   selectInputs.forEach((select) => {
     if (select.name === 'contact') {
       steps.push({
-        label: "確認のご連絡方法を選択",
+        label: "確認のご連絡方法のプルダウンから「メールでのご連絡」を選択",
         action: "fill",
         target: select.recommendedSelector,
         value: "email"
+      });
+      
+      // メールアドレス入力欄が動的に表示されるまで待機
+      steps.push({
+        label: "メールアドレス入力欄が表示されるまで待機",
+        action: "waitForSelector",
+        target: "[name='email']"
+      });
+      
+      // メールアドレスを入力
+      steps.push({
+        label: "メールアドレスを入力",
+        action: "fill",
+        target: "[name='email']",
+        value: testDataSet.email
       });
     }
   });
@@ -1045,7 +1164,7 @@ function generateTestValueForInput(inputType) {
     case 'number':
       return '123';
     case 'date':
-      return '2025-07-25';
+      return '2025/07/25';
     case 'tel':
       return '090-1234-5678';
     case 'password':

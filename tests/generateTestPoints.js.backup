@@ -98,15 +98,8 @@ function getTimestamp() {
       csvPath = cliOptions.testCsv;
       console.log(`🛠️ [Debug] Using uploaded CSV: ${csvPath}`);
     } else {
-      // WebUIアップロード済みファイルを優先的に確認
-      const uploadedCsvPath = path.resolve(__dirname, '../test_point/uploaded_TestPoint_Format.csv');
-      if (fs.existsSync(uploadedCsvPath)) {
-        csvPath = uploadedCsvPath;
-        console.log(`🛠️ [Debug] Using WebUI uploaded CSV: ${csvPath}`);
-      } else {
-        csvPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
-        console.log(`🛠️ [Debug] Using default template CSV: ${csvPath}`);
-      }
+      csvPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
+      console.log(`🛠️ [Debug] Using default CSV: ${csvPath}`);
     }
     
     const csvRaw = fs.readFileSync(csvPath, 'utf-8');
@@ -213,11 +206,6 @@ ${cliOptions.goal}`;
       temperature: aiConfig.temperature || 0.5,
       max_tokens: aiConfig.max_tokens || 4000,
       top_p: aiConfig.top_p || 0.9,
-      // メモリー機能無効化のため、各呼び出しを独立させる
-      user: `test_session_${getTimestamp()}_${Math.random().toString(36).substr(2, 9)}`, // 一意のセッションID
-      seed: Math.floor(Math.random() * 10000), // ランダムシード
-      n: 1, // 単一回答のみ
-      stream: false, // ストリーミング無効
     });
 
     // 5. JSON パース
@@ -263,22 +251,9 @@ ${cliOptions.goal}`;
     const outDir = path.resolve(__dirname, '../test-results');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
     
-    // 重複チェック：同じCSVファイルから同じ内容の場合のみ再利用
+    // 重複チェック：同じ内容のファイルがある場合は再利用
     const timestamp = getTimestamp();
     const outPath = path.join(outDir, `testPoints_${timestamp}.json`);
-    
-    // 使用したCSVファイル情報を含むメタデータ付きの結果オブジェクト
-    const resultWithMeta = {
-      metadata: {
-        csvFile: path.basename(csvPath),
-        csvPath: csvPath,
-        timestamp: timestamp,
-        pointsCount: points.length,
-        url: url || null,
-        goal: cliOptions.goal || null
-      },
-      points: points
-    };
     
     // 既存ファイルとの重複チェック
     const existingFiles = fs.readdirSync(outDir)
@@ -293,14 +268,9 @@ ${cliOptions.goal}`;
         const existingPath = path.join(outDir, existingFile);
         const existingContent = JSON.parse(fs.readFileSync(existingPath, 'utf-8'));
         
-        // 既存ファイルがメタデータ形式かチェック
-        const existingPoints = existingContent.points || existingContent;
-        const existingMeta = existingContent.metadata || {};
-        
-        // 内容とCSVファイルが同一の場合のみ重複として扱う
-        if (JSON.stringify(existingPoints) === JSON.stringify(points) && 
-            existingMeta.csvFile === resultWithMeta.metadata.csvFile) {
-          console.log(`⚠️ 同じCSVファイル(${existingMeta.csvFile})から同じ内容のファイルが存在します: ${existingFile}`);
+        // 内容が同一の場合は重複として扱う
+        if (JSON.stringify(existingContent) === JSON.stringify(points)) {
+          console.log(`⚠️ 同じ内容のファイルが存在します: ${existingFile}`);
           console.log(`💾 重複ファイル作成を回避し、既存ファイルを使用します: ${existingPath}`);
           duplicateFound = true;
           break;
@@ -312,9 +282,8 @@ ${cliOptions.goal}`;
     }
     
     if (!duplicateFound) {
-      fs.writeFileSync(outPath, JSON.stringify(resultWithMeta, null, 2), 'utf-8');
+      fs.writeFileSync(outPath, JSON.stringify(points, null, 2), 'utf-8');
       console.log(`💾 新しいテスト観点ファイルを保存: ${outPath}`);
-      console.log(`📝 使用したCSVファイル: ${resultWithMeta.metadata.csvFile}`);
     }
 
     console.log('✅ テスト観点生成が完了しました');

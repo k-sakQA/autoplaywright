@@ -72,9 +72,26 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
     userStory = userStoryInfo.content.replace(/[\r\n]+/g, ' ').trim();
     userStoryId = userStoryInfo.currentId;
     console.log(`🔗 UIからのトレーサビリティ確保: ユーザーストーリーID ${userStoryId}`);
+    console.log(`📖 使用するユーザーストーリー: ${userStory.substring(0, 100)}...`);
   } else {
-    // フォールバック時も改行文字を削除
-    userStory = (route.userStory || route.goal || 'テストシナリオ実行').replace(/[\r\n]+/g, ' ').trim();
+    // 複数のソースからユーザーストーリーを取得試行
+    const potentialStories = [
+      route.userStory,
+      route.goal, 
+      route.analysis_context?.user_story,
+      route.context?.userStory,
+      result.userStory,
+      result.goal
+    ].filter(Boolean);
+    
+    if (potentialStories.length > 0) {
+      userStory = potentialStories[0].replace(/[\r\n]+/g, ' ').trim();
+      console.log(`📖 ルート/結果からユーザーストーリーを取得: ${userStory.substring(0, 100)}...`);
+    } else {
+      userStory = 'テストシナリオ実行';
+      console.log(`⚠️ ユーザーストーリーが見つかりません。デフォルト値を使用: ${userStory}`);
+    }
+    
     userStoryId = extractUserStoryId(userStory) || 1;
     console.log(`⚠️ フォールバック: 推定ユーザーストーリーID ${userStoryId}`);
   }
@@ -480,8 +497,12 @@ function formatTestSteps(step) {
 }
 
 function generateTraceableCSVReport(reportData) {
+  // 🔧 重複除去：同じテストケースIDの最新結果のみを保持
+  const deduplicatedData = deduplicateReportData(reportData);
+  console.log(`📊 レポート重複除去: ${reportData.length}件 → ${deduplicatedData.length}件（重複${reportData.length - deduplicatedData.length}件除去）`);
+  
   // 修正ルートかどうかを判定（reportDataの最初の要素から判定）
-  const isFixedRoute = reportData.length > 0 && reportData[0].isFixedRoute;
+  const isFixedRoute = deduplicatedData.length > 0 && deduplicatedData[0].isFixedRoute;
   const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
   
   // CSVヘッダー（階層的トレーサビリティ対応）
@@ -520,7 +541,7 @@ function generateTraceableCSVReport(reportData) {
   // CSVデータ行を作成
   const csvRows = [headers.join(',')];
   
-  reportData.forEach(data => {
+  deduplicatedData.forEach(data => {
     const executionType = data.isFixedRoute ? '再実行' : '初回実行';
     const row = [
       escapeCSVField(data.executionTime),
@@ -743,6 +764,10 @@ async function calculateTestCoverage(testPointsData, testCasesData, routeData, r
     }
   });
 
+  // 🔧 失敗ステップの重複除去（同じステップの最新結果のみ保持）
+  const uniqueFailedSteps = deduplicateFailedSteps(failedStepsDetails);
+  console.log(`🔄 失敗ステップ重複除去: ${failedStepsDetails.length}件 → ${uniqueFailedSteps.length}件`);
+
   // カバレッジ情報を計算
   const coverage = {
     total_test_cases: totalTestCases,
@@ -758,9 +783,12 @@ async function calculateTestCoverage(testPointsData, testCasesData, routeData, r
     deduplication_info: {
       original_results: resultData.length,
       unique_results: uniqueResults.length,
-      duplicates_removed: resultData.length - uniqueResults.length
+      duplicates_removed: resultData.length - uniqueResults.length,
+      failed_steps_original: failedStepsDetails.length,
+      failed_steps_unique: uniqueFailedSteps.length,
+      failed_steps_duplicates_removed: failedStepsDetails.length - uniqueFailedSteps.length
     },
-    failed_steps_details: failedStepsDetails
+    failed_steps_details: uniqueFailedSteps
   };
 
   console.log(`📈 カバレッジ計算完了:`);
@@ -769,6 +797,34 @@ async function calculateTestCoverage(testPointsData, testCasesData, routeData, r
   console.log(`   - ルート成功率: ${coverage.route_success_rate.toFixed(1)}%`);
 
   return coverage;
+}
+
+/**
+ * レポートデータの重複除去
+ * @param {Array} reportData - レポートデータ配列
+ * @returns {Array} - 重複除去されたレポートデータ配列
+ */
+function deduplicateReportData(reportData) {
+  const testCaseMap = new Map();
+  
+  reportData.forEach(data => {
+    const testCaseId = data.id || 'unknown';
+    const timestamp = new Date(data.executionTime || 0).getTime();
+    
+    // 同じIDがある場合は、より新しいタイムスタンプのものを使用
+    if (!testCaseMap.has(testCaseId) || testCaseMap.get(testCaseId).timestamp < timestamp) {
+      testCaseMap.set(testCaseId, {
+        ...data,
+        timestamp: timestamp
+      });
+    }
+  });
+  
+  // Map から配列に変換し、元の形式に戻す
+  return Array.from(testCaseMap.values()).map(d => ({
+    ...d,
+    executionTime: new Date(d.timestamp).toISOString() // タイムスタンプを元の形式に戻す
+  }));
 }
 
 /**
@@ -812,6 +868,50 @@ function deduplicateTestResults(resultData) {
   return uniqueResults.map(r => ({
     ...r,
     timestamp: new Date(r.timestamp).toISOString() // タイムスタンプを元の形式に戻す
+  }));
+}
+
+/**
+ * 失敗ステップの重複除去
+ * @param {Array} failedStepsDetails - 失敗ステップ詳細配列
+ * @returns {Array} - 重複除去された失敗ステップ配列
+ */
+function deduplicateFailedSteps(failedStepsDetails) {
+  const stepMap = new Map();
+  
+  failedStepsDetails.forEach(step => {
+    // ステップの一意キーを作成（label + action + target + value + error）
+    const stepKey = `${step.label || ''}|${step.action || ''}|${step.target || ''}|${step.value || ''}|${step.error || ''}`;
+    const timestamp = new Date(step.timestamp || 0).getTime();
+    
+    // 同じステップがある場合は、より新しいタイムスタンプのものを使用
+    if (!stepMap.has(stepKey) || stepMap.get(stepKey).timestamp < timestamp) {
+      stepMap.set(stepKey, {
+        ...step,
+        timestamp: timestamp
+      });
+    }
+  });
+  
+  // Map から配列に変換
+  const uniqueSteps = Array.from(stepMap.values());
+  
+  // デバッグ情報
+  if (failedStepsDetails.length !== uniqueSteps.length) {
+    const removedCount = failedStepsDetails.length - uniqueSteps.length;
+    console.log(`   - 除去された重複失敗ステップ: ${removedCount}件`);
+    
+    // 重複していたステップを表示
+    const stepLabels = failedStepsDetails.map(s => s.label || 'unknown');
+    const duplicateLabels = stepLabels.filter((label, index) => stepLabels.indexOf(label) !== index);
+    if (duplicateLabels.length > 0) {
+      console.log(`   - 重複していたステップ: ${[...new Set(duplicateLabels)].join(', ')}`);
+    }
+  }
+  
+  return uniqueSteps.map(s => ({
+    ...s,
+    timestamp: new Date(s.timestamp).toISOString() // タイムスタンプを元の形式に戻す
   }));
 }
 
@@ -1577,16 +1677,55 @@ async function main() {
           console.log('⚠️ 既存CSVファイルの読み込みに失敗。新規作成します。');
         }
         
-        // 新しいレポートからヘッダーを除いてデータ行のみ取得
-        const reportLines = report.split('\n');
-        const dataRows = reportLines.slice(1); // ヘッダーを除く
-        
         if (existingContent) {
-          // 既存ファイルに追記
-          const appendContent = '\n' + dataRows.join('\n');
-          await fs.promises.appendFile(outputPath, appendContent);
-          console.log(`✅ 修正ルート結果を既存CSVに追記完了: ${fileName}`);
-          console.log(`📋 追記されたテストケース数: ${dataRows.length}件`);
+          // 既存CSVをパースして重複除去処理
+          const existingLines = existingContent.split('\n').filter(line => line.trim());
+          const headerLine = existingLines[0];
+          const existingDataLines = existingLines.slice(1);
+          
+          // 新しいレポートからヘッダーを除いてデータ行のみ取得
+          const reportLines = report.split('\n').filter(line => line.trim());
+          const newDataLines = reportLines.slice(1);
+          
+          // CSVデータを解析して重複除去
+          const allDataLines = [...existingDataLines, ...newDataLines];
+          const testCaseMap = new Map();
+          
+          // 各行をパースしてIDで重複除去
+          allDataLines.forEach(line => {
+            if (!line.trim()) return;
+            
+            // CSV行をパース（簡易版）
+            const columns = line.split(',');
+            if (columns.length >= 2) {
+              let testCaseId = columns[1]; // ID列
+              // ダブルクォートを除去
+              testCaseId = testCaseId.replace(/^"|"$/g, '');
+              
+              const timestamp = columns[0]?.replace(/^"|"$/g, '') || '';
+              const currentTime = new Date(timestamp).getTime();
+              
+              // 同じIDの場合、より新しいタイムスタンプを保持
+              if (!testCaseMap.has(testCaseId) || 
+                  (testCaseMap.get(testCaseId).timestamp < currentTime)) {
+                testCaseMap.set(testCaseId, {
+                  line: line,
+                  timestamp: currentTime
+                });
+              }
+            }
+          });
+          
+          // 重複除去されたデータでCSVを再構築
+          const deduplicatedLines = Array.from(testCaseMap.values()).map(entry => entry.line);
+          const finalContent = [headerLine, ...deduplicatedLines].join('\n');
+          
+          // ファイルを上書き保存
+          await fs.promises.writeFile(outputPath, finalContent);
+          
+          const removedCount = allDataLines.length - deduplicatedLines.length;
+          console.log(`✅ 修正ルート結果を統合し重複除去完了: ${fileName}`);
+          console.log(`📊 統合前: ${allDataLines.length}件 → 統合後: ${deduplicatedLines.length}件（重複${removedCount}件除去）`);
         } else {
           // ファイルが存在しない場合は新規作成
           await fs.promises.writeFile(outputPath, report);
@@ -1964,17 +2103,26 @@ function generateCoverageHTML(coverage, outputPath) {
             </div>
         </div>
 
-        ${coverage.deduplication_info && coverage.deduplication_info.duplicates_removed > 0 ? `
+        ${coverage.deduplication_info && (coverage.deduplication_info.duplicates_removed > 0 || coverage.deduplication_info.failed_steps_duplicates_removed > 0) ? `
         <div class="section">
             <h2>🔄 重複除去情報</h2>
             <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
-                <p><strong>重複実行の除去:</strong> ${coverage.deduplication_info.duplicates_removed}件の重複結果を除去しました</p>
+                ${coverage.deduplication_info.duplicates_removed > 0 ? `
+                <p><strong>ルート重複の除去:</strong> ${coverage.deduplication_info.duplicates_removed}件の重複結果を除去しました</p>
                 <p style="color: #666; font-size: 0.9em;">
                     原始結果: ${coverage.deduplication_info.original_results}件 → 
                     ユニーク結果: ${coverage.deduplication_info.unique_results}件
                 </p>
+                ` : ''}
+                ${coverage.deduplication_info.failed_steps_duplicates_removed > 0 ? `
+                <p><strong>失敗ステップ重複の除去:</strong> ${coverage.deduplication_info.failed_steps_duplicates_removed}件の重複失敗ステップを除去しました</p>
                 <p style="color: #666; font-size: 0.9em;">
-                    ※ 同じルートIDの複数実行結果から最新のものを採用
+                    失敗ステップ原始: ${coverage.deduplication_info.failed_steps_original}件 → 
+                    ユニーク失敗ステップ: ${coverage.deduplication_info.failed_steps_unique}件
+                </p>
+                ` : ''}
+                <p style="color: #666; font-size: 0.9em;">
+                    ※ 同じ内容の重複ステップから最新のものを採用
                 </p>
             </div>
         </div>

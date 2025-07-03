@@ -20,6 +20,8 @@ class NaturalLanguageTestCaseGenerator {
     this.userStory = null;
     this.targetUrl = null;
     this.pdfSpecContent = null;
+    // DOM解析結果を事前読み込み
+    this.domInfo = null;
   }
 
   /**
@@ -259,19 +261,52 @@ class NaturalLanguageTestCaseGenerator {
   }
 
   /**
-   * 表示確認系自然言語テストケース
+   * 表示確認系自然言語テストケース（DOM解析結果対応）
    */
   generateDisplayTestCase(baseCase, viewpoint) {
     const targetUrl = this.targetUrl || "対象ページ";
     const userStoryContext = this.userStory ? `（${this.userStory.substring(0, 50)}...の文脈で）` : "";
     
+    // DOM解析結果を活用して具体的なテストケースを生成
+    const specificElements = [];
+    if (this.domInfo) {
+      // 入力フィールドの具体的な確認項目
+      if (this.domInfo.inputs.length > 0) {
+        this.domInfo.inputs.forEach(input => {
+          if (input.placeholder) {
+            specificElements.push(`入力欄「${input.placeholder}」が正しく表示されている`);
+          } else if (input.name) {
+            specificElements.push(`${input.name}入力欄が正しく配置されている`);
+          }
+        });
+      }
+      
+      // ボタンの具体的な確認項目
+      if (this.domInfo.buttons.length > 0) {
+        this.domInfo.buttons.forEach(btn => {
+          if (btn.text) {
+            specificElements.push(`「${btn.text}」ボタンが正しく表示されている`);
+          }
+        });
+      }
+      
+      // リンクの具体的な確認項目
+      if (this.domInfo.links.length > 0) {
+        this.domInfo.links.slice(0, 3).forEach(link => { // 主要なリンクのみ
+          if (link.text) {
+            specificElements.push(`「${link.text}」リンクが正しく表示されている`);
+          }
+        });
+      }
+    }
+    
     baseCase.test_scenarios = [
       `${targetUrl}にアクセスする`,
       "ページが完全に読み込まれるまで待機する",
       `各UI要素が正しく配置されていることを確認する${userStoryContext}`,
+      ...specificElements.map(element => `${element}ことを確認する`),
       "文字が正しく表示され、文字化けや文字切れがないことを確認する",
-      "レイアウトが崩れていないことを確認する",
-      this.userStory ? "ユーザーストーリーに記載された要素が表示されていることを確認する" : "主要な機能要素が表示されていることを確認する"
+      "レイアウトが崩れていないことを確認する"
     ];
 
     baseCase.expected_results = [
@@ -279,7 +314,7 @@ class NaturalLanguageTestCaseGenerator {
       "すべてのUI要素が意図された位置に配置されている",
       "テキストが読みやすく表示されている",
       "レスポンシブデザインが適切に機能している",
-      this.userStory ? "ユーザーストーリーで期待される表示内容が確認できる" : "期待される表示内容が確認できる"
+      ...specificElements
     ];
 
     baseCase.preconditions = [
@@ -287,6 +322,17 @@ class NaturalLanguageTestCaseGenerator {
       "ブラウザが正常に動作している",
       this.userStory ? "ユーザーストーリーで想定されたアクセス権限がある" : "適切なアクセス権限がある"
     ];
+
+    // DOM解析結果を保存（Playwright実装生成時に活用）
+    if (this.domInfo) {
+      baseCase.dom_context = {
+        available_inputs: this.domInfo.inputs.length,
+        available_buttons: this.domInfo.buttons.length,
+        available_links: this.domInfo.links.length,
+        specific_elements: specificElements,
+        high_feasibility: true
+      };
+    }
 
     // PDF仕様書情報がある場合は追加情報を含める
     if (this.pdfSpecContent) {
@@ -298,20 +344,83 @@ class NaturalLanguageTestCaseGenerator {
   }
 
   /**
-   * 入力検証系自然言語テストケース
+   * 入力検証系自然言語テストケース（DOM解析結果対応）
    */
   generateInputValidationTestCase(baseCase, viewpoint) {
     const targetUrl = this.targetUrl || "対象ページ";
     const userStoryContext = this.userStory ? `（${this.userStory.substring(0, 50)}...に関連する）` : "";
     
-    baseCase.test_scenarios = [
-      `${targetUrl}にアクセスする`,
-      `入力フィールドを特定する${userStoryContext}`,
+    // DOM解析結果から具体的な入力フィールドとテストデータを生成
+    const specificFields = [];
+    const concreteTestData = [];
+    
+    if (this.domInfo && this.domInfo.inputs.length > 0) {
+      this.domInfo.inputs.forEach(input => {
+        const fieldInfo = {
+          selector: input.selector,
+          name: input.name,
+          type: input.type,
+          required: input.required,
+          placeholder: input.placeholder
+        };
+        
+        specificFields.push(fieldInfo);
+        
+        // 入力タイプに応じたテストデータを生成
+        if (input.type === 'email') {
+          concreteTestData.push(
+            { field: input.name, type: "invalid", value: "invalid-email", description: "無効なメール形式" },
+            { field: input.name, type: "valid", value: "test@example.com", description: "有効なメール形式" }
+          );
+        } else if (input.type === 'date') {
+          concreteTestData.push(
+            { field: input.name, type: "valid", value: "2024/12/31", description: "有効な日付" },
+            { field: input.name, type: "invalid", value: "invalid-date", description: "無効な日付形式" }
+          );
+        } else if (input.type === 'number') {
+          concreteTestData.push(
+            { field: input.name, type: "valid", value: "5", description: "有効な数値" },
+            { field: input.name, type: "invalid", value: "abc", description: "無効な数値（文字列）" }
+          );
+        } else {
+          concreteTestData.push(
+            { field: input.name, type: "empty", value: "", description: "空の入力値" },
+            { field: input.name, type: "valid", value: "テストデータ", description: "有効な入力値" }
+          );
+        }
+      });
+    }
+    
+    // 具体的な操作手順を生成
+    const scenarios = [`${targetUrl}にアクセスする`];
+    
+    if (specificFields.length > 0) {
+      scenarios.push(`入力フィールドを特定する${userStoryContext}`);
+      
+      // 必須フィールドの空値テスト
+      const requiredFields = specificFields.filter(f => f.required);
+      if (requiredFields.length > 0) {
+        scenarios.push(`必須フィールド（${requiredFields.map(f => f.name || f.placeholder).join('、')}）を空のまま送信操作を実行する`);
+      }
+      
+      // 各フィールドの個別テスト
+      specificFields.forEach(field => {
+        if (field.selector && field.type) {
+          scenarios.push(`${field.placeholder || field.name}フィールド（${field.selector}）に${field.type}形式のデータを入力テストする`);
+        }
+      });
+    } else {
+      scenarios.push(`入力フィールドを特定する${userStoryContext}`);
+    }
+    
+    scenarios.push(
       "有効な値を入力して正常動作を確認する",
       "無効な値（空文字、特殊文字、長すぎる文字列等）を入力する",
       "バリデーションメッセージが適切に表示されることを確認する",
       "フォーム送信時の動作を確認する"
-    ];
+    );
+    
+    baseCase.test_scenarios = scenarios;
 
     baseCase.expected_results = [
       "有効な値は正常に受け入れられる",
@@ -320,7 +429,8 @@ class NaturalLanguageTestCaseGenerator {
       "入力値の制限が正しく機能している"
     ];
 
-    baseCase.test_data = [
+    // DOM解析結果に基づく具体的なテストデータ
+    baseCase.test_data = concreteTestData.length > 0 ? concreteTestData : [
       { type: "valid", description: "正常な入力値", context: this.userStory ? "ユーザーストーリーに基づく実用的な値" : null },
       { type: "invalid_empty", description: "空文字" },
       { type: "invalid_special", description: "特殊文字" },
@@ -332,6 +442,16 @@ class NaturalLanguageTestCaseGenerator {
       "入力フィールドが表示されている",
       this.userStory ? "ユーザーストーリーで想定された入力権限がある" : "適切な入力権限がある"
     ];
+
+    // DOM解析結果を保存（Playwright実装生成時に活用）
+    if (this.domInfo) {
+      baseCase.dom_context = {
+        available_inputs: this.domInfo.inputs.length,
+        specific_inputs: specificFields,
+        concrete_test_data: concreteTestData,
+        high_feasibility: specificFields.length > 0 && this.domInfo.buttons.length > 0
+      };
+    }
 
     // PDF仕様書情報がある場合は追加情報を含める
     if (this.pdfSpecContent) {
@@ -839,7 +959,13 @@ class NaturalLanguageTestCaseGenerator {
         await this.loadPdfContent(options.pdfFile);
       }
       
-      // 4. コンテキスト情報の表示
+      // 4. 🔍 DOM解析を事前実行（NEW!）
+      if (this.targetUrl) {
+        console.log('🔍 DOM解析を事前実行してより具体的なテストケースを生成します...');
+        await this.loadDomAnalysis(this.targetUrl);
+      }
+      
+      // 5. コンテキスト情報の表示
       if (this.targetUrl) {
         console.log(`🎯 対象URL: ${this.targetUrl}`);
       }
@@ -849,25 +975,151 @@ class NaturalLanguageTestCaseGenerator {
       if (this.pdfSpecContent) {
         console.log(`📄 仕様書: ${this.pdfSpecContent}`);
       }
+      if (this.domInfo) {
+        console.log(`🔍 DOM解析結果: 入力${this.domInfo.inputs.length}個, ボタン${this.domInfo.buttons.length}個を反映`);
+      }
       
-      // 5. テスト観点を読み込み
+      // 6. テスト観点を読み込み
       const testPoints = this.loadTestPoints(testPointsFile);
       
-      // 6. 自然言語テストケースを生成（分類別）
+      // 7. 自然言語テストケースを生成（分類別・DOM解析結果を活用）
       const testCasesData = this.generateNaturalLanguageTestCases(testPoints);
       
-      // 7. テストケースを保存（分類別分割）
+      // 8. テストケースを保存（分類別分割）
       const savedFiles = this.saveNaturalLanguageTestCases(testCasesData, options.outputFile);
       
       console.log('✅ 自然言語テストケース生成が完了しました！');
-      console.log('🔄 次のステップ: generateSmartRoutes.js で各カテゴリを順次実行');
+      console.log('🔄 次のステップ: generateSmartRoutes.js で具体的なPlaywright実装を生成');
       console.log(`📋 メインファイル: ${path.basename(savedFiles.indexFile)}`);
+      
+      // DOM解析結果の効果をレポート
+      if (this.domInfo) {
+        console.log('📊 DOM解析効果:');
+        console.log(`   - より具体的なセレクタ指定が可能`);
+        console.log(`   - 実行可能性スコア向上が期待される`);
+        console.log(`   - ${this.domInfo.inputs.length}個の入力フィールドを詳細分析済み`);
+      }
       
       return savedFiles;
       
     } catch (error) {
       console.error('❌ 自然言語テストケース生成に失敗:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * DOM解析結果を事前読み込み
+   * @param {string} url - 対象URL
+   */
+  async loadDomAnalysis(url = null) {
+    if (!url && !this.targetUrl) {
+      console.log('⚠️ URL指定なし - DOM解析をスキップします');
+      return null;
+    }
+
+    const targetUrl = url || this.targetUrl;
+    console.log(`🔍 DOM解析を事前実行: ${targetUrl}`);
+
+    try {
+      const { chromium } = await import('playwright');
+      const browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      
+      await page.goto(targetUrl);
+      await page.waitForTimeout(3000); // ページ読み込み待機
+
+      // DOM情報を取得
+      const domInfo = await page.evaluate(() => {
+        const elements = {
+          inputs: [],
+          buttons: [],
+          links: [],
+          headings: [],
+          forms: [],
+          selects: []
+        };
+
+        // 入力フィールド解析
+        document.querySelectorAll('input, textarea, select').forEach(input => {
+          const elementInfo = {
+            tagName: input.tagName.toLowerCase(),
+            type: input.type || 'text',
+            name: input.name,
+            id: input.id,
+            placeholder: input.placeholder,
+            required: input.required,
+            disabled: input.disabled,
+            value: input.value,
+            selector: input.id ? `#${input.id}` : input.name ? `[name="${input.name}"]` : null
+          };
+
+          if (input.tagName.toLowerCase() === 'select') {
+            elementInfo.options = Array.from(input.options).map(opt => ({
+              value: opt.value,
+              text: opt.text
+            }));
+            elements.selects.push(elementInfo);
+          } else {
+            elements.inputs.push(elementInfo);
+          }
+        });
+
+        // ボタン解析
+        document.querySelectorAll('button, input[type="submit"], input[type="button"]').forEach(btn => {
+          elements.buttons.push({
+            tagName: btn.tagName.toLowerCase(),
+            type: btn.type,
+            text: btn.textContent?.trim() || btn.value,
+            id: btn.id,
+            className: btn.className,
+            disabled: btn.disabled,
+            selector: btn.id ? `#${btn.id}` : `text="${btn.textContent?.trim() || btn.value}"`
+          });
+        });
+
+        // リンク解析
+        document.querySelectorAll('a[href]').forEach(link => {
+          elements.links.push({
+            href: link.href,
+            text: link.textContent?.trim(),
+            id: link.id,
+            selector: link.id ? `#${link.id}` : `text="${link.textContent?.trim()}"`
+          });
+        });
+
+        // 見出し解析
+        document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+          elements.headings.push({
+            tagName: heading.tagName.toLowerCase(),
+            text: heading.textContent?.trim(),
+            id: heading.id
+          });
+        });
+
+        // フォーム解析
+        document.querySelectorAll('form').forEach(form => {
+          elements.forms.push({
+            id: form.id,
+            action: form.action,
+            method: form.method,
+            inputCount: form.querySelectorAll('input, textarea, select').length
+          });
+        });
+
+        return elements;
+      });
+
+      await browser.close();
+
+      this.domInfo = domInfo;
+      console.log(`✅ DOM解析完了: 入力${domInfo.inputs.length}個, ボタン${domInfo.buttons.length}個, リンク${domInfo.links.length}個`);
+      
+      return domInfo;
+
+    } catch (error) {
+      console.error(`❌ DOM解析エラー: ${error.message}`);
+      return null;
     }
   }
 }

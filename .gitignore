@@ -36,3 +36,4 @@ specs/*.pdf
 
 # Google Sheets API credentials (private)
 credentials.json *.json
+credentials.json
