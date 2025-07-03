@@ -859,7 +859,8 @@ function generateInvalidValue(inputType) {
     case 'number':
       return 'abc';
     case 'date':
-      return '無効な日付';
+      // 過去の日付を返す（3ヶ月以内制限に違反）
+      return '2023/12/25';
     default:
       return ''; // 空文字
   }
@@ -1174,6 +1175,183 @@ function generateTestValueForInput(inputType) {
     default:
       return 'テストデータ';
   }
+}
+
+/**
+ * 汎用的な日付バリデーションテストステップの生成
+ */
+function generateGenericDateValidationSteps(domInfo, baseUrl) {
+  const steps = [];
+  
+  // 日付フィールドを検索
+  const dateFields = domInfo.elements.inputs.filter(input => 
+    input.type === 'date' || 
+    input.name && input.name.toLowerCase().includes('date') ||
+    input.id && input.id.toLowerCase().includes('date') ||
+    input.placeholder && input.placeholder.toLowerCase().includes('日付')
+  );
+
+  if (dateFields.length === 0) {
+    console.log('⏭️ 日付フィールドが見つからないため、日付バリデーションテストをスキップします');
+    return null;
+  }
+
+  steps.push({
+    label: "対象ページにアクセス",
+    action: "load",
+    target: baseUrl
+  });
+
+  // 各日付フィールドに対してテスト
+  dateFields.forEach((dateField, index) => {
+    const fieldName = dateField.name || dateField.id || `date-field-${index}`;
+    const fieldSelector = dateField.recommendedSelector || `[name="${dateField.name}"]` || `#${dateField.id}`;
+
+    // 過去の日付テスト
+    const pastDate = getPastDateString();
+    steps.push({
+      label: `${fieldName}に過去の日付を入力`,
+      action: "fill",
+      target: fieldSelector,
+      value: pastDate
+    });
+
+    // 他の必須フィールドを埋める（汎用的に）
+    fillRequiredFields(steps, domInfo, dateField);
+
+    // バリデーションエラーの確認（複数のパターンを試行）
+    steps.push({
+      label: `${fieldName}のバリデーションエラーを確認`,
+      action: "checkValidationError",
+      target: fieldSelector,
+      expectedErrorIndicators: [
+        `.invalid-feedback:visible`,
+        `.error:visible`,
+        `[class*="error"]:visible`,
+        `.form-error:visible`,
+        `.field-error:visible`,
+        `[aria-invalid="true"]`
+      ]
+    });
+
+    // フォーム送信テスト
+    const submitButton = findSubmitButton(domInfo);
+    if (submitButton) {
+      steps.push({
+        label: "フォーム送信を試行",
+        action: "click",
+        target: submitButton.selector
+      });
+
+      steps.push({
+        label: "無効な日付のためページに留まることを確認",
+        action: "checkPageStay",
+        target: baseUrl,
+        timeout: 3000
+      });
+    }
+
+    // 有効な日付でのテスト
+    const futureDate = getFutureDateString(7); // 1週間後
+    steps.push({
+      label: `${fieldName}に有効な日付を入力`,
+      action: "fill",
+      target: fieldSelector,
+      value: futureDate
+    });
+
+    if (submitButton) {
+      steps.push({
+        label: "有効な日付でフォーム送信",
+        action: "click",
+        target: submitButton.selector
+      });
+
+      steps.push({
+        label: "有効な日付のため次画面に遷移することを確認",
+        action: "checkPageTransition",
+        target: baseUrl,
+        timeout: 10000
+      });
+    }
+  });
+
+  return {
+    route_id: `generic_date_validation_${getTimestamp()}`,
+    category: 'date_validation',
+    title: '汎用日付バリデーションテスト',
+    steps: steps,
+    generated_at: new Date().toISOString(),
+    test_focus: 'generic_date_validation',
+    fields_tested: dateFields.map(f => f.name || f.id)
+  };
+}
+
+/**
+ * 過去の日付文字列を生成（汎用的）
+ */
+function getPastDateString() {
+  const pastDate = new Date();
+  pastDate.setFullYear(pastDate.getFullYear() - 1); // 1年前
+  return formatDateForInput(pastDate);
+}
+
+/**
+ * 未来の日付文字列を生成（汎用的）
+ */
+function getFutureDateString(daysFromNow = 7) {
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + daysFromNow);
+  return formatDateForInput(futureDate);
+}
+
+/**
+ * 日付を複数の形式で生成（サイトによって異なるため）
+ */
+function formatDateForInput(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  
+  // 一般的な日付形式を試行（サイトに応じて自動調整）
+  return `${yyyy}/${mm}/${dd}`; // デフォルト形式
+}
+
+/**
+ * 必須フィールドを汎用的に埋める
+ */
+function fillRequiredFields(steps, domInfo, excludeField) {
+  const requiredFields = domInfo.elements.inputs.filter(input => 
+    input.required && input !== excludeField
+  );
+
+  requiredFields.forEach(field => {
+    const testValue = generateTestValueForInput(field.type);
+    if (testValue) {
+      steps.push({
+        label: `${field.name || field.id || 'フィールド'}に有効な値を入力`,
+        action: "fill",
+        target: field.recommendedSelector || `[name="${field.name}"]` || `#${field.id}`,
+        value: testValue
+      });
+    }
+  });
+}
+
+/**
+ * 送信ボタンを汎用的に検索
+ */
+function findSubmitButton(domInfo) {
+  return domInfo.elements.buttons.find(btn => 
+    btn.type === 'submit' ||
+    btn.text && (
+      btn.text.includes('送信') || 
+      btn.text.includes('確認') || 
+      btn.text.includes('予約') ||
+      btn.text.includes('Submit') ||
+      btn.text.includes('送る')
+    )
+  );
 }
 
 /**
@@ -1521,6 +1699,490 @@ ${constraintText}
 - より安全で確実な操作方法
 
 必ず上記の制約を考慮してJSONを生成してください。`;
+}
+
+/**
+ * 汎用的なblurバリデーションテストステップの生成
+ */
+function generateBlurValidationSteps(domInfo, baseUrl) {
+  const steps = [];
+  
+  // バリデーション対象フィールドを検索
+  const validationFields = domInfo.elements.inputs.filter(input => 
+    input.required || 
+    input.type === 'email' || 
+    input.type === 'number' || 
+    input.type === 'tel' ||
+    input.type === 'date' ||
+    (input.name && (
+      input.name.toLowerCase().includes('email') ||
+      input.name.toLowerCase().includes('phone') ||
+      input.name.toLowerCase().includes('tel') ||
+      input.name.toLowerCase().includes('date') ||
+      input.name.toLowerCase().includes('name')
+    ))
+  );
+
+  if (validationFields.length === 0) {
+    console.log('⏭️ バリデーション対象フィールドが見つからないため、blurバリデーションテストをスキップします');
+    return null;
+  }
+
+  steps.push({
+    label: "対象ページにアクセス",
+    action: "load",
+    target: baseUrl
+  });
+
+  // 各フィールドに対してblurバリデーションテスト
+  validationFields.forEach((field, index) => {
+    const fieldName = field.name || field.id || `field-${index}`;
+    const fieldSelector = field.recommendedSelector || `[name="${field.name}"]` || `#${field.id}`;
+
+    // 1. 必須フィールドの空白テスト
+    if (field.required) {
+      steps.push({
+        label: `${fieldName}にフォーカスを当てる`,
+        action: "focus",
+        target: fieldSelector
+      });
+
+      steps.push({
+        label: `${fieldName}を空のままフォーカスを外す`,
+        action: "blur",
+        target: fieldSelector
+      });
+
+      steps.push({
+        label: `${fieldName}の必須エラーメッセージを確認`,
+        action: "checkValidationError",
+        target: fieldSelector,
+        expectedErrorIndicators: [
+          `.invalid-feedback:visible`,
+          `.error:visible`,
+          `[class*="error"]:visible`,
+          `.form-error:visible`,
+          `.field-error:visible`,
+          `[aria-invalid="true"]`
+        ]
+      });
+    }
+
+    // 2. フォーマット無効値のテスト
+    const invalidValue = getInvalidValueForField(field);
+    if (invalidValue) {
+      steps.push({
+        label: `${fieldName}に無効な値「${invalidValue}」を入力`,
+        action: "fill",
+        target: fieldSelector,
+        value: invalidValue
+      });
+
+      steps.push({
+        label: `${fieldName}からフォーカスを外す`,
+        action: "blur",
+        target: fieldSelector
+      });
+
+      steps.push({
+        label: `${fieldName}のフォーマットエラーメッセージを確認`,
+        action: "checkValidationError",
+        target: fieldSelector,
+        expectedErrorIndicators: [
+          `.invalid-feedback:visible`,
+          `.error:visible`,
+          `[class*="error"]:visible`,
+          `.form-error:visible`,
+          `.field-error:visible`,
+          `[aria-invalid="true"]`
+        ]
+      });
+    }
+
+    // 3. 有効値でエラーが消えることの確認
+    const validValue = getValidValueForField(field);
+    if (validValue) {
+      steps.push({
+        label: `${fieldName}に有効な値「${validValue}」を入力`,
+        action: "fill",
+        target: fieldSelector,
+        value: validValue
+      });
+
+      steps.push({
+        label: `${fieldName}からフォーカスを外す`,
+        action: "blur",
+        target: fieldSelector
+      });
+
+      steps.push({
+        label: `${fieldName}のエラーメッセージが消えることを確認`,
+        action: "checkValidationCleared",
+        target: fieldSelector,
+        timeout: 2000
+      });
+    }
+  });
+
+  return {
+    route_id: `blur_validation_${getTimestamp()}`,
+    category: 'blur_validation',
+    title: '汎用blurバリデーションテスト',
+    steps: steps,
+    generated_at: new Date().toISOString(),
+    test_focus: 'real_time_field_validation',
+    fields_tested: validationFields.map(f => f.name || f.id)
+  };
+}
+
+/**
+ * フィールドタイプに応じた無効値を生成
+ */
+function getInvalidValueForField(field) {
+  if (field.type === 'email' || field.name?.toLowerCase().includes('email')) {
+    return 'invalid-email-format';
+  }
+  if (field.type === 'number' || field.name?.toLowerCase().includes('number')) {
+    return 'abc123';
+  }
+  if (field.type === 'tel' || field.name?.toLowerCase().includes('phone') || field.name?.toLowerCase().includes('tel')) {
+    return 'invalid-phone';
+  }
+  if (field.type === 'date' || field.name?.toLowerCase().includes('date')) {
+    return getPastDateString(); // 過去の日付
+  }
+  if (field.name?.toLowerCase().includes('name')) {
+    return '123'; // 名前フィールドに数字のみ
+  }
+  return null;
+}
+
+/**
+ * フィールドタイプに応じた有効値を生成
+ */
+function getValidValueForField(field) {
+  if (field.type === 'email' || field.name?.toLowerCase().includes('email')) {
+    return 'test@example.com';
+  }
+  if (field.type === 'number' || field.name?.toLowerCase().includes('number')) {
+    return '123';
+  }
+  if (field.type === 'tel' || field.name?.toLowerCase().includes('phone') || field.name?.toLowerCase().includes('tel')) {
+    return '090-1234-5678';
+  }
+  if (field.type === 'date' || field.name?.toLowerCase().includes('date')) {
+    return getFutureDateString(7); // 1週間後
+  }
+  if (field.name?.toLowerCase().includes('name')) {
+    return 'テスト太郎';
+  }
+  if (field.name?.toLowerCase().includes('term')) {
+    return '2';
+  }
+  if (field.name?.toLowerCase().includes('count')) {
+    return '2';
+  }
+  return 'テスト値';
+}
+
+/**
+ * 包括的なフォームバリデーションテストの生成（blur + submit）
+ */
+function generateComprehensiveValidationSteps(domInfo, baseUrl) {
+  const steps = [];
+  
+  steps.push({
+    label: "対象ページにアクセス",
+    action: "load",
+    target: baseUrl
+  });
+
+  // 1. 全フィールドのblurバリデーション
+  const blurTest = generateBlurValidationSteps(domInfo, baseUrl);
+  if (blurTest) {
+    steps.push(...blurTest.steps.slice(1)); // 最初のloadステップは除く
+  }
+
+  // 2. 日付バリデーション
+  const dateTest = generateGenericDateValidationSteps(domInfo, baseUrl);
+  if (dateTest) {
+    steps.push(...dateTest.steps.slice(1)); // 最初のloadステップは除く
+  }
+
+  return {
+    route_id: `comprehensive_validation_${getTimestamp()}`,
+    category: 'comprehensive_validation',
+    title: '包括的フォームバリデーションテスト',
+    steps: steps,
+    generated_at: new Date().toISOString(),
+    test_focus: 'complete_form_validation_coverage'
+  };
+}
+
+/**
+ * 高度なSPA・JS UI対応のDOM解析
+ */
+async function extractAdvancedDynamicPageInfo(url) {
+  console.log(`🚀 高度な動的DOM解析開始: ${url}`);
+  
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  
+  try {
+    // 1. ページ読み込み + 複数の待機戦略
+    await page.goto(url, { waitUntil: 'networkidle' });
+    console.log('✅ 初期ページ読み込み完了');
+
+    // 2. SPA用の追加待機戦略
+    await waitForSPAReady(page);
+    
+    // 3. 動的要素の完全読み込み待機
+    await waitForLazyElements(page);
+    
+    // 4. 包括的DOM情報取得
+    const pageInfo = await page.evaluate(() => {
+      const info = {
+        title: document.title,
+        url: window.location.href,
+        framework: detectFramework(),
+        elements: {
+          headings: [],
+          links: [],
+          buttons: [],
+          inputs: [],
+          dynamicInputs: [],
+          asyncElements: [],
+          forms: [],
+          navigation: []
+        },
+        spa_info: {
+          has_router: false,
+          framework_detected: null,
+          lazy_loaded_count: 0
+        }
+      };
+
+      // フレームワーク検出
+      function detectFramework() {
+        if (window.React) return 'React';
+        if (window.Vue) return 'Vue';
+        if (window.angular) return 'Angular';
+        if (window.jQuery) return 'jQuery';
+        if (document.querySelector('[ng-app]')) return 'AngularJS';
+        return 'Vanilla';
+      }
+
+      // 動的入力フィールド検出（より高度）
+      document.querySelectorAll('input, textarea, select').forEach(input => {
+        const elementInfo = {
+          tagName: input.tagName.toLowerCase(),
+          type: input.type || 'text',
+          name: input.name,
+          id: input.id,
+          placeholder: input.placeholder,
+          required: input.required,
+          disabled: input.disabled,
+          visible: input.offsetParent !== null,
+          computed_style: {
+            display: window.getComputedStyle(input).display,
+            visibility: window.getComputedStyle(input).visibility,
+            opacity: window.getComputedStyle(input).opacity
+          },
+          event_listeners: getEventListenerCount(input),
+          validation_attributes: getValidationAttributes(input),
+          dependent_elements: findDependentElements(input),
+          selector: generateRobustSelector(input)
+        };
+
+        if (elementInfo.visible) {
+          info.elements.inputs.push(elementInfo);
+        } else {
+          info.elements.dynamicInputs.push(elementInfo);
+        }
+      });
+
+      // ボタンの高度解析
+      document.querySelectorAll('button, input[type="submit"], input[type="button"]').forEach(btn => {
+        info.elements.buttons.push({
+          tagName: btn.tagName.toLowerCase(),
+          type: btn.type,
+          text: btn.textContent?.trim() || btn.value,
+          id: btn.id,
+          className: btn.className,
+          disabled: btn.disabled,
+          visible: btn.offsetParent !== null,
+          has_click_handler: hasClickHandler(btn),
+          prevents_default: detectPreventDefault(btn),
+          selector: generateRobustSelector(btn),
+          form_association: btn.form ? btn.form.id : null
+        });
+      });
+
+      // 非同期読み込み要素の検出
+      const observers = document.querySelectorAll('[data-lazy], [loading="lazy"], .lazy');
+      info.spa_info.lazy_loaded_count = observers.length;
+
+      // ヘルパー関数
+      function getEventListenerCount(element) {
+        return {
+          click: element.onclick ? 1 : 0,
+          change: element.onchange ? 1 : 0,
+          input: element.oninput ? 1 : 0,
+          focus: element.onfocus ? 1 : 0,
+          blur: element.onblur ? 1 : 0
+        };
+      }
+
+      function getValidationAttributes(input) {
+        return {
+          pattern: input.pattern,
+          min: input.min,
+          max: input.max,
+          minLength: input.minLength,
+          maxLength: input.maxLength,
+          step: input.step
+        };
+      }
+
+      function findDependentElements(input) {
+        const dependents = [];
+        if (input.name === 'contact') {
+          const emailField = document.querySelector('[name="email"]');
+          const phoneField = document.querySelector('[name="phone"], [name="tel"]');
+          if (emailField) dependents.push('email');
+          if (phoneField) dependents.push('phone');
+        }
+        return dependents;
+      }
+
+      function generateRobustSelector(element) {
+        if (element.id) return `#${element.id}`;
+        if (element.name) return `[name="${element.name}"]`;
+        if (element.type) return `${element.tagName.toLowerCase()}[type="${element.type}"]`;
+        return element.tagName.toLowerCase();
+      }
+
+      function hasClickHandler(button) {
+        return !!(button.onclick || button.addEventListener);
+      }
+
+      function detectPreventDefault(button) {
+        // 簡易的な検出（実際のhandlerの解析は困難）
+        return button.type === 'button' && !button.form;
+      }
+
+      return info;
+    });
+
+    // 5. SPA特有の情報を追加取得
+    const spaInfo = await analyzeSPAFeatures(page);
+    pageInfo.spa_info = { ...pageInfo.spa_info, ...spaInfo };
+
+    console.log(`🎯 高度DOM解析完了:`);
+    console.log(`  📱 フレームワーク: ${pageInfo.framework}`);
+    console.log(`  📝 入力要素: 表示${pageInfo.elements.inputs.length}個, 非表示${pageInfo.elements.dynamicInputs.length}個`);
+    console.log(`  🔄 SPA機能: ルータ=${pageInfo.spa_info.has_router}, 遅延読み込み=${pageInfo.spa_info.lazy_loaded_count}個`);
+    
+    return pageInfo;
+    
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * SPA準備完了待機
+ */
+async function waitForSPAReady(page) {
+  console.log('⏳ SPA準備完了を待機中...');
+  
+  // 複数の戦略を並行実行
+  await Promise.race([
+    // 戦略1: React/Vue等の準備完了検出
+    page.waitForFunction(() => {
+      return window.React || window.Vue || window.angular || 
+             document.querySelector('[data-reactroot]') ||
+             document.querySelector('[data-vue-root]');
+    }, { timeout: 5000 }).catch(() => {}),
+    
+    // 戦略2: カスタムローディング完了検出
+    page.waitForFunction(() => {
+      const loader = document.querySelector('.loading, .spinner, [data-loading]');
+      return !loader || loader.style.display === 'none';
+    }, { timeout: 5000 }).catch(() => {}),
+    
+    // 戦略3: 固定時間待機（フォールバック）
+    page.waitForTimeout(3000)
+  ]);
+  
+  console.log('✅ SPA準備完了');
+}
+
+/**
+ * 遅延読み込み要素の待機
+ */
+async function waitForLazyElements(page) {
+  console.log('⏳ 遅延読み込み要素を待機中...');
+  
+  try {
+    // Intersection Observer の完了を待機
+    await page.waitForFunction(() => {
+      const lazyElements = document.querySelectorAll('[data-lazy], [loading="lazy"]');
+      return Array.from(lazyElements).every(el => 
+        el.getAttribute('data-loaded') === 'true' || 
+        !el.hasAttribute('data-lazy')
+      );
+    }, { timeout: 5000 });
+  } catch (error) {
+    console.log('⚠️ 遅延読み込み要素の待機タイムアウト（処理を続行）');
+  }
+  
+  console.log('✅ 遅延読み込み要素の解析完了');
+}
+
+/**
+ * SPA機能の解析
+ */
+async function analyzeSPAFeatures(page) {
+  return await page.evaluate(() => {
+    const spaInfo = {
+      has_router: false,
+      framework_detected: null,
+      api_endpoints: [],
+      state_management: false
+    };
+
+    // ルータ検出
+    if (window.history && window.history.pushState) {
+      spaInfo.has_router = true;
+    }
+
+    // フレームワーク固有検出
+    if (window.React) {
+      spaInfo.framework_detected = 'React';
+      spaInfo.state_management = !!(window.Redux || window.__REDUX_DEVTOOLS_EXTENSION__);
+    } else if (window.Vue) {
+      spaInfo.framework_detected = 'Vue';
+      spaInfo.state_management = !!(window.Vuex);
+    } else if (window.angular) {
+      spaInfo.framework_detected = 'Angular';
+    }
+
+    // API エンドポイント検出（Network interceptはできないので基本的な検出のみ）
+    const scripts = Array.from(document.scripts);
+    const apiPatterns = ['/api/', '/v1/', '/graphql', 'fetch(', 'axios.'];
+    scripts.forEach(script => {
+      if (script.textContent) {
+        apiPatterns.forEach(pattern => {
+          if (script.textContent.includes(pattern)) {
+            spaInfo.api_endpoints.push(pattern);
+          }
+        });
+      }
+    });
+
+    return spaInfo;
+  });
 }
 
 // メイン処理

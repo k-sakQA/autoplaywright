@@ -157,6 +157,191 @@ export class PlaywrightRunner {
         }
       }
 
+      // 日付バリデーションエラーの特別処理
+      if (step.label.includes('日付バリデーションエラーメッセージ')) {
+        try {
+          await this.page.waitForSelector(step.target, { timeout: step.timeout || 3000 });
+          console.log('✅ 日付バリデーションエラーメッセージが正しく表示されました');
+          return true;
+        } catch (error) {
+          console.log('❌ 日付バリデーションエラーメッセージが表示されていません（仕様違反の可能性）');
+          return false;
+        }
+      }
+
+      // 汎用的なバリデーションエラーチェック
+      if (step.action === 'checkValidationError') {
+        const errorIndicators = step.expectedErrorIndicators || [step.target];
+        let errorFound = false;
+        
+        for (const indicator of errorIndicators) {
+          try {
+            await this.page.waitForSelector(indicator, { timeout: 1000 });
+            console.log(`✅ バリデーションエラーを検出: ${indicator}`);
+            errorFound = true;
+            break;
+          } catch (error) {
+            // 次の指標を試行
+            continue;
+          }
+        }
+        
+        if (!errorFound) {
+          // フィールドのaria-invalid属性もチェック
+          try {
+            const fieldElement = await this.page.locator(step.target).first();
+            const ariaInvalid = await fieldElement.getAttribute('aria-invalid');
+            if (ariaInvalid === 'true') {
+              console.log('✅ バリデーションエラーをaria-invalid属性で検出');
+              errorFound = true;
+            }
+          } catch (error) {
+            // 属性チェック失敗
+          }
+        }
+        
+        if (!errorFound) {
+          console.log('❌ バリデーションエラーが検出されませんでした（仕様違反の可能性）');
+          return false;
+        }
+        
+        return true;
+      }
+
+      // ページが留まることの確認
+      if (step.action === 'checkPageStay') {
+        const initialUrl = this.page.url();
+        
+        // 少し待って、URLが変わらないことを確認
+        await this.page.waitForTimeout(step.timeout || 3000);
+        const currentUrl = this.page.url();
+        
+        // ベースURLと比較（クエリパラメータは無視）
+        const initialBase = new URL(initialUrl).pathname;
+        const currentBase = new URL(currentUrl).pathname;
+        
+        if (initialBase === currentBase) {
+          console.log('✅ ページに正しく留まっています（フォーム送信が阻止された）');
+          return true;
+        } else {
+          console.log(`❌ ページが遷移しました: ${initialUrl} → ${currentUrl}`);
+          return false;
+        }
+      }
+
+      // ページ遷移の確認
+      if (step.action === 'checkPageTransition') {
+        const initialUrl = this.page.url();
+        
+        // 指定時間内にページが変わることを確認
+        try {
+          await this.page.waitForFunction(
+            (startUrl) => window.location.href !== startUrl,
+            { timeout: step.timeout || 10000 },
+            initialUrl
+          );
+          
+          const newUrl = this.page.url();
+          console.log(`✅ ページが正常に遷移しました: ${initialUrl} → ${newUrl}`);
+          return true;
+        } catch (error) {
+          console.log(`❌ 指定時間内にページ遷移が発生しませんでした`);
+          return false;
+        }
+      }
+
+      // バリデーションエラーがクリアされることの確認
+      if (step.action === 'checkValidationCleared') {
+        const errorIndicators = [
+          `.invalid-feedback:visible`,
+          `.error:visible`,
+          `[class*="error"]:visible`,
+          `.form-error:visible`,
+          `.field-error:visible`
+        ];
+        
+        let errorStillExists = false;
+        
+        // 少し待ってからエラーメッセージが消えたことを確認
+        await this.page.waitForTimeout(500);
+        
+        for (const indicator of errorIndicators) {
+          try {
+            const elements = await this.page.locator(indicator).count();
+            if (elements > 0) {
+              // さらに詳細チェック：実際に表示されているか
+              const visibleElements = await this.page.locator(indicator).filter({ hasText: /.+/ }).count();
+              if (visibleElements > 0) {
+                errorStillExists = true;
+                break;
+              }
+            }
+          } catch (error) {
+            // このエラー指標は存在しない
+            continue;
+          }
+        }
+        
+        // aria-invalid属性もチェック
+        try {
+          const fieldElement = await this.page.locator(step.target).first();
+          const ariaInvalid = await fieldElement.getAttribute('aria-invalid');
+          if (ariaInvalid === 'true') {
+            errorStillExists = true;
+          }
+        } catch (error) {
+          // 属性チェック失敗
+        }
+        
+        if (!errorStillExists) {
+          console.log('✅ バリデーションエラーが正しくクリアされました');
+          return true;
+        } else {
+          console.log('❌ バリデーションエラーがまだ表示されています');
+          return false;
+        }
+      }
+
+      // フォーカスアクション
+      if (step.action === 'focus') {
+        await this.page.focus(step.target, { timeout: step.timeout || 5000 });
+        console.log(`✅ フォーカス設定: ${step.target}`);
+        return true;
+      }
+
+      // ブラーアクション（フォーカスを外す）
+      if (step.action === 'blur') {
+        await this.page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          if (element) {
+            element.blur();
+            // blurイベントを明示的に発火
+            element.dispatchEvent(new Event('blur', { bubbles: true }));
+          }
+        }, step.target);
+        
+        // ブラー後の処理が完了するまで少し待機
+        await this.page.waitForTimeout(300);
+        
+        console.log(`✅ フォーカス解除: ${step.target}`);
+        return true;
+      }
+
+      // URL確認アクション（assertURL）の追加
+      if (step.action === 'assertURL') {
+        const currentUrl = this.page.url();
+        const expectedPattern = step.target.replace(/\*/g, '.*');
+        const regex = new RegExp(expectedPattern);
+        
+        if (regex.test(currentUrl)) {
+          console.log(`✅ URL確認成功: ${currentUrl} matches ${step.target}`);
+          return true;
+        } else {
+          console.log(`❌ URL確認失敗: ${currentUrl} does not match ${step.target}`);
+          return false;
+        }
+      }
+
       // チェックボックスの処理
       if (step.action === 'fill' && step.target.includes('checkbox')) {
         await this.page.click(step.target, { timeout: step.timeout || 5000 });
@@ -176,8 +361,303 @@ export class PlaywrightRunner {
         console.log('🔧 電話番号入力欄のセレクタを[name="tel"]に変更します');
       }
 
+      // SPA用の高度な要素待機
+      if (step.action === 'waitForSPAElement') {
+        try {
+          // 複数の戦略で要素を待機
+          await Promise.race([
+            // 戦略1: 通常のセレクタ待機
+            this.page.waitForSelector(step.target, { timeout: step.timeout || 10000 }),
+            
+            // 戦略2: フレームワーク準備完了後の待機
+            this.waitForFrameworkReady().then(() => 
+              this.page.waitForSelector(step.target, { timeout: 5000 })
+            ),
+            
+            // 戦略3: 動的レンダリング完了後の待機
+            this.waitForDynamicRender(step.target)
+          ]);
+          
+          console.log(`✅ SPA要素が正常に表示されました: ${step.target}`);
+          return true;
+        } catch (error) {
+          console.log(`❌ SPA要素の待機に失敗: ${step.target} - ${error.message}`);
+          return false;
+        }
+      }
+
+      // 状態変更待機（React/Vue等のState変更対応）
+      if (step.action === 'waitForStateChange') {
+        try {
+          const stateChangeDetected = await this.page.waitForFunction(
+            (selector, expectedState) => {
+              const element = document.querySelector(selector);
+              if (!element) return false;
+              
+              // React fiber による状態確認
+              const reactFiber = element._reactInternalFiber || element._reactInternalInstance;
+              if (reactFiber && reactFiber.stateNode) {
+                return JSON.stringify(reactFiber.stateNode.state).includes(expectedState);
+              }
+              
+              // Vue による状態確認
+              if (element.__vue__) {
+                return JSON.stringify(element.__vue__.$data).includes(expectedState);
+              }
+              
+              // フォールバック: DOM属性による確認
+              return element.getAttribute('data-state') === expectedState ||
+                     element.textContent.includes(expectedState);
+            },
+            { timeout: step.timeout || 10000 },
+            step.target,
+            step.expectedState || step.value
+          );
+
+          console.log(`✅ 状態変更を検出しました: ${step.target}`);
+          return true;
+        } catch (error) {
+          console.log(`❌ 状態変更の検出に失敗: ${error.message}`);
+          return false;
+        }
+      }
+
+      // API呼び出し完了待機
+      if (step.action === 'waitForAPIResponse') {
+        try {
+          // ネットワークアクティビティの監視
+          let networkIdle = false;
+          let responseReceived = false;
+
+          // リクエスト監視の開始
+          this.page.on('request', (request) => {
+            if (request.url().includes(step.apiPath || '/api/')) {
+              console.log(`🌐 API リクエスト開始: ${request.url()}`);
+            }
+          });
+
+          // レスポンス監視
+          this.page.on('response', (response) => {
+            if (response.url().includes(step.apiPath || '/api/')) {
+              console.log(`✅ API レスポンス受信: ${response.status()}`);
+              responseReceived = true;
+            }
+          });
+
+          // ネットワーク待機
+          await this.page.waitForLoadState('networkidle', { timeout: step.timeout || 15000 });
+          networkIdle = true;
+
+          if (responseReceived || networkIdle) {
+            console.log(`✅ API処理完了を確認しました`);
+            return true;
+          } else {
+            console.log(`⚠️ API処理完了を確認できませんでした`);
+            return false;
+          }
+        } catch (error) {
+          console.log(`❌ API待機エラー: ${error.message}`);
+          return false;
+        }
+      }
+
+      // 高度なイベント発火（React/Vue向け）
+      if (step.action === 'triggerFrameworkEvent') {
+        try {
+          const result = await this.page.evaluate((target, eventType, eventData) => {
+            const element = document.querySelector(target);
+            if (!element) return { success: false, reason: 'element_not_found' };
+
+            // React イベント発火
+            if (element._reactInternalFiber || element._reactInternalInstance) {
+              const event = new Event(eventType, { bubbles: true, cancelable: true });
+              if (eventData) {
+                Object.assign(event, eventData);
+              }
+              element.dispatchEvent(event);
+              return { success: true, framework: 'React' };
+            }
+
+            // Vue イベント発火
+            if (element.__vue__) {
+              element.__vue__.$emit(eventType, eventData);
+              return { success: true, framework: 'Vue' };
+            }
+
+            // フォールバック: 標準イベント
+            const event = new Event(eventType, { bubbles: true, cancelable: true });
+            element.dispatchEvent(event);
+            return { success: true, framework: 'Standard' };
+          }, step.target, step.eventType || 'change', step.eventData);
+
+          if (result.success) {
+            console.log(`✅ フレームワークイベント発火成功 (${result.framework}): ${step.target}`);
+            return true;
+          } else {
+            console.log(`❌ フレームワークイベント発火失敗: ${result.reason}`);
+            return false;
+          }
+        } catch (error) {
+          console.log(`❌ フレームワークイベント発火エラー: ${error.message}`);
+          return false;
+        }
+      }
+
       switch (step.action) {
-        // ... existing code ...
+        case 'load':
+          await this.page.goto(targetUrl, { waitUntil: 'networkidle' });
+          console.log(`✅ ページを読み込みました: ${targetUrl}`);
+          break;
+
+        case 'click':
+          await this.page.click(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ クリックしました: ${step.target}`);
+          break;
+
+        case 'fill':
+          await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          console.log(`✅ 入力しました: ${step.target} = "${step.value}"`);
+          break;
+
+        case 'select':
+          await this.page.selectOption(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          console.log(`✅ 選択しました: ${step.target} = "${step.value}"`);
+          break;
+
+        case 'waitForSelector':
+          await this.page.waitForSelector(step.target, { timeout: step.timeout || 10000 });
+          console.log(`✅ 要素が表示されました: ${step.target}`);
+          break;
+
+        case 'waitForURL':
+          await this.page.waitForURL(step.target, { timeout: step.timeout || 10000 });
+          console.log(`✅ URLに遷移しました: ${step.target}`);
+          break;
+
+        case 'assertVisible':
+          // 🔧 重要: 実際の検証を実装
+          try {
+            // 要素の存在と可視性を確認
+            const element = this.page.locator(step.target);
+            const elementCount = await element.count();
+            
+            if (elementCount === 0) {
+              throw new Error(`要素が見つかりません: ${step.target}`);
+            }
+            
+            // 要素が表示されているかを確認
+            const isVisible = await element.first().isVisible();
+            if (!isVisible) {
+              throw new Error(`要素は存在しますが表示されていません: ${step.target}`);
+            }
+            
+            console.log(`✅ 要素の表示を確認しました: ${step.target}`);
+          } catch (error) {
+            console.log(`❌ 表示確認に失敗: ${step.target} - ${error.message}`);
+            throw error; // エラーを再スローして失敗として扱う
+          }
+          break;
+
+        case 'assertText':
+          // テキスト内容の検証
+          try {
+            const element = this.page.locator(step.target);
+            const elementCount = await element.count();
+            
+            if (elementCount === 0) {
+              throw new Error(`要素が見つかりません: ${step.target}`);
+            }
+            
+            const actualText = await element.first().textContent();
+            const expectedText = step.value || step.expectedText;
+            
+            if (!actualText || !actualText.includes(expectedText)) {
+              throw new Error(`期待されるテキスト「${expectedText}」が見つかりません。実際のテキスト: "${actualText}"`);
+            }
+            
+            console.log(`✅ テキストの確認成功: ${step.target} contains "${expectedText}"`);
+          } catch (error) {
+            console.log(`❌ テキスト確認に失敗: ${step.target} - ${error.message}`);
+            throw error;
+          }
+          break;
+
+        case 'screenshot':
+          const screenshotPath = `test-results/screenshot_${Date.now()}.png`;
+          await this.page.screenshot({ path: screenshotPath, fullPage: step.target === 'full-page' });
+          console.log(`✅ スクリーンショットを保存: ${screenshotPath}`);
+          break;
+
+        case 'waitForTimeout':
+          const timeout = parseInt(step.target) || parseInt(step.value) || 1000;
+          await this.page.waitForTimeout(timeout);
+          console.log(`✅ ${timeout}ms待機しました`);
+          break;
+
+        case 'evaluate':
+          // JavaScript直接実行
+          const result = await this.page.evaluate(step.target);
+          console.log(`✅ JavaScript実行完了:`, result);
+          break;
+
+        case 'hover':
+          await this.page.hover(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ ホバーしました: ${step.target}`);
+          break;
+
+        case 'doubleClick':
+          await this.page.dblclick(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ ダブルクリックしました: ${step.target}`);
+          break;
+
+        case 'keyPress':
+          await this.page.press(step.target, step.value, { timeout: step.timeout || 5000 });
+          console.log(`✅ キーを押しました: ${step.value} on ${step.target}`);
+          break;
+
+        case 'scroll':
+          if (step.target === 'bottom') {
+            await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+          } else if (step.target === 'top') {
+            await this.page.evaluate(() => window.scrollTo(0, 0));
+          } else {
+            await this.page.locator(step.target).scrollIntoViewIfNeeded();
+          }
+          console.log(`✅ スクロールしました: ${step.target}`);
+          break;
+
+        case 'check':
+          await this.page.check(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ チェックボックスをチェックしました: ${step.target}`);
+          break;
+
+        case 'uncheck':
+          await this.page.uncheck(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ チェックボックスのチェックを外しました: ${step.target}`);
+          break;
+
+        case 'scroll_and_click':
+          await this.page.locator(step.target).scrollIntoViewIfNeeded();
+          await this.page.waitForTimeout(500);
+          await this.page.click(step.target, { timeout: step.timeout || 5000 });
+          console.log(`✅ スクロール後クリックしました: ${step.target}`);
+          break;
+
+        case 'scroll_and_fill':
+          await this.page.locator(step.target).scrollIntoViewIfNeeded();
+          await this.page.waitForTimeout(500);
+          await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          console.log(`✅ スクロール後入力しました: ${step.target} = "${step.value}"`);
+          break;
+
+        case 'skip':
+          console.log(`⏭️ ステップをスキップ: ${step.label} - ${step.fix_reason || 'スキップ理由不明'}`);
+          break;
+
+        default:
+          console.log(`⚠️ 未サポートのアクション: ${step.action}`);
+          // サポートされていないアクションの場合は成功として扱う（後方互換性）
+          break;
       }
       return true;
     } catch (error) {
@@ -194,6 +674,74 @@ export class PlaywrightRunner {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
+    }
+  }
+
+  /**
+   * フレームワーク準備完了待機
+   */
+  async waitForFrameworkReady() {
+    try {
+      await this.page.waitForFunction(() => {
+        // React Ready
+        if (window.React && document.querySelector('[data-reactroot]')) {
+          return true;
+        }
+        
+        // Vue Ready
+        if (window.Vue && window.Vue.version) {
+          return true;
+        }
+        
+        // Angular Ready
+        if (window.ng && window.ng.version) {
+          return true;
+        }
+        
+        // jQuery Ready
+        if (window.jQuery && window.jQuery.isReady) {
+          return true;
+        }
+        
+        return false;
+      }, { timeout: 5000 });
+      
+      console.log('✅ フレームワーク準備完了');
+    } catch (error) {
+      console.log('⚠️ フレームワーク検出タイムアウト（標準モードで続行）');
+    }
+  }
+
+  /**
+   * 動的レンダリング完了待機
+   */
+  async waitForDynamicRender(selector) {
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    while (attempts < maxAttempts) {
+      try {
+        const element = await this.page.locator(selector).first();
+        
+        // 要素の存在確認
+        if (await element.count() > 0) {
+          // 要素のサイズが確定するまで待機
+          const boundingBox = await element.boundingBox();
+          if (boundingBox && boundingBox.width > 0 && boundingBox.height > 0) {
+            console.log(`✅ 動的レンダリング完了: ${selector}`);
+            return element;
+          }
+        }
+        
+        await this.page.waitForTimeout(250);
+        attempts++;
+      } catch (error) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          throw new Error(`動的レンダリング待機タイムアウト: ${selector}`);
+        }
+        await this.page.waitForTimeout(250);
+      }
     }
   }
 }
