@@ -12,6 +12,10 @@ import { z } from "zod";
 import playwrightConfig from '../playwright.config.js';
 import GoogleSheetsUploader from './utils/googleSheetsUploader.js';
 
+// 新しいレポーター機能を追加
+import AutoPlaywrightReporter from './utils/autoplaywrightReporter.js';
+import USISDirectoryManager from './utils/usisDirectoryManager.js';
+
 // configのスキーマ定義
 const ConfigSchema = z.object({
   openai: z.object({
@@ -76,9 +80,52 @@ export const openAIConfig = getOpenAIConfig(config);
  */
 
 export class PlaywrightRunner {
-  constructor() {
+  constructor(options = {}) {
     this.browser = null;
     this.page = null;
+    
+    // レポーター機能を統合
+    this.reporter = new AutoPlaywrightReporter({
+      outputDir: options.outputDir || path.join(process.cwd(), 'test-results'),
+      enableScreenshots: options.enableScreenshots !== false,
+      enableDomSnapshots: options.enableDomSnapshots !== false,
+      enableAIAnalysis: options.enableAIAnalysis !== false
+    });
+    
+    // USISディレクトリマネージャーを統合
+    this.directoryManager = new USISDirectoryManager({
+      baseDir: options.outputDir || path.join(process.cwd(), 'test-results'),
+      enableLegacyMigration: options.enableLegacyMigration !== false
+    });
+    
+    // ユーザーストーリー情報を初期化
+    this.userStoryInfo = null;
+    this.setupUserStoryInfo();
+  }
+
+  /**
+   * ユーザーストーリー情報を設定
+   */
+  setupUserStoryInfo() {
+    try {
+      const configPath = path.join(process.cwd(), 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      
+      if (config.userStory) {
+        this.userStoryInfo = config.userStory;
+        this.reporter.setUserStoryInfo(config.userStory);
+        console.log(`🔗 ユーザーストーリーID ${config.userStory.currentId} を設定`);
+        
+        // USIS構造を初期化
+        this.directoryManager.initializeStructure(config.userStory.currentId);
+      } else {
+        console.log('⚠️ ユーザーストーリー情報が見つかりません。共通ディレクトリを使用します。');
+        this.directoryManager.initializeStructure();
+      }
+    } catch (error) {
+      console.log('⚠️ ユーザーストーリー情報の読み込みに失敗:', error.message);
+      this.directoryManager.initializeStructure();
+    }
   }
 
   async initialize() {
@@ -88,6 +135,13 @@ export class PlaywrightRunner {
         headless: process.env.NODE_ENV === 'production'
       });
       this.page = await this.browser.newPage();
+      
+      // レポーターにテストメタデータを設定
+      this.reporter.setTestMetadata({
+        targetUrl: config.targetUrl,
+        category: 'web_ui_test',
+        isFixedRoute: false
+      });
       
       // configからtargetUrlを取得して直接移動
       if (config.targetUrl) {
@@ -127,11 +181,14 @@ export class PlaywrightRunner {
     return new URL(relativePath, config.targetUrl).toString();
   }
 
-  async executeStep(step) {
+  async executeStep(step, stepIndex = 0) {
     if (!this.page) throw new Error('ページが初期化されていません');
     const targetUrl = step.target.startsWith('http') 
       ? step.target 
       : this.getFullUrl(step.target);
+
+    // レポーターにステップ開始を通知
+    const stepLog = this.reporter.onStepBegin(step, stepIndex);
 
     try {
       // バリデーションテストの場合、エラーは期待された動作
@@ -654,19 +711,407 @@ export class PlaywrightRunner {
           console.log(`⏭️ ステップをスキップ: ${step.label} - ${step.fix_reason || 'スキップ理由不明'}`);
           break;
 
+        case 'selectOption':
+          await this.page.selectOption(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          break;
+
+        // 🚀 新しい高度validation アクション
+        case 'assertOptionCount':
+          const selectElement = this.page.locator(step.target);
+          const optionCount = await selectElement.locator('option').count();
+          if (optionCount !== step.expectedCount) {
+            throw new Error(`選択肢数が期待値と異なります: 期待値=${step.expectedCount}, 実際値=${optionCount}`);
+          }
+          console.log(`✅ 選択肢数確認: ${optionCount}個`);
+          break;
+
+        case 'assertOptionTexts':
+          const selectForTexts = this.page.locator(step.target);
+          const actualTexts = await selectForTexts.locator('option').allTextContents();
+          const expectedTexts = step.expectedTexts || [];
+          if (JSON.stringify(actualTexts) !== JSON.stringify(expectedTexts)) {
+            throw new Error(`選択肢テキストが期待値と異なります: 期待値=[${expectedTexts.join(', ')}], 実際値=[${actualTexts.join(', ')}]`);
+          }
+          console.log(`✅ 選択肢テキスト確認: [${actualTexts.join(', ')}]`);
+          break;
+
+        case 'assertOptionValues':
+          const selectForValues = this.page.locator(step.target);
+          const actualValues = await selectForValues.locator('option').evaluateAll(
+            options => options.map(opt => opt.value)
+          );
+          const expectedValues = step.expectedValues || [];
+          if (JSON.stringify(actualValues) !== JSON.stringify(expectedValues)) {
+            throw new Error(`選択肢値が期待値と異なります: 期待値=[${expectedValues.join(', ')}], 実際値=[${actualValues.join(', ')}]`);
+          }
+          console.log(`✅ 選択肢値確認: [${actualValues.join(', ')}]`);
+          break;
+
+        case 'assertSelectedValue':
+          const selectForSelected = this.page.locator(step.target);
+          const selectedValue = await selectForSelected.inputValue();
+          const expectedValue = step.expectedValue;
+          if (selectedValue !== expectedValue) {
+            throw new Error(`選択値が期待値と異なります: 期待値=${expectedValue}, 実際値=${selectedValue}`);
+          }
+          console.log(`✅ 選択値確認: ${selectedValue}`);
+          break;
+
+        case 'assertEmailValidation':
+          const emailInput = this.page.locator(step.target);
+          const emailValue = await emailInput.inputValue();
+          const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailPattern.test(emailValue)) {
+            throw new Error(`メールアドレス形式が無効です: ${emailValue}`);
+          }
+          console.log(`✅ メールアドレス形式確認: ${emailValue}`);
+          break;
+
+        case 'assertPhoneValidation':
+          const phoneInput = this.page.locator(step.target);
+          const phoneValue = await phoneInput.inputValue();
+          const phonePattern = /^[\d\-\+\(\)\s]+$/;
+          if (!phonePattern.test(phoneValue)) {
+            throw new Error(`電話番号形式が無効です: ${phoneValue}`);
+          }
+          console.log(`✅ 電話番号形式確認: ${phoneValue}`);
+          break;
+
+        case 'assertNumericValidation':
+          const numInput = this.page.locator(step.target);
+          const numValue = await numInput.inputValue();
+          if (isNaN(parseFloat(numValue))) {
+            throw new Error(`数値形式が無効です: ${numValue}`);
+          }
+          console.log(`✅ 数値形式確認: ${numValue}`);
+          break;
+
+        case 'assertMinMax':
+          const minMaxInput = this.page.locator(step.target);
+          const value = parseFloat(await minMaxInput.inputValue());
+          const min = step.min || parseFloat(await minMaxInput.getAttribute('min'));
+          const max = step.max || parseFloat(await minMaxInput.getAttribute('max'));
+          if (min !== null && value < min) {
+            throw new Error(`値が最小値を下回っています: 値=${value}, 最小値=${min}`);
+          }
+          if (max !== null && value > max) {
+            throw new Error(`値が最大値を超えています: 値=${value}, 最大値=${max}`);
+          }
+          console.log(`✅ 値範囲確認: ${value} (${min} ≤ 値 ≤ ${max})`);
+          break;
+
+        case 'assertDateFormat':
+          const dateInput = this.page.locator(step.target);
+          const dateValue = await dateInput.inputValue();
+          const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+          if (!datePattern.test(dateValue)) {
+            throw new Error(`日付形式が無効です: ${dateValue} (期待形式: YYYY-MM-DD)`);
+          }
+          console.log(`✅ 日付形式確認: ${dateValue}`);
+          break;
+
+        case 'assertChecked':
+          const checkboxElement = this.page.locator(step.target);
+          const isChecked = await checkboxElement.isChecked();
+          if (!isChecked) {
+            throw new Error(`チェックボックスがチェックされていません: ${step.target}`);
+          }
+          console.log(`✅ チェック状態確認: チェック済み`);
+          break;
+
+        case 'assertUnchecked':
+          const uncheckElement = this.page.locator(step.target);
+          const isUnchecked = await uncheckElement.isChecked();
+          if (isUnchecked) {
+            throw new Error(`チェックボックスがチェックされています: ${step.target}`);
+          }
+          console.log(`✅ チェック状態確認: 未チェック`);
+          break;
+
+        case 'assertResponse':
+          // ナビゲーションまたは状態変化を確認
+          try {
+            await this.page.waitForLoadState('networkidle', { timeout: 3000 });
+            console.log(`✅ レスポンス確認: ページの応答完了`);
+          } catch (error) {
+            console.log(`⚠️ レスポンス確認: タイムアウト（処理続行）`);
+          }
+          break;
+
+        case 'assertFormSubmission':
+          // フォーム送信の確認（URL変化またはメッセージ表示）
+          const currentUrl = this.page.url();
+          try {
+            await this.page.waitForURL(url => url !== currentUrl, { timeout: 5000 });
+            console.log(`✅ フォーム送信確認: URLが変化しました`);
+          } catch (error) {
+            // URL変化しない場合、成功メッセージを確認
+            const successMessage = this.page.locator('.success, .message, [class*="success"], [class*="complete"]');
+            if (await successMessage.count() > 0) {
+              console.log(`✅ フォーム送信確認: 成功メッセージを検出`);
+            } else {
+              throw new Error('フォーム送信の確認ができませんでした');
+            }
+          }
+          break;
+
+        // 🚀 フェーズ2: 包括的validation アクション
+        case 'locator_setup':
+          // ロケータの設定（主にテストの明確化のため）
+          const locator = this.page.locator(step.target);
+          await locator.waitFor({ state: 'visible', timeout: step.timeout || 5000 });
+          console.log(`✅ ロケータ設定完了: ${step.target}`);
+          break;
+
+        case 'assertValidationError':
+          // バリデーションエラーメッセージの確認
+          const errorSelectors = [
+            '.error', '.invalid', '.validation-error',
+            '[class*="error"]', '[class*="invalid"]', '[class*="validation"]',
+            '.form-error', '.field-error', '.input-error'
+          ];
+          
+          let errorFound = false;
+          for (const selector of errorSelectors) {
+            const errorElement = this.page.locator(selector);
+            if (await errorElement.count() > 0 && await errorElement.isVisible()) {
+              const errorText = await errorElement.textContent();
+              console.log(`✅ バリデーションエラー確認: ${errorText}`);
+              errorFound = true;
+              break;
+            }
+          }
+          
+          // HTML5バリデーションも確認
+          if (!errorFound) {
+            const inputElement = this.page.locator(step.target);
+            const isValid = await inputElement.evaluate(el => el.checkValidity());
+            if (!isValid) {
+              console.log(`✅ HTML5バリデーションエラー確認`);
+              errorFound = true;
+            }
+          }
+          
+          if (!errorFound) {
+            throw new Error('期待されたバリデーションエラーが表示されませんでした');
+          }
+          break;
+
+        case 'assertPlaceholder':
+          const placeholderElement = this.page.locator(step.target);
+          const actualPlaceholder = await placeholderElement.getAttribute('placeholder');
+          const expectedPlaceholder = step.expectedPlaceholder;
+          if (actualPlaceholder !== expectedPlaceholder) {
+            throw new Error(`プレースホルダーが期待値と異なります: 期待値=${expectedPlaceholder}, 実際値=${actualPlaceholder}`);
+          }
+          console.log(`✅ プレースホルダー確認: ${actualPlaceholder}`);
+          break;
+
+        case 'assertPattern':
+          const patternElement = this.page.locator(step.target);
+          const inputValue = await patternElement.inputValue();
+          const pattern = new RegExp(step.pattern);
+          if (!pattern.test(inputValue)) {
+            throw new Error(`入力値がパターンに一致しません: 値=${inputValue}, パターン=${step.pattern}`);
+          }
+          console.log(`✅ パターン確認: ${inputValue} matches ${step.pattern}`);
+          break;
+
+        case 'assertDependentFields':
+          // 依存フィールドの表示/非表示確認
+          const dependentSelectors = step.dependentFields || [];
+          for (const dependentSelector of dependentSelectors) {
+            const dependentElement = this.page.locator(dependentSelector);
+            const shouldBeVisible = step.expectedVisibility !== false;
+            
+            if (shouldBeVisible) {
+              await dependentElement.waitFor({ state: 'visible', timeout: 3000 });
+              console.log(`✅ 依存フィールド表示確認: ${dependentSelector}`);
+            } else {
+              await dependentElement.waitFor({ state: 'hidden', timeout: 3000 });
+              console.log(`✅ 依存フィールド非表示確認: ${dependentSelector}`);
+            }
+          }
+          break;
+
+        case 'assertGroupBehavior':
+          // チェックボックスグループの動作確認
+          if (step.target.includes('checkbox')) {
+            const groupElements = this.page.locator(`input[name="${step.groupName}"]`);
+            const checkedCount = await groupElements.evaluateAll(
+              inputs => inputs.filter(input => input.checked).length
+            );
+            
+            if (step.expectedCheckedCount !== undefined && checkedCount !== step.expectedCheckedCount) {
+              throw new Error(`チェック済み数が期待値と異なります: 期待値=${step.expectedCheckedCount}, 実際値=${checkedCount}`);
+            }
+            console.log(`✅ グループ動作確認: ${checkedCount}個がチェック済み`);
+          }
+          break;
+
+        case 'assertGroupExclusive':
+          // ラジオボタングループの排他制御確認
+          if (step.target.includes('radio')) {
+            const groupElements = this.page.locator(`input[name="${step.groupName}"]`);
+            const checkedElements = await groupElements.evaluateAll(
+              inputs => inputs.filter(input => input.checked)
+            );
+            
+            if (checkedElements.length > 1) {
+              throw new Error(`ラジオボタンで複数選択されています: ${checkedElements.length}個`);
+            }
+            console.log(`✅ 排他制御確認: 1個のみ選択済み`);
+          }
+          break;
+
+        case 'assertInitialState':
+          // 要素の初期状態確認
+          const initialElement = this.page.locator(step.target);
+          const initialValue = await initialElement.inputValue();
+          const expectedInitialValue = step.expectedInitialValue || '';
+          
+          if (initialValue !== expectedInitialValue) {
+            throw new Error(`初期値が期待値と異なります: 期待値=${expectedInitialValue}, 実際値=${initialValue}`);
+          }
+          console.log(`✅ 初期状態確認: ${initialValue}`);
+          break;
+
+        case 'assertStateChange':
+          // 状態変化の確認（DOM、URL、ローカルストレージ等）
+          const beforeState = step.beforeState || {};
+          const afterState = step.afterState || {};
+          
+          // URL変化確認
+          if (afterState.url) {
+            await this.page.waitForURL(afterState.url, { timeout: 5000 });
+            console.log(`✅ URL変化確認: ${this.page.url()}`);
+          }
+          
+          // DOM変化確認
+          if (afterState.element) {
+            const changedElement = this.page.locator(afterState.element);
+            await changedElement.waitFor({ state: 'visible', timeout: 5000 });
+            console.log(`✅ DOM変化確認: ${afterState.element} が表示`);
+          }
+          
+          console.log(`✅ 状態変化確認完了`);
+          break;
+
         default:
           console.log(`⚠️ 未サポートのアクション: ${step.action}`);
           // サポートされていないアクションの場合は成功として扱う（後方互換性）
           break;
       }
+      
+      // レポーターに成功を通知
+      this.reporter.onStepEnd(stepIndex, { actualResult: 'success' });
       return true;
     } catch (error) {
       console.error(`ステップの実行に失敗しました:`, error);
+      
+      // レポーターに失敗を通知（詳細情報付き）
+      await this.reportStepFailure(stepIndex, error, step);
       throw error;
     }
   }
 
+  /**
+   * ステップ失敗時の詳細レポート
+   */
+  async reportStepFailure(stepIndex, error, step) {
+    try {
+      const context = {
+        pageUrl: this.page.url(),
+        pageTitle: await this.page.title(),
+        consoleErrors: [], // 後で実装
+        networkStatus: null // 後で実装
+      };
+
+      // スクリーンショットを取得
+      if (this.reporter.options.enableScreenshots) {
+        context.screenshot = await this.page.screenshot();
+      }
+
+      // DOM状態を取得
+      if (this.reporter.options.enableDomSnapshots) {
+        context.domSnapshot = await this.page.content();
+      }
+
+      // 利用可能な要素情報を収集
+      if (step.target) {
+        context.availableElements = await this.collectAvailableElements(step.target);
+      }
+
+      this.reporter.onStepFailure(stepIndex, error, context);
+    } catch (reportError) {
+      console.error('⚠️ 失敗レポート生成エラー:', reportError.message);
+    }
+  }
+
+  /**
+   * 利用可能な要素情報を収集
+   */
+  async collectAvailableElements(targetSelector) {
+    try {
+      const elements = await this.page.evaluate((selector) => {
+        const findSimilarElements = (sel) => {
+          // セレクタの種類を判定
+          if (sel.startsWith('#')) {
+            // IDセレクタの場合、類似IDを検索
+            const targetId = sel.substring(1);
+            const similarIds = Array.from(document.querySelectorAll('[id]'))
+              .map(el => el.id)
+              .filter(id => id.includes(targetId) || targetId.includes(id))
+              .slice(0, 5);
+            return similarIds.map(id => ({ selector: `#${id}`, type: 'similar_id' }));
+          } else if (sel.startsWith('.')) {
+            // クラスセレクタの場合、類似クラスを検索
+            const targetClass = sel.substring(1);
+            const elements = Array.from(document.querySelectorAll(`[class*="${targetClass}"]`))
+              .slice(0, 5);
+            return elements.map(el => ({ 
+              selector: `.${el.className.split(' ')[0]}`, 
+              type: 'similar_class',
+              text: el.textContent?.substring(0, 50) || ''
+            }));
+          } else {
+            // その他のセレクタ（ボタン、input等）
+            const tagMatch = sel.match(/^(\w+)/);
+            if (tagMatch) {
+              const tag = tagMatch[1];
+              const elements = Array.from(document.querySelectorAll(tag)).slice(0, 5);
+              return elements.map(el => ({
+                selector: `${tag}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ')[0]}` : ''}`,
+                type: 'similar_tag',
+                text: el.textContent?.substring(0, 50) || el.value || ''
+              }));
+            }
+          }
+          return [];
+        };
+
+        return findSimilarElements(selector);
+      }, targetSelector);
+
+      return elements;
+    } catch (error) {
+      console.log('⚠️ 利用可能要素収集エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * テスト完了時のレポート処理
+   */
+  finishTest() {
+    this.reporter.onTestComplete();
+    console.log(`📊 詳細レポートが保存されました: ${this.reporter.getUSISDirectory()}`);
+  }
+
   async cleanup() {
+    // レポーターのテスト完了処理
+    this.finishTest();
+    
     if (this.page) {
       await this.page.close();
       this.page = null;

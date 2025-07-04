@@ -472,30 +472,223 @@ function calculateFeasibilityScore(testCase, domInfo) {
  * @returns {Object} Playwright実装
  */
 function convertToPlaywrightImplementation(testCase, domInfo, targetUrl) {
-  const steps = [];
+  console.log(`🔄 変換中: ${testCase.title}`);
   
-  // 基本的なページアクセス
+  // 新しいDOM解析ベースのテストジェネレータを初期化
+  const domGenerator = new DOMBasedTestGenerator(domInfo);
+  
+  // フェーズ2: 包括的テストジェネレータも初期化
+  const comprehensiveGenerator = new ComprehensiveTestGenerator(domInfo, { targetUrl });
+  
+  const steps = [];
+
+  // 1. ページ読み込み
   steps.push({
-    label: "対象ページにアクセスする",
-    action: "load",
+    label: 'ページにアクセス',
+    action: 'load',
     target: targetUrl
   });
 
-  // カテゴリ別の実装生成
-  switch (testCase.category) {
-    case 'display':
-      return generateDisplaySteps(testCase, domInfo, steps);
-    case 'input_validation':
-      return generateInputValidationSteps(testCase, domInfo, steps);
-    case 'interaction':
-      return generateInteractionSteps(testCase, domInfo, steps);
-    case 'navigation':
-      return generateNavigationSteps(testCase, domInfo, steps);
-    case 'data_verification':
-      return generateDataVerificationSteps(testCase, domInfo, steps);
-    default:
-      return generateGeneralSteps(testCase, domInfo, steps);
+  // 2. 包括的テストが必要かどうかを判定
+  const needsComprehensiveTest = testCase.priority === 'high' || 
+                                  testCase.description.includes('包括') || 
+                                  testCase.description.includes('詳細') ||
+                                  testCase.description.includes('バリデーション');
+
+  if (needsComprehensiveTest) {
+    console.log(`🎯 包括的テスト生成モード: ${testCase.title}`);
+    
+    // DOM要素に対する包括的テストケース生成
+    const relevantElements = findRelevantElements(testCase, domInfo);
+    
+    relevantElements.forEach(element => {
+      const comprehensiveTestCase = comprehensiveGenerator.generateComprehensiveTestCase(element, 'complete_validation');
+      
+      // 包括的テストケースのステップを統合
+      comprehensiveTestCase.steps.forEach(step => {
+        steps.push({
+          ...step,
+          // 元のテストケース情報を保持
+          original_viewpoint: testCase.original_viewpoint,
+          test_case_id: testCase.id,
+          comprehensive_test: true
+        });
+      });
+      
+      console.log(`✅ ${element.name || element.id}要素の包括的テスト生成完了: ${comprehensiveTestCase.steps.length}ステップ`);
+    });
+  } else {
+    // 3. 標準のDOM解析ベースのスマートステップ生成
+    if (testCase.description.includes('プルダウン') || testCase.description.includes('select') || testCase.description.includes('選択')) {
+      generateSmartSelectSteps(testCase, domInfo, steps, domGenerator);
+    }
+    
+    if (testCase.description.includes('入力') || testCase.description.includes('input') || testCase.description.includes('フィールド')) {
+      generateSmartInputSteps(testCase, domInfo, steps, domGenerator);
+    }
+    
+    if (testCase.description.includes('ボタン') || testCase.description.includes('button') || testCase.description.includes('クリック')) {
+      generateSmartButtonSteps(testCase, domInfo, steps, domGenerator);
+    }
+    
+    if (testCase.description.includes('表示') || testCase.description.includes('確認') || testCase.description.includes('検証')) {
+      generateSmartValidationSteps(testCase, domInfo, steps, domGenerator);
+    }
+
+    // 従来のロジックも併用（後方互換性）
+    generateDisplaySteps(testCase, domInfo, steps);
+    generateInputValidationSteps(testCase, domInfo, steps);
+    generateInteractionSteps(testCase, domInfo, steps);
+    generateNavigationSteps(testCase, domInfo, steps);
+    generateDataVerificationSteps(testCase, domInfo, steps);
+    generateGeneralSteps(testCase, domInfo, steps);
   }
+
+  console.log(`✅ 変換完了: ${steps.length}ステップ生成 (包括的: ${needsComprehensiveTest})`);
+  return steps;
+}
+
+/**
+ * テストケースに関連する要素を特定
+ */
+function findRelevantElements(testCase, domInfo) {
+  const relevantElements = [];
+  const allElements = [
+    ...(domInfo.elements.inputs || []),
+    ...(domInfo.elements.buttons || [])
+  ];
+
+  allElements.forEach(element => {
+    const elementName = element.name || element.id || element.text || '';
+    const elementType = element.tagName || element.type || '';
+    
+    // テストケースの説明に要素名やタイプが含まれているかチェック
+    if (testCase.description.includes(elementName) || 
+        testCase.description.includes(elementType) ||
+        testCase.title.includes(elementName)) {
+      relevantElements.push(element);
+    }
+    
+    // select要素で「ご連絡方法」関連の場合
+    if (element.tagName === 'select' && element.name === 'contact' && 
+        (testCase.description.includes('連絡') || testCase.description.includes('選択'))) {
+      relevantElements.push(element);
+    }
+  });
+
+  // 関連要素が見つからない場合は、全ての主要要素を対象にする
+  if (relevantElements.length === 0 && testCase.priority === 'high') {
+    return allElements.slice(0, 3); // 最初の3要素に限定
+  }
+
+  return relevantElements;
+}
+
+/**
+ * スマートなselect要素ステップ生成
+ */
+function generateSmartSelectSteps(testCase, domInfo, steps, domGenerator) {
+  const selectElements = domInfo.elements.inputs?.filter(el => el.tagName === 'select') || [];
+  
+  selectElements.forEach(selectElement => {
+    if (testCase.description.includes(selectElement.name) || testCase.description.includes('ご連絡方法')) {
+      console.log(`🎯 select要素「${selectElement.name}」の高度テスト生成中...`);
+      
+      // 複雑なテストシーケンスを生成
+      const actionSequence = domGenerator.generateOptimalActionSequence(selectElement, 'complex');
+      
+      actionSequence.forEach(action => {
+        steps.push({
+          ...action,
+          // トレーサビリティ情報を追加
+          original_viewpoint: testCase.original_viewpoint,
+          generated_from_dom: true,
+          dom_element_info: {
+            tagName: selectElement.tagName,
+            name: selectElement.name,
+            options: selectElement.options
+          }
+        });
+      });
+      
+      console.log(`✅ select要素「${selectElement.name}」に${actionSequence.length}個のアクションを生成`);
+    }
+  });
+}
+
+/**
+ * スマートな入力要素ステップ生成
+ */
+function generateSmartInputSteps(testCase, domInfo, steps, domGenerator) {
+  const inputElements = domInfo.elements.inputs?.filter(el => el.tagName === 'input') || [];
+  
+  inputElements.forEach(inputElement => {
+    const testComplexity = testCase.priority === 'high' ? 'complex' : 'validation';
+    const actionSequence = domGenerator.generateOptimalActionSequence(inputElement, testComplexity);
+    
+    actionSequence.forEach(action => {
+      steps.push({
+        ...action,
+        original_viewpoint: testCase.original_viewpoint,
+        generated_from_dom: true,
+        dom_element_info: {
+          tagName: inputElement.tagName,
+          type: inputElement.type,
+          name: inputElement.name,
+          required: inputElement.required
+        }
+      });
+    });
+  });
+}
+
+/**
+ * スマートなボタン要素ステップ生成
+ */
+function generateSmartButtonSteps(testCase, domInfo, steps, domGenerator) {
+  const buttonElements = domInfo.elements.buttons || [];
+  
+  buttonElements.forEach(buttonElement => {
+    if (testCase.description.includes(buttonElement.text) || testCase.description.includes('送信') || testCase.description.includes('確認')) {
+      const actionSequence = domGenerator.generateOptimalActionSequence(buttonElement, 'validation');
+      
+      actionSequence.forEach(action => {
+        steps.push({
+          ...action,
+          original_viewpoint: testCase.original_viewpoint,
+          generated_from_dom: true,
+          dom_element_info: {
+            tagName: buttonElement.tagName,
+            text: buttonElement.text,
+            type: buttonElement.type
+          }
+        });
+      });
+    }
+  });
+}
+
+/**
+ * スマートな検証ステップ生成
+ */
+function generateSmartValidationSteps(testCase, domInfo, steps, domGenerator) {
+  // 全要素に対する包括的検証
+  const allElements = [
+    ...(domInfo.elements.inputs || []),
+    ...(domInfo.elements.buttons || [])
+  ];
+  
+  allElements.forEach(element => {
+    // 要素の存在確認
+    steps.push({
+      label: `「${element.name || element.id || element.text}」要素の存在確認`,
+      action: 'assertVisible',
+      target: domGenerator.generateRobustSelector(element),
+      original_viewpoint: testCase.original_viewpoint,
+      generated_from_dom: true,
+      validation_type: 'existence_check'
+    });
+  });
 }
 
 /**
@@ -1474,6 +1667,62 @@ async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo) {
 
 // スマートテストルート生成
 async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null, naturalTestCasesFile = null) {
+  // 🚀 包括的テストが要求された場合の処理（フェーズ4実装）
+  if (testGoal.includes('包括') || testGoal.includes('バリデーション') || testGoal.includes('詳細') || testGoal.includes('comprehensive')) {
+    console.log('🎯 包括的テスト生成モードを検出');
+    
+    // 包括的テストジェネレータを使用
+    const comprehensiveGenerator = new ComprehensiveTestGenerator(pageInfo, userStoryInfo);
+    
+    // select要素が存在する場合、包括的テストを生成
+    const selectElements = pageInfo.elements.inputs?.filter(el => el.tagName === 'select') || [];
+    
+    if (selectElements.length > 0) {
+      console.log(`📋 ${selectElements.length}個のselect要素に対する包括的テスト生成中...`);
+      
+      const comprehensiveSteps = [];
+      
+      // ページ読み込み
+      comprehensiveSteps.push({
+        label: 'ページにアクセス',
+        action: 'load',
+        target: url
+      });
+      
+      selectElements.forEach(selectElement => {
+        const comprehensiveTestCase = comprehensiveGenerator.generateComprehensiveTestCase(selectElement, 'complete_validation');
+        
+        comprehensiveTestCase.steps.forEach(step => {
+          comprehensiveSteps.push({
+            ...step,
+            comprehensive_test: true,
+            generated_from_dom: true
+          });
+        });
+        
+        console.log(`✅ ${selectElement.name || selectElement.id}要素の包括的テスト: ${comprehensiveTestCase.steps.length}ステップ生成`);
+      });
+      
+      // 包括的ルートを返す
+      return {
+        route_id: `comprehensive_route_${getTimestamp()}`,
+        user_story_id: userStoryInfo?.currentId || null,
+        generated_from_natural_case: naturalTestCasesFile ? `comprehensive_${Date.now()}` : null,
+        original_viewpoint: testGoal,
+        route_metadata: {
+          complexity: 'comprehensive',
+          test_approach: 'dom_based_comprehensive',
+          element_count: selectElements.length,
+          validation_count: comprehensiveSteps.filter(s => s.action?.startsWith('assert')).length
+        },
+        steps: comprehensiveSteps,
+        generated_at: new Date().toISOString()
+      };
+    } else {
+      console.log('⚠️ select要素が見つかりません。標準テスト生成にフォールバック');
+    }
+  }
+
   // 自然言語テストケースが指定されている場合はDOM照合モードで実行
   if (naturalTestCasesFile) {
     console.log('🔄 DOM照合モードで実行します');
@@ -2185,6 +2434,631 @@ async function analyzeSPAFeatures(page) {
   });
 }
 
+/**
+ * DOM解析ベースの高度要素タイプ判定とアクション最適化
+ */
+class DOMBasedTestGenerator {
+  constructor(domInfo) {
+    this.domInfo = domInfo;
+    this.elementActionMap = this.buildElementActionMap();
+  }
+
+  /**
+   * 要素タイプとアクションの最適なマッピングを構築
+   */
+  buildElementActionMap() {
+    const actionMap = new Map();
+    
+    // 入力フィールドのアクションマッピング
+    actionMap.set('input[type="text"]', { 
+      primary: 'fill', 
+      validation: ['clear', 'fill', 'assertValue'],
+      complex: ['fill', 'blur', 'assertValidation', 'assertPlaceholder'] 
+    });
+    
+    actionMap.set('input[type="email"]', { 
+      primary: 'fill', 
+      validation: ['fill', 'blur', 'assertEmailValidation'],
+      complex: ['fill', 'blur', 'assertPattern', 'assertInvalidEmail'] 
+    });
+    
+    actionMap.set('input[type="tel"]', { 
+      primary: 'fill', 
+      validation: ['fill', 'blur', 'assertPhoneValidation'],
+      complex: ['fill', 'blur', 'assertFormat', 'assertInternationalFormat'] 
+    });
+    
+    actionMap.set('input[type="number"]', { 
+      primary: 'fill', 
+      validation: ['fill', 'assertMinMax', 'assertStep'],
+      complex: ['fill', 'assertNumericValidation', 'assertDecimalHandling'] 
+    });
+    
+    actionMap.set('input[type="date"]', { 
+      primary: 'fill', 
+      validation: ['fill', 'assertDateFormat', 'assertMinMaxDate'],
+      complex: ['fill', 'assertCalendarPicker', 'assertDateValidation'] 
+    });
+    
+    // ⭐ select要素の完全対応
+    actionMap.set('select', { 
+      primary: 'selectOption', 
+      validation: ['selectOption', 'assertSelectedValue', 'assertOptionCount'],
+      complex: ['assertOptionCount', 'assertOptionTexts', 'assertOptionValues', 'selectOption', 'assertSelectedValue', 'assertDependentFields'] 
+    });
+    
+    // ボタンのアクションマッピング
+    actionMap.set('button', { 
+      primary: 'click', 
+      validation: ['click', 'assertNavigation'],
+      complex: ['assertEnabled', 'click', 'assertResponse', 'assertStateChange'] 
+    });
+    
+    actionMap.set('input[type="submit"]', { 
+      primary: 'click', 
+      validation: ['click', 'assertFormSubmission'],
+      complex: ['assertFormValidation', 'click', 'assertSubmissionResponse'] 
+    });
+    
+    // checkbox & radio
+    actionMap.set('input[type="checkbox"]', { 
+      primary: 'check', 
+      validation: ['check', 'assertChecked', 'uncheck', 'assertUnchecked'],
+      complex: ['assertInitialState', 'check', 'assertGroupBehavior', 'assertDependentElements'] 
+    });
+    
+    actionMap.set('input[type="radio"]', { 
+      primary: 'check', 
+      validation: ['check', 'assertChecked', 'assertGroupExclusive'],
+      complex: ['assertGroupOptions', 'check', 'assertExclusiveSelection', 'assertValue'] 
+    });
+    
+    return actionMap;
+  }
+
+  /**
+   * 要素に最適なアクションシーケンスを生成
+   */
+  generateOptimalActionSequence(element, testComplexity = 'validation') {
+    const elementType = this.determineElementType(element);
+    const actionConfig = this.elementActionMap.get(elementType);
+    
+    if (!actionConfig) {
+      console.warn(`🤷‍♂️ 未知の要素タイプ: ${elementType}`);
+      return [{ action: 'click', reason: 'fallback action' }];
+    }
+    
+    const actions = actionConfig[testComplexity] || actionConfig.primary;
+    return this.buildDetailedActionSteps(element, actions, elementType);
+  }
+
+  /**
+   * 詳細な要素タイプ判定
+   */
+  determineElementType(element) {
+    const tagName = element.tagName?.toLowerCase();
+    const type = element.type?.toLowerCase();
+    
+    if (tagName === 'select') {
+      return 'select';
+    }
+    
+    if (tagName === 'input') {
+      return `input[type="${type || 'text'}"]`;
+    }
+    
+    if (tagName === 'button') {
+      return 'button';
+    }
+    
+    if (tagName === 'textarea') {
+      return 'textarea';
+    }
+    
+    return `${tagName}`;
+  }
+
+  /**
+   * 詳細なアクションステップを構築
+   */
+  buildDetailedActionSteps(element, actions, elementType) {
+    const steps = [];
+    
+    for (const action of actions) {
+      const step = this.createDetailedStep(element, action, elementType);
+      if (step) {
+        steps.push(step);
+      }
+    }
+    
+    return steps;
+  }
+
+  /**
+   * 詳細なステップ作成（要素タイプ特化）
+   */
+  createDetailedStep(element, action, elementType) {
+    const baseStep = {
+      target: this.generateRobustSelector(element),
+      elementType: elementType,
+      elementInfo: {
+        name: element.name,
+        id: element.id,
+        visible: element.visible,
+        required: element.required
+      }
+    };
+
+    switch (action) {
+      case 'fill':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id || 'input'}」フィールドに値を入力`,
+          action: 'fill',
+          value: this.generateTestValueForElement(element),
+          validation: {
+            beforeAction: ['assertVisible', 'assertEnabled'],
+            afterAction: ['assertValue']
+          }
+        };
+
+      case 'selectOption':
+        const options = element.options || [];
+        if (options.length === 0) {
+          console.warn(`⚠️ select要素にoptionがありません: ${element.name}`);
+          return null;
+        }
+        
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id || 'select'}」プルダウンから選択`,
+          action: 'selectOption',
+          value: options[0]?.value || options[0]?.text,
+          options: options,
+          validation: {
+            beforeAction: ['assertVisible', 'assertEnabled', 'assertOptionCount'],
+            afterAction: ['assertSelectedValue']
+          }
+        };
+
+      case 'assertOptionCount':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id}」の選択肢数を確認`,
+          action: 'assertOptionCount',
+          expectedCount: element.options?.length || 0,
+          validation: {
+            beforeAction: ['assertVisible']
+          }
+        };
+
+      case 'assertOptionTexts':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id}」の選択肢テキストを確認`,
+          action: 'assertOptionTexts',
+          expectedTexts: element.options?.map(opt => opt.text) || [],
+          validation: {
+            beforeAction: ['assertVisible']
+          }
+        };
+
+      case 'assertOptionValues':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id}」の選択肢値を確認`,
+          action: 'assertOptionValues',
+          expectedValues: element.options?.map(opt => opt.value) || [],
+          validation: {
+            beforeAction: ['assertVisible']
+          }
+        };
+
+      case 'check':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id || 'checkbox'}」をチェック`,
+          action: 'check',
+          validation: {
+            beforeAction: ['assertVisible', 'assertEnabled'],
+            afterAction: ['assertChecked']
+          }
+        };
+
+      case 'click':
+        return {
+          ...baseStep,
+          label: `「${element.text || element.name || element.id || 'button'}」をクリック`,
+          action: 'click',
+          validation: {
+            beforeAction: ['assertVisible', 'assertEnabled'],
+            afterAction: ['assertResponse'] // ナビゲーションまたは状態変化
+          }
+        };
+
+      case 'assertSelectedValue':
+        return {
+          ...baseStep,
+          label: `「${element.name || element.id}」の選択値を確認`,
+          action: 'assertSelectedValue',
+          expectedValue: element.options?.[0]?.value,
+          validation: {
+            beforeAction: ['assertVisible']
+          }
+        };
+
+      default:
+        console.warn(`🤷‍♂️ 未知のアクション: ${action}`);
+        return null;
+    }
+  }
+
+  /**
+   * 堅牢なセレクタ生成
+   */
+  generateRobustSelector(element) {
+    // 優先順位: id > name > type+attributes > xpath
+    if (element.id) {
+      return `#${element.id}`;
+    }
+    
+    if (element.name) {
+      return `[name="${element.name}"]`;
+    }
+    
+    if (element.tagName === 'select') {
+      return 'select';
+    }
+    
+    if (element.type) {
+      return `${element.tagName?.toLowerCase()}[type="${element.type}"]`;
+    }
+    
+    return element.tagName?.toLowerCase() || 'unknown';
+  }
+
+  /**
+   * 要素に最適なテストデータ生成
+   */
+  generateTestValueForElement(element) {
+    const elementType = this.determineElementType(element);
+    
+    switch (elementType) {
+      case 'input[type="email"]':
+        return 'test@example.com';
+      case 'input[type="tel"]':
+        return '090-1234-5678';
+      case 'input[type="number"]':
+        const min = element.min ? parseInt(element.min) : 1;
+        const max = element.max ? parseInt(element.max) : 100;
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+      case 'input[type="date"]':
+        return new Date().toISOString().split('T')[0];
+      case 'input[type="text"]':
+      default:
+        return element.placeholder || `テスト値_${element.name || 'input'}`;
+    }
+  }
+}
+
+/**
+ * フェーズ2: 複雑なvalidation機能を持つ包括的テストケースジェネレータ
+ */
+class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
+  constructor(domInfo, userStoryInfo = null) {
+    super(domInfo);
+    this.userStoryInfo = userStoryInfo;
+    this.testPriorities = {
+      critical: ['form_submission', 'navigation', 'data_validation'],
+      important: ['user_interaction', 'input_validation', 'display_verification'],
+      standard: ['ui_consistency', 'edge_cases', 'accessibility']
+    };
+  }
+
+  /**
+   * ユーザー提案レベルの包括的テストケース生成
+   * 例: test('「ご連絡方法」select要素のテスト', async ({ page }) => { ... })
+   */
+  generateComprehensiveTestCase(element, testFocus = 'complete_validation') {
+    const testCase = {
+      id: `comprehensive_${element.name || element.id}_${Date.now()}`,
+      title: this.generateTestTitle(element),
+      description: this.generateTestDescription(element, testFocus),
+      steps: [],
+      expectations: [],
+      metadata: {
+        complexity: 'comprehensive',
+        element_type: this.determineElementType(element),
+        test_focus: testFocus,
+        original_viewpoint: `${element.name || element.id}要素の包括的テスト`,
+        user_story_id: this.userStoryInfo?.currentId
+      }
+    };
+
+    // テストフォーカスに応じた包括的ステップ生成
+    switch (testFocus) {
+      case 'complete_validation':
+        this.generateCompleteValidationSteps(element, testCase);
+        break;
+      case 'edge_case_testing':
+        this.generateEdgeCaseSteps(element, testCase);
+        break;
+      case 'user_experience':
+        this.generateUXTestSteps(element, testCase);
+        break;
+      case 'accessibility':
+        this.generateAccessibilitySteps(element, testCase);
+        break;
+      default:
+        this.generateCompleteValidationSteps(element, testCase);
+    }
+
+    return testCase;
+  }
+
+  /**
+   * 完全バリデーションステップ生成（ユーザー提案レベル）
+   */
+  generateCompleteValidationSteps(element, testCase) {
+    if (element.tagName === 'select') {
+      this.generateSelectCompleteValidation(element, testCase);
+    } else if (element.tagName === 'input') {
+      this.generateInputCompleteValidation(element, testCase);
+    } else if (element.tagName === 'button') {
+      this.generateButtonCompleteValidation(element, testCase);
+    }
+  }
+
+  /**
+   * select要素の包括的バリデーション（ユーザー提案を実装）
+   */
+  generateSelectCompleteValidation(selectElement, testCase) {
+    const options = selectElement.options || [];
+    
+    // 1. フェーズ: 構造検証
+    testCase.steps.push({
+      phase: 'structure_validation',
+      label: 'ページにアクセス',
+      action: 'load',
+      target: this.getBaseUrl(),
+      description: 'テスト対象のページに移動'
+    });
+
+    testCase.steps.push({
+      phase: 'structure_validation',
+      label: `${selectElement.name || selectElement.id}の取得`,
+      action: 'locator_setup',
+      target: this.generateRobustSelector(selectElement),
+      description: `select[name="${selectElement.name}"]を取得`
+    });
+
+    testCase.steps.push({
+      phase: 'structure_validation',
+      label: 'option要素数の検証',
+      action: 'assertOptionCount',
+      target: this.generateRobustSelector(selectElement),
+      expectedCount: options.length,
+      description: `option要素が${options.length}個存在することを確認`
+    });
+
+    // 2. フェーズ: 値検証
+    testCase.steps.push({
+      phase: 'value_validation',
+      label: 'テキストとvalue属性の検証',
+      action: 'assertOptionTexts',
+      target: this.generateRobustSelector(selectElement),
+      expectedTexts: options.map(opt => opt.text),
+      description: '選択肢のテキスト内容を検証'
+    });
+
+    testCase.steps.push({
+      phase: 'value_validation',
+      label: 'value属性の検証',
+      action: 'assertOptionValues',
+      target: this.generateRobustSelector(selectElement),
+      expectedValues: options.map(opt => opt.value),
+      description: '選択肢のvalue属性を検証'
+    });
+
+    // 3. フェーズ: 選択操作テスト
+    options.forEach((option, index) => {
+      testCase.steps.push({
+        phase: 'operation_test',
+        label: `「${option.text}」の選択操作`,
+        action: 'selectOption',
+        target: this.generateRobustSelector(selectElement),
+        value: option.value,
+        description: `${option.text}を選択`
+      });
+
+      testCase.steps.push({
+        phase: 'operation_test',
+        label: `選択結果の確認`,
+        action: 'assertSelectedValue',
+        target: this.generateRobustSelector(selectElement),
+        expectedValue: option.value,
+        description: `選択値が${option.value}であることを確認`
+      });
+    });
+
+    // 4. フェーズ: 依存関係テスト（該当する場合）
+    if (selectElement.name === 'contact') {
+      this.generateDependencyValidation(selectElement, testCase);
+    }
+
+    // Expectations設定
+    testCase.expectations = [
+      `select要素に${options.length}個の選択肢が存在する`,
+      `各選択肢のテキストが正しく表示される`,
+      `各選択肢のvalue属性が正しく設定されている`,
+      `全ての選択肢が正常に選択できる`,
+      `選択結果が正しく反映される`
+    ];
+  }
+
+  /**
+   * input要素の包括的バリデーション
+   */
+  generateInputCompleteValidation(inputElement, testCase) {
+    const inputType = inputElement.type || 'text';
+    
+    // 基本構造確認
+    testCase.steps.push({
+      phase: 'structure_validation',
+      label: `${inputElement.name || inputElement.id}フィールドの存在確認`,
+      action: 'assertVisible',
+      target: this.generateRobustSelector(inputElement),
+      description: '入力フィールドが表示されていることを確認'
+    });
+
+    // タイプ別包括テスト
+    switch (inputType) {
+      case 'email':
+        this.generateEmailComprehensiveTest(inputElement, testCase);
+        break;
+      case 'tel':
+        this.generatePhoneComprehensiveTest(inputElement, testCase);
+        break;
+      case 'number':
+        this.generateNumberComprehensiveTest(inputElement, testCase);
+        break;
+      case 'date':
+        this.generateDateComprehensiveTest(inputElement, testCase);
+        break;
+      default:
+        this.generateTextComprehensiveTest(inputElement, testCase);
+    }
+  }
+
+  /**
+   * メールアドレス入力の包括的テスト
+   */
+  generateEmailComprehensiveTest(emailElement, testCase) {
+    const validEmails = ['test@example.com', 'user.name+tag@domain.co.jp'];
+    const invalidEmails = ['invalid-email', '@domain.com', 'user@', 'user@domain'];
+
+    // 有効値テスト
+    validEmails.forEach(email => {
+      testCase.steps.push({
+        phase: 'valid_input_test',
+        label: `有効なメールアドレス入力: ${email}`,
+        action: 'fill',
+        target: this.generateRobustSelector(emailElement),
+        value: email,
+        description: `有効なメールアドレス「${email}」を入力`
+      });
+
+      testCase.steps.push({
+        phase: 'valid_input_test',
+        label: 'メールアドレス形式確認',
+        action: 'assertEmailValidation',
+        target: this.generateRobustSelector(emailElement),
+        description: 'メールアドレス形式が正しいことを確認'
+      });
+    });
+
+    // 無効値テスト
+    invalidEmails.forEach(email => {
+      testCase.steps.push({
+        phase: 'invalid_input_test',
+        label: `無効なメールアドレス入力: ${email}`,
+        action: 'fill',
+        target: this.generateRobustSelector(emailElement),
+        value: email,
+        description: `無効なメールアドレス「${email}」を入力`
+      });
+
+      testCase.steps.push({
+        phase: 'invalid_input_test',
+        label: 'バリデーションエラー確認',
+        action: 'assertValidationError',
+        target: this.generateRobustSelector(emailElement),
+        description: 'バリデーションエラーが表示されることを確認'
+      });
+    });
+  }
+
+  /**
+   * 依存関係バリデーション生成
+   */
+  generateDependencyValidation(selectElement, testCase) {
+    if (selectElement.name === 'contact') {
+      testCase.steps.push({
+        phase: 'dependency_test',
+        label: 'メール選択時の依存フィールド確認',
+        action: 'selectOption',
+        target: this.generateRobustSelector(selectElement),
+        value: 'email',
+        description: 'メールでのご連絡を選択'
+      });
+
+      testCase.steps.push({
+        phase: 'dependency_test',
+        label: 'メールフィールドの表示確認',
+        action: 'assertVisible',
+        target: '[name="email"]',
+        description: 'メールアドレス入力フィールドが表示されることを確認'
+      });
+
+      testCase.steps.push({
+        phase: 'dependency_test',
+        label: '電話選択時の依存フィールド確認',
+        action: 'selectOption',
+        target: this.generateRobustSelector(selectElement),
+        value: 'phone',
+        description: '電話でのご連絡を選択'
+      });
+
+      testCase.steps.push({
+        phase: 'dependency_test',
+        label: '電話フィールドの表示確認',
+        action: 'assertVisible',
+        target: '[name="phone"], [name="tel"]',
+        description: '電話番号入力フィールドが表示されることを確認'
+      });
+    }
+  }
+
+  /**
+   * テストタイトル生成
+   */
+  generateTestTitle(element) {
+    const elementName = element.name || element.id || element.text || 'unknown';
+    const elementType = this.determineElementType(element);
+    
+    if (elementType === 'select') {
+      return `「${elementName}」select要素のテスト`;
+    } else if (elementType.startsWith('input')) {
+      return `「${elementName}」input要素のテスト`;
+    } else if (elementType === 'button') {
+      return `「${elementName}」button要素のテスト`;
+    }
+    
+    return `「${elementName}」要素のテスト`;
+  }
+
+  /**
+   * テスト説明生成
+   */
+  generateTestDescription(element, testFocus) {
+    const focusDescriptions = {
+      complete_validation: '包括的なバリデーションテスト',
+      edge_case_testing: 'エッジケースと境界値テスト',
+      user_experience: 'ユーザビリティとUXテスト',
+      accessibility: 'アクセシビリティテスト'
+    };
+    
+    return `${element.name || element.id}要素の${focusDescriptions[testFocus] || '包括的テスト'}`;
+  }
+
+  /**
+   * ベースURL取得（userStoryInfoから取得またはデフォルト）
+   */
+  getBaseUrl() {
+    return this.userStoryInfo?.targetUrl || 'http://localhost:3000';
+  }
+}
+
 // メイン処理
 (async () => {
   try {
@@ -2281,4 +3155,4 @@ function getTimestamp() {
   const mi = pad(d.getMinutes());
   const ss = pad(d.getSeconds());
   return `${yy}${mm}${dd}${hh}${mi}${ss}`;
-} 
+}

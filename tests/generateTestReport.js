@@ -40,6 +40,12 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
   const isFixedRoute = result?.is_fixed_route || false;
   const appliedFixes = result?.applied_fixes || [];
   
+  // 🚀 フェーズ3: 包括的テストフォーマット対応のトレーサビリティ強化
+  const isComprehensiveTest = result?.steps?.some(step => step.comprehensive_test) || false;
+  const testComplexity = isComprehensiveTest ? 'comprehensive' : 'standard';
+  
+  console.log(`📊 テストフォーマット: ${testComplexity} (包括的: ${isComprehensiveTest})`);
+  
   // URL取得の優先順位を改善：ルート、結果、実行ステップのloadアクションから取得
   let testUrl = route.url || result.url || '';
   
@@ -102,8 +108,10 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
   if (result.steps && Array.isArray(result.steps) && result.steps.length > 0) {
     console.log(`📊 実行されたステップ数: ${result.steps.length}件`);
     
-    // 実行されたステップをテスト観点にマッピング
-    const stepToViewpointMapping = createStepToViewpointMapping(testPoints, result.steps);
+    // 🚀 包括的テスト用のステップマッピング強化
+    const stepToViewpointMapping = isComprehensiveTest 
+      ? createComprehensiveStepMapping(testPoints, result.steps)
+      : createStepToViewpointMapping(testPoints, result.steps);
     
     result.steps.forEach((step, stepIndex) => {
       const mapping = stepToViewpointMapping[stepIndex];
@@ -114,43 +122,79 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
         ? stepFixes.map(f => `${f.type}: ${f.description}`).join('; ')
         : '';
       
+      // 🚀 包括的テスト特有の情報を抽出
+      const isComprehensiveStep = step.comprehensive_test || false;
+      const testPhase = step.phase || 'execution';
+      const elementInfo = step.dom_element_info || {};
+      
       if (mapping) {
         // 観点にマッピングできた場合
         const functionId = getFunctionId(mapping.functionKey, mapping.functionIndex);
-        const traceableId = `${userStoryId}.${functionId}.${mapping.viewpointIndex + 1}`;
+        let traceableId;
+        
+        if (isComprehensiveStep) {
+          // 包括的テストの場合：フェーズ情報を含めたID生成
+          traceableId = `${userStoryId}.${functionId}.${mapping.viewpointIndex + 1}.${testPhase}`;
+        } else {
+          // 標準テストの場合
+          traceableId = `${userStoryId}.${functionId}.${mapping.viewpointIndex + 1}`;
+        }
+        
         const uniqueTestCaseId = `${traceableId}-${mapping.stepInViewpoint + 1}`;
         
-        reportData.push({
+        // 🎯 包括的テストレポートエントリ
+        const reportEntry = {
           executionTime,
           id: uniqueTestCaseId,
           userStory,
           function: mapping.functionName,
           viewpoint: mapping.viewpoint,
-          testSteps: formatTestSteps(step),
+          testSteps: formatComprehensiveTestSteps(step, isComprehensiveStep),
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
           isFixedRoute: isFixedRoute,
-          appliedFixes: fixDetails  // 追加：適用された修正の詳細
-        });
+          appliedFixes: fixDetails,
+          // 🚀 フェーズ3: 包括的テスト固有フィールド
+          testComplexity: testComplexity,
+          testPhase: testPhase,
+          elementType: elementInfo.tagName || 'unknown',
+          elementName: elementInfo.name || elementInfo.id || 'unnamed',
+          validationCount: getValidationCount(step),
+          traceabilityLevel: isComprehensiveStep ? 'comprehensive' : 'standard'
+        };
+        
+        reportData.push(reportEntry);
       } else {
         // 観点にマッピングできなかった場合は追加ステップとして扱う
         const viewpointId = Math.floor(stepIndex / 5) + 1; // 5ステップごとに新しい観点
-        const testCaseId = (index % 5) + 1;
-        const uniqueTestCaseId = `${userStoryId}.X.${viewpointId}-${testCaseId}`;
+        const testCaseId = (stepIndex % 5) + 1;
+        
+        let uniqueTestCaseId;
+        if (isComprehensiveStep) {
+          uniqueTestCaseId = `${userStoryId}.X.${viewpointId}.${testPhase}-${testCaseId}`;
+        } else {
+          uniqueTestCaseId = `${userStoryId}.X.${viewpointId}-${testCaseId}`;
+        }
         
         reportData.push({
           executionTime,
           id: uniqueTestCaseId,
           userStory,
           function: 'その他機能',
-          viewpoint: `追加実行ステップ${viewpointId}`,
-          testSteps: formatTestSteps(step),
+          viewpoint: isComprehensiveStep ? `包括テスト${viewpointId}(${testPhase})` : `追加実行ステップ${viewpointId}`,
+          testSteps: formatComprehensiveTestSteps(step, isComprehensiveStep),
           executionResult: step.status === 'success' ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
           isFixedRoute: isFixedRoute,
-          appliedFixes: fixDetails  // 追加：適用された修正の詳細
+          appliedFixes: fixDetails,
+          testComplexity: testComplexity,
+          testPhase: testPhase,
+          elementType: elementInfo.tagName || 'unknown',
+          elementName: elementInfo.name || elementInfo.id || 'unnamed',
+          validationCount: getValidationCount(step),
+          traceabilityLevel: isComprehensiveStep ? 'comprehensive' : 'standard'
         });
       }
     });
@@ -516,7 +560,14 @@ function generateTraceableCSVReport(reportData) {
     resultHeader,
     'エラー詳細',
     'URL',
-    '実行種別'
+    '実行種別',
+    // 🚀 フェーズ3: 包括的テスト対応フィールド
+    'テスト複雑度',
+    'テストフェーズ',
+    '要素タイプ',
+    '要素名',
+    'バリデーション数',
+    'トレーサビリティレベル'
   ];
   
   /**
@@ -553,7 +604,14 @@ function generateTraceableCSVReport(reportData) {
       escapeCSVField(data.executionResult),
       escapeCSVField(data.errorDetail),
       escapeCSVField(data.url || ''),
-      escapeCSVField(executionType)
+      escapeCSVField(executionType),
+      // 🚀 フェーズ3: 包括的テスト対応フィールド
+      escapeCSVField(data.testComplexity),
+      escapeCSVField(data.testPhase),
+      escapeCSVField(data.elementType),
+      escapeCSVField(data.elementName),
+      escapeCSVField(data.validationCount),
+      escapeCSVField(data.traceabilityLevel)
     ];
     csvRows.push(row.join(','));
   });
@@ -619,7 +677,15 @@ function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo
   const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
   const executionType = isFixedRoute ? '再実行' : '初回実行';
   
-  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別'];
+  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別',
+    // 🚀 フェーズ3: 包括的テスト対応フィールド
+    'テスト複雑度',
+    'テストフェーズ',
+    '要素タイプ',
+    '要素名',
+    'バリデーション数',
+    'トレーサビリティレベル'
+  ];
   const csvRows = [headers.join(',')];
   
   let totalRoutes = 0;
@@ -655,7 +721,14 @@ function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo
           escapeCSVField(executionSuccess ? 'success' : 'low_feasibility'),
           escapeCSVField(executionSuccess ? '' : `実行可能性スコア: ${route.feasibility_score?.toFixed(2) || 'N/A'}`),
           escapeCSVField(testUrl || ''),
-          escapeCSVField(executionType)
+          escapeCSVField(executionType),
+          // �� フェーズ3: 包括的テスト対応フィールド
+          escapeCSVField(`${category.category}系テスト${routeIndex + 1}`),
+          escapeCSVField(`${category.category}系テスト${routeIndex + 1}`),
+          escapeCSVField(category.category || '未分類'),
+          escapeCSVField(category.category || '未分類'),
+          escapeCSVField(category.category || '未分類'),
+          escapeCSVField(category.category || '未分類')
         ];
         csvRows.push(row.join(','));
       });
@@ -673,7 +746,14 @@ function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo
         escapeCSVField('not_generated'),
         escapeCSVField(category.error || '実行可能なテストケースが見つかりませんでした'),
         escapeCSVField(testUrl || ''),
-        escapeCSVField(executionType)
+        escapeCSVField(executionType),
+        // 🚀 フェーズ3: 包括的テスト対応フィールド
+        escapeCSVField(`${category.category}系テスト（未生成）`),
+        escapeCSVField(`${category.category}系テスト（未生成）`),
+        escapeCSVField(category.category || '未分類'),
+        escapeCSVField(category.category || '未分類'),
+        escapeCSVField(category.category || '未分類'),
+        escapeCSVField(category.category || '未分類')
       ];
       csvRows.push(row.join(','));
     }
@@ -1292,7 +1372,15 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
   const executionType = isFixedRoute ? '再実行' : '初回実行';
   const resultHeader = isFixedRoute ? '再）実行結果' : '実行結果';
   
-  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別'];
+  const headers = ['実行日時', 'ID', 'ユーザーストーリー', '機能', '観点', 'テスト手順', resultHeader, 'エラー詳細', 'URL', '実行種別',
+    // 🚀 フェーズ3: 包括的テスト対応フィールド
+    'テスト複雑度',
+    'テストフェーズ',
+    '要素タイプ',
+    '要素名',
+    'バリデーション数',
+    'トレーサビリティレベル'
+  ];
   const csvRows = [headers.join(',')];
   
   if (result.steps && Array.isArray(result.steps)) {
@@ -1312,7 +1400,14 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
         escapeCSVField(step.status === 'success' ? 'success' : 'failed'),
         escapeCSVField(step.error || ''),
         escapeCSVField(testUrl || ''),
-        escapeCSVField(executionType)
+        escapeCSVField(executionType),
+        // 🚀 フェーズ3: 包括的テスト対応フィールド
+        escapeCSVField(''),
+        escapeCSVField(''),
+        escapeCSVField(''),
+        escapeCSVField(''),
+        escapeCSVField(''),
+        escapeCSVField('')
       ];
       csvRows.push(row.join(','));
     });
@@ -1330,7 +1425,14 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
       escapeCSVField('completed'),
       escapeCSVField(''),
       escapeCSVField(testUrl || ''),
-      escapeCSVField(executionType)
+      escapeCSVField(executionType),
+      // 🚀 フェーズ3: 包括的テスト対応フィールド
+      escapeCSVField(''),
+      escapeCSVField(''),
+      escapeCSVField(''),
+      escapeCSVField(''),
+      escapeCSVField(''),
+      escapeCSVField('')
     ];
     csvRows.push(row.join(','));
   }
@@ -1768,6 +1870,78 @@ async function main() {
 main().catch(console.error); 
 
 /**
+ * 失敗原因を分類する
+ */
+function categorizeFailureType(step) {
+  const error = (step.error || '').toLowerCase();
+  const action = (step.action || '').toLowerCase();
+  
+  // タイムアウトエラー
+  if (error.includes('timeout')) {
+    return 'timeout_error';
+  }
+  
+  // 要素関連の問題
+  if (error.includes('element is not an') || error.includes('not found') || 
+      error.includes('not visible') || error.includes('not attached')) {
+    return 'element_issue';
+  }
+  
+  // ナビゲーション問題
+  if (error.includes('waitforurl') || action.includes('waitforurl') ||
+      error.includes('navigation') || error.includes('page')) {
+    return 'navigation_issue';
+  }
+  
+  // アサーション失敗
+  if (action.includes('assert') || action.includes('visible') ||
+      error.includes('assertion') || error.includes('expected')) {
+    return 'assertion_failure';
+  }
+  
+  // スクリプトエラー
+  if (error.includes('evaluate') || error.includes('script') ||
+      error.includes('referenceerror') || error.includes('syntaxerror')) {
+    return 'script_error';
+  }
+  
+  return 'unknown_error';
+}
+
+/**
+ * 失敗タイプの表示名とアイコンを取得
+ */
+function getFailureTypeInfo(failureType) {
+  const typeMap = {
+    'timeout_error': { name: 'タイムアウト エラー', icon: '⏰', color: '#ff6b35' },
+    'element_issue': { name: '要素 問題', icon: '🎯', color: '#e74c3c' },
+    'navigation_issue': { name: 'ナビゲーション 問題', icon: '🧭', color: '#3498db' },
+    'assertion_failure': { name: 'アサーション 失敗', icon: '❌', color: '#9b59b6' },
+    'script_error': { name: 'スクリプト エラー', icon: '📜', color: '#f39c12' },
+    'unknown_error': { name: 'その他のエラー', icon: '❓', color: '#95a5a6' }
+  };
+  
+  return typeMap[failureType] || typeMap['unknown_error'];
+}
+
+/**
+ * 失敗原因ごとにグループ化
+ */
+function groupFailuresByType(failedSteps) {
+  const groups = {};
+  
+  failedSteps.forEach(step => {
+    const type = categorizeFailureType(step);
+    if (!groups[type]) {
+      groups[type] = [];
+    }
+    groups[type].push(step);
+  });
+  
+  return groups;
+}
+
+/**
  * HTMLレポートを生成する（Google Sheets代替）
  * @param {Object} coverage - カバレッジデータ
  * @param {string} outputPath - 出力パス
@@ -1775,53 +1949,138 @@ main().catch(console.error);
 function generateCoverageHTML(coverage, outputPath) {
   // 失敗ステップの詳細を取得
   const failedStepsDetails = coverage.failed_steps_details || [];
-  const failedStepsSection = failedStepsDetails.length > 0 ? `
-        <div class="section">
-            <h2>❌ 失敗ステップ詳細</h2>
-            <div class="failed-steps-container">
-                ${failedStepsDetails.map((step, index) => `
-                <div class="failed-step-card">
-                    <div class="failed-step-header">
-                        <span class="step-number">#${index + 1}</span>
-                        <span class="step-label">${step.label}</span>
-                        <span class="step-status failed">❌ 失敗</span>
-                    </div>
-                    <div class="failed-step-content">
-                        <div class="step-details">
-                            <p><strong>アクション:</strong> ${step.action}</p>
-                            <p><strong>ターゲット:</strong> <code>${step.target}</code></p>
-                            ${step.value ? `<p><strong>値:</strong> ${step.value}</p>` : ''}
-                        </div>
-                        <div class="error-details">
-                            <h4>エラー詳細</h4>
-                            <div class="error-message">${step.error}</div>
-                            ${step.error_category ? `<p class="error-category"><strong>エラー分類:</strong> ${step.error_category}</p>` : ''}
-                        </div>
-                        ${step.fix_suggestions && step.fix_suggestions.length > 0 ? `
-                        <div class="fix-suggestions">
-                            <h4>修正提案</h4>
-                            <ul class="suggestions-list">
-                                ${step.fix_suggestions.map(suggestion => `
-                                <li class="suggestion-item">
-                                    <span class="confidence-badge">${(suggestion.confidence * 100).toFixed(0)}%</span>
-                                    ${suggestion.message}
-                                    ${suggestion.new_target ? `<br><code>新しいターゲット: ${suggestion.new_target}</code>` : ''}
-                                </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                        ` : ''}
-                        ${step.skip_reason ? `
-                        <div class="skip-reason">
-                            <p><strong>スキップ理由:</strong> ${step.skip_reason}</p>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-                `).join('')}
+  
+  // HTMLエスケープ関数
+  function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+  
+  let failedStepsSection = '';
+  
+  if (failedStepsDetails.length > 0) {
+    console.log('🔍 失敗原因ごとのトグルグループ生成開始');
+    
+    // 失敗原因ごとにグループ化
+    const failureGroups = groupFailuresByType(failedStepsDetails);
+    console.log('🔍 失敗グループ:', Object.keys(failureGroups));
+    
+    // 失敗原因ごとのHTML生成
+    const groupsHTML = Object.entries(failureGroups).map(([failureType, steps], groupIndex) => {
+      const typeInfo = getFailureTypeInfo(failureType);
+      console.log(`🔍 グループ ${groupIndex} (${failureType}): ${steps.length}件`);
+      
+      const stepsHTML = steps.map((step, index) => `
+        <div class="failed-step-card">
+          <div class="failed-step-header">
+            <span class="step-number">#${index + 1}</span>
+            <span class="step-label">${escapeHtml(step.label)}</span>
+            <span class="step-status failed">❌ 失敗</span>
+          </div>
+          <div class="failed-step-content">
+            <div class="step-details">
+              <p><strong>アクション:</strong> ${escapeHtml(step.action)}</p>
+              <p><strong>ターゲット:</strong> <code>${escapeHtml(step.target)}</code></p>
+              ${step.value ? `<p><strong>値:</strong> ${escapeHtml(step.value)}</p>` : ''}
             </div>
+            <div class="error-details">
+              <h4>エラー詳細</h4>
+              <div class="error-message">${escapeHtml(step.error)}</div>
+              ${step.error_category ? `<p class="error-category"><strong>エラー分類:</strong> ${escapeHtml(step.error_category)}</p>` : ''}
+            </div>
+            <div class="debug-resources">
+              <h4>🔍 デバッグリソース</h4>
+              <div class="debug-buttons">
+                <div class="debug-group">
+                  <button class="debug-btn screenshot-btn" onclick="openScreenshot('${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    📸 スクリーンショット表示
+                  </button>
+                  <button class="debug-btn download-btn" onclick="downloadScreenshot('${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    ⬇️ DL
+                  </button>
+                </div>
+                <div class="debug-group">
+                  <button class="debug-btn dom-btn" onclick="openDomSnapshot('${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    🏗️ DOM状態表示
+                  </button>
+                  <button class="debug-btn download-btn" onclick="downloadDomSnapshot('${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    ⬇️ DL
+                  </button>
+                </div>
+                <div class="debug-group">
+                  <button class="debug-btn logs-btn" onclick="showExecutionLogs('${escapeHtml(step.route_id || step.timestamp)}')">
+                    📋 実行ログ表示
+                  </button>
+                  <button class="debug-btn download-btn" onclick="downloadExecutionLogs('${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    ⬇️ DL
+                  </button>
+                </div>
+                ${step.error && step.error.includes('not found') ? `
+                <div class="debug-group">
+                  <button class="debug-btn element-btn" onclick="analyzeElementIssue('${escapeHtml(step.target)}', '${escapeHtml(step.action)}')">
+                    🔍 要素分析
+                  </button>
+                  <button class="debug-btn download-btn" onclick="downloadElementAnalysis('${escapeHtml(step.target)}', '${escapeHtml(step.action)}', '${escapeHtml(step.route_id || step.timestamp)}', '${index + 1}')">
+                    ⬇️ DL
+                  </button>
+                </div>
+                ` : ''}
+              </div>
+            </div>
+            
+            ${step.fix_suggestions && step.fix_suggestions.length > 0 ? `
+            <div class="fix-suggestions">
+              <h4>修正提案</h4>
+              <ul class="suggestions-list">
+                ${step.fix_suggestions.map(suggestion => `
+                <li class="suggestion-item">
+                  <span class="confidence-badge">${(suggestion.confidence * 100).toFixed(0)}%</span>
+                  ${escapeHtml(suggestion.message)}
+                  ${suggestion.new_target ? `<br><code>新しいターゲット: ${escapeHtml(suggestion.new_target)}</code>` : ''}
+                </li>
+                `).join('')}
+              </ul>
+            </div>
+            ` : ''}
+            ${step.skip_reason ? `
+            <div class="skip-reason">
+              <p><strong>スキップ理由:</strong> ${escapeHtml(step.skip_reason)}</p>
+            </div>
+            ` : ''}
+          </div>
         </div>
-  ` : '';
+      `).join('');
+      
+      // 失敗タイプグループのHTML
+      return `
+        <div class="failure-group" id="group-${failureType}">
+          <div class="group-header" onclick="toggleGroup('${failureType}')">
+            <span class="group-icon" style="color: ${typeInfo.color};">${typeInfo.icon}</span>
+            <span class="group-title">${typeInfo.name} (${steps.length}件)</span>
+            <span class="group-toggle collapsed" id="toggle-${failureType}">▶</span>
+          </div>
+          <div class="group-content collapsed" id="content-${failureType}">
+            ${stepsHTML}
+          </div>
+        </div>`;
+    }).join('');
+    
+    failedStepsSection = `
+      <div class="section">
+        <h2>❌ 失敗ステップ詳細</h2>
+        <p style="color: #666; margin-bottom: 20px;">
+          失敗原因ごとにグループ化されています。グループをクリックして開閉できます。
+        </p>
+        <div class="failure-groups-container">
+          ${groupsHTML}
+        </div>
+      </div>`;
+  }
 
   const html = `
 <!DOCTYPE html>
@@ -1948,12 +2207,77 @@ function generateCoverageHTML(coverage, outputPath) {
             background: #f8f9fa;
         }
         
+        /* 失敗グループ用スタイル */
+        .failure-groups-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .failure-group {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background: white;
+            overflow: hidden;
+        }
+        
+        .group-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .group-header:hover {
+            background: #e9ecef;
+        }
+        
+        .group-icon {
+            margin-right: 12px;
+            font-size: 1.5em;
+        }
+        
+        .group-title {
+            flex: 1;
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }
+        
+        .group-toggle {
+            transition: transform 0.3s ease;
+            font-size: 1.2em;
+            color: #6c757d;
+        }
+        
+        .group-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+        
+        .group-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            padding: 0;
+        }
+        
+        .group-content:not(.collapsed) {
+            max-height: none;
+        }
+        
+        .group-content.collapsed {
+            max-height: 0;
+        }
+        
         /* 失敗ステップ詳細用スタイル */
         .failed-steps-container {
             display: grid;
             gap: 20px;
         }
         .failed-step-card {
+            margin: 15px 20px;
             border: 1px solid #dee2e6;
             border-radius: 8px;
             background: white;
@@ -2071,6 +2395,173 @@ function generateCoverageHTML(coverage, outputPath) {
             padding: 10px;
             color: #856404;
         }
+        
+        /* デバッグリソースボタン用スタイル */
+        .debug-resources {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .debug-resources h4 {
+            margin: 0 0 12px 0;
+            color: #495057;
+            font-size: 1em;
+        }
+        
+        .debug-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        
+        .debug-group {
+            display: flex;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            overflow: hidden;
+            background: white;
+        }
+        
+        .debug-btn {
+            padding: 8px 12px;
+            border: none;
+            border-right: 1px solid #dee2e6;
+            background: white;
+            color: #495057;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .debug-btn:last-child {
+            border-right: none;
+        }
+        
+        .debug-btn.download-btn {
+            padding: 8px 10px;
+            font-size: 0.8em;
+            min-width: 40px;
+            justify-content: center;
+            border-left: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+        
+        .debug-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+            transform: translateY(-1px);
+        }
+        
+        .debug-btn.screenshot-btn:hover {
+            background: #e3f2fd;
+            border-color: #2196f3;
+            color: #1976d2;
+        }
+        
+        .debug-btn.dom-btn:hover {
+            background: #e8f5e8;
+            border-color: #4caf50;
+            color: #2e7d32;
+        }
+        
+        .debug-btn.logs-btn:hover {
+            background: #fff3e0;
+            border-color: #ff9800;
+            color: #f57c00;
+        }
+        
+        .debug-btn.element-btn:hover {
+            background: #fce4ec;
+            border-color: #e91e63;
+            color: #c2185b;
+        }
+        
+        .debug-btn.download-btn:hover {
+            background: #e9ecef;
+            color: #007bff;
+            transform: translateY(-1px);
+        }
+        
+        /* スクリーンショットモーダル用スタイル */
+        .screenshot-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+        }
+        
+        .screenshot-modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .screenshot-content {
+            max-width: 90%;
+            max-height: 90%;
+            position: relative;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .screenshot-header {
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .screenshot-title {
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+        }
+        
+        .screenshot-close {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #6c757d;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .screenshot-close:hover {
+            color: #dc3545;
+        }
+        
+        .screenshot-image {
+            max-width: 100%;
+            max-height: 70vh;
+            display: block;
+        }
+        
+        .screenshot-info {
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -2180,6 +2671,483 @@ function generateCoverageHTML(coverage, outputPath) {
             <p>データ生成時刻: ${new Date().toISOString()}</p>
         </div>
     </div>
+    
+    <!-- スクリーンショットモーダル -->
+    <div id="screenshotModal" class="screenshot-modal">
+        <div class="screenshot-content">
+            <div class="screenshot-header">
+                <h3 class="screenshot-title" id="screenshotTitle">失敗時のスクリーンショット</h3>
+                <button class="screenshot-close" onclick="closeScreenshot()">&times;</button>
+            </div>
+            <div id="screenshotContainer">
+                <!-- スクリーンショット画像がここに表示されます -->
+            </div>
+            <div class="screenshot-info" id="screenshotInfo">
+                スクリーンショットを読み込み中...
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function toggleGroup(groupType) {
+            const content = document.getElementById('content-' + groupType);
+            const toggle = document.getElementById('toggle-' + groupType);
+            
+            if (content.classList.contains('collapsed')) {
+                // 開く前に実際のコンテンツ高さを測定
+                content.style.maxHeight = 'none';
+                const scrollHeight = content.scrollHeight;
+                content.style.maxHeight = '0px';
+                
+                // アニメーション用に一時的に高さを設定
+                setTimeout(() => {
+                    content.style.maxHeight = scrollHeight + 'px';
+                    content.classList.remove('collapsed');
+                    toggle.classList.remove('collapsed');
+                    toggle.textContent = '▼';
+                    
+                    // アニメーション完了後に制限を解除
+                    setTimeout(() => {
+                        content.style.maxHeight = 'none';
+                    }, 300);
+                }, 10);
+            } else {
+                // 閉じる前に現在の高さを取得
+                const scrollHeight = content.scrollHeight;
+                content.style.maxHeight = scrollHeight + 'px';
+                
+                setTimeout(() => {
+                    content.style.maxHeight = '0px';
+                    content.classList.add('collapsed');
+                    toggle.classList.add('collapsed');
+                    toggle.textContent = '▶';
+                }, 10);
+            }
+        }
+        
+                 // スクリーンショット表示機能
+         function openScreenshot(routeId, stepIndex) {
+             const modal = document.getElementById('screenshotModal');
+             const title = document.getElementById('screenshotTitle');
+             const container = document.getElementById('screenshotContainer');
+             const info = document.getElementById('screenshotInfo');
+             
+             // タイトルを設定
+             title.textContent = '失敗時のスクリーンショット - ステップ ' + stepIndex;
+             
+             // 情報を設定
+             info.innerHTML = '<strong>ルートID:</strong> ' + routeId + '<br>' +
+                             '<strong>ステップ:</strong> ' + stepIndex + '<br>' +
+                             '<strong>キャプチャ時刻:</strong> ' + new Date().toLocaleString();
+             
+             // スクリーンショットを探す
+             const possiblePaths = [
+                 // AutoPlaywright 実際のファイル構造
+                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png',
+                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '.png',
+                 // 従来の構造（後方互換性）
+                 'test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png',
+                 'test-results/failure_' + routeId + '.png',
+                 'test-results/screenshots/step_' + stepIndex + '.png',
+                 'test-results/' + routeId + '/screenshot.png'
+             ];
+             
+             // まず基本パスで検索を試行
+             let imageFound = false;
+             let pathsChecked = 0;
+             
+             function tryLoadImage(path) {
+                 const img = new Image();
+                 img.onload = function() {
+                     if (!imageFound) {
+                         imageFound = true;
+                         container.innerHTML = '<img src="' + path + '" alt="失敗時スクリーンショット" class="screenshot-image">';
+                         info.innerHTML += '<br><strong>ファイルパス:</strong> ' + path;
+                     }
+                 };
+                 img.onerror = function() {
+                     console.log('スクリーンショットが見つかりません: ' + path);
+                     pathsChecked++;
+                     
+                     // 全ての基本パスを試し終わったら、動的検索を開始
+                     if (pathsChecked === possiblePaths.length && !imageFound) {
+                         searchInTimestampDirectories(routeId, stepIndex, container, info);
+                     }
+                 };
+                 img.src = path;
+             }
+             
+             // 基本パスでの検索を開始
+             for (const path of possiblePaths) {
+                 tryLoadImage(path);
+             }
+             
+             // タイムアウト処理は searchInTimestampDirectories で代替
+             // 基本パス検索が完了すれば、自動的に動的検索に移行
+             
+             modal.classList.add('show');
+         }
+         
+         function closeScreenshot() {
+             const modal = document.getElementById('screenshotModal');
+             modal.classList.remove('show');
+         }
+         
+         function openDomSnapshot(routeId, stepIndex) {
+             const possiblePaths = [
+                 'test-results/trace_' + routeId + '.zip',
+                 'test-results/' + routeId + '/trace.zip',
+                 'test-results/dom_' + routeId + '_step_' + stepIndex + '.html'
+             ];
+             
+             alert('DOM状態を確認してください:\\n\\n' + possiblePaths.join('\\n'));
+         }
+         
+         function showExecutionLogs(routeId) {
+             console.log('実行ログを表示: ' + routeId);
+             alert('実行ログ機能は準備中です。\\n\\nルートID: ' + routeId + '\\n\\nブラウザの開発者ツールのコンソールでログを確認してください。');
+         }
+         
+         function searchInTimestampDirectories(routeId, stepIndex, container, info) {
+             console.log('タイムスタンプディレクトリでの動的検索を開始...');
+             
+             // 可能性のあるタイムスタンプディレクトリパターン
+             const timestampPatterns = [
+                 '2025-07-04T07-36-54_uysvac',  // 実際に見つかったディレクトリ
+                 '2025-07-04T07-36-22_2zau41'   // もう一つの実際のディレクトリ
+             ];
+             
+             let foundInTimestamp = false;
+             let timestampChecked = 0;
+             
+             for (const timestamp of timestampPatterns) {
+                 const timestampPath = 'test-results/USIS-1/screenshots/' + timestamp + '/step_' + stepIndex + '_failure.png';
+                 
+                 const img = new Image();
+                 img.onload = function() {
+                     if (!foundInTimestamp) {
+                         foundInTimestamp = true;
+                         container.innerHTML = '<img src="' + timestampPath + '" alt="失敗時スクリーンショット" class="screenshot-image">';
+                         info.innerHTML += '<br><strong>ファイルパス:</strong> ' + timestampPath;
+                         info.innerHTML += '<br><strong>検索方法:</strong> タイムスタンプディレクトリから発見';
+                     }
+                 };
+                 img.onerror = function() {
+                     timestampChecked++;
+                     if (timestampChecked === timestampPatterns.length && !foundInTimestamp) {
+                         // 全て失敗した場合のフォールバック
+                         showNoScreenshotFound(container, routeId, stepIndex);
+                     }
+                 };
+                 img.src = timestampPath;
+             }
+         }
+         
+         function showNoScreenshotFound(container, routeId, stepIndex) {
+             const pathsList = [
+                 'test-results/USIS-1/screenshots/{timestamp}/step_' + stepIndex + '_failure.png',
+                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png',
+                 'test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png'
+             ].map(function(path) {
+                 return '<div style="font-family: monospace; font-size: 0.9em; margin: 5px 0;">' + path + '</div>';
+             }).join('');
+             
+             container.innerHTML = 
+                 '<div style="padding: 40px; text-align: center; color: #6c757d;">' +
+                     '<div style="font-size: 3em; margin-bottom: 20px;">📷</div>' +
+                     '<h4>スクリーンショットが見つかりません</h4>' +
+                     '<p>以下の場所を確認してください：</p>' +
+                     '<div style="text-align: left; background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 20px 0;">' +
+                         pathsList +
+                     '</div>' +
+                     '<p style="font-size: 0.9em;">Playwrightの<code>screenshot: \\'only-on-failure\\'</code>設定を確認してください。</p>' +
+                     '<div style="margin-top: 20px; padding: 10px; background: #e3f2fd; border-radius: 4px;">' +
+                         '<strong>💡 ヒント:</strong> test-results/USIS-1/screenshots/ ディレクトリに<br>' +
+                         'タイムスタンプ付きフォルダが作成されている可能性があります。' +
+                     '</div>' +
+                 '</div>';
+         }
+
+         function analyzeElementIssue(target, action) {
+             const analysisInfo = 
+                 '要素の問題を分析しています...\\n\\n' +
+                 'ターゲット: ' + target + '\\n' +
+                 'アクション: ' + action + '\\n\\n' +
+                 '推奨事項:\\n' +
+                 '1. ページが完全に読み込まれるまで待機\\n' +
+                 '2. 要素が表示されるまで待機\\n' +
+                 '3. セレクタの正確性を確認\\n' +
+                 '4. 要素のCSS状態を確認';
+             
+             alert(analysisInfo);
+         }
+         
+         // ダウンロード機能
+         function downloadFile(url, filename) {
+             const link = document.createElement('a');
+             link.href = url;
+             link.download = filename;
+             link.style.display = 'none';
+             document.body.appendChild(link);
+             link.click();
+             document.body.removeChild(link);
+         }
+         
+         function downloadScreenshot(routeId, stepIndex) {
+             const possiblePaths = [
+                 // AutoPlaywright 実際のファイル構造
+                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png',
+                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '.png',
+                              // タイムスタンプベースのディレクトリ構造での検索
+             'test-results/USIS-1/screenshots/2025-07-04T07-36-54_uysvac/step_' + stepIndex + '_failure.png',
+             'test-results/USIS-1/screenshots/2025-07-04T07-36-22_2zau41/step_' + stepIndex + '_failure.png',
+                 // 従来の構造（後方互換性）
+                 'test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png',
+                 'test-results/failure_' + routeId + '.png',
+                 'test-results/screenshots/step_' + stepIndex + '.png',
+                 'test-results/' + routeId + '/screenshot.png'
+             ];
+             
+             // 最初に見つかったスクリーンショットをダウンロード
+             let found = false;
+             for (let i = 0; i < possiblePaths.length; i++) {
+                 const path = possiblePaths[i];
+                 const img = new Image();
+                 img.onload = function() {
+                     if (!found) {
+                         found = true;
+                         const filename = 'screenshot_' + routeId + '_step_' + stepIndex + '.png';
+                         downloadFile(path, filename);
+                         showDownloadStatus('スクリーンショット', filename, true);
+                     }
+                 };
+                 img.onerror = function() {
+                     if (i === possiblePaths.length - 1 && !found) {
+                         showDownloadStatus('スクリーンショット', '', false);
+                     }
+                 };
+                 img.src = path;
+             }
+         }
+         
+         function downloadDomSnapshot(routeId, stepIndex) {
+             const possiblePaths = [
+                 'test-results/trace_' + routeId + '.zip',
+                 'test-results/' + routeId + '/trace.zip',
+                 'test-results/dom_' + routeId + '_step_' + stepIndex + '.html',
+                 'test-results/' + routeId + '/dom_snapshot.html'
+             ];
+             
+             // 最初に見つかったDOMファイルをダウンロード
+             let found = false;
+             let checkedCount = 0;
+             
+             for (let i = 0; i < possiblePaths.length; i++) {
+                 const path = possiblePaths[i];
+                 const checkElement = document.createElement('img');
+                 
+                 checkElement.onload = function() {
+                     // 画像として読み込めたということは、実際にはファイルではない可能性が高い
+                     checkedCount++;
+                     if (checkedCount === possiblePaths.length && !found) {
+                         // 全てチェック完了したが見つからなかった場合
+                         generateFallbackDomReport(routeId, stepIndex);
+                     }
+                 };
+                 
+                 checkElement.onerror = function() {
+                     // エラーが発生した場合、ファイルが存在する可能性があるのでダウンロードを試行
+                     if (!found) {
+                         found = true;
+                         const extension = path.includes('.zip') ? '.zip' : '.html';
+                         const filename = 'dom_snapshot_' + routeId + '_step_' + stepIndex + extension;
+                         
+                         // ダウンロードを試行
+                         const link = document.createElement('a');
+                         link.href = path;
+                         link.download = filename;
+                         link.style.display = 'none';
+                         document.body.appendChild(link);
+                         link.click();
+                         document.body.removeChild(link);
+                         
+                         showDownloadStatus('DOM状態', filename, true);
+                         return;
+                     }
+                     
+                     checkedCount++;
+                     if (checkedCount === possiblePaths.length && !found) {
+                         generateFallbackDomReport(routeId, stepIndex);
+                     }
+                 };
+                 
+                 checkElement.src = path;
+             }
+         }
+         
+         function generateFallbackDomReport(routeId, stepIndex) {
+             const timestamp = new Date().toISOString();
+             const domReportContent = 
+                 'AutoPlaywright DOM状態レポート\\n' +
+                 '=============================\\n\\n' +
+                 'ルートID: ' + routeId + '\\n' +
+                 'ステップ: ' + stepIndex + '\\n' +
+                 '生成時刻: ' + timestamp + '\\n\\n' +
+                 'DOM状態情報:\\n' +
+                 '- 実際のDOMスナップショットファイルが見つかりませんでした\\n' +
+                 '- このレポートはHTMLレポートから生成されたフォールバック情報です\\n\\n' +
+                 '確認すべきファイル:\\n' +
+                 '- test-results/trace_' + routeId + '.zip (Playwrightトレースファイル)\\n' +
+                 '- test-results/' + routeId + '/trace.zip\\n' +
+                 '- test-results/dom_' + routeId + '_step_' + stepIndex + '.html\\n' +
+                 '- test-results/' + routeId + '/dom_snapshot.html\\n\\n' +
+                 'DOM分析のヒント:\\n' +
+                 '1. Playwrightの trace オプションを有効にしてください\\n' +
+                 '2. playwright.config.js でトレース設定を確認\\n' +
+                 '3. ブラウザの開発者ツールでDOM構造を調査\\n' +
+                 '4. セレクタが正しくDOM要素を指しているか確認';
+             
+             const blob = new Blob([domReportContent], { type: 'text/plain;charset=utf-8' });
+             const url = URL.createObjectURL(blob);
+             const filename = 'dom_report_' + routeId + '_step_' + stepIndex + '.txt';
+             
+             downloadFile(url, filename);
+             showDownloadStatus('DOM状態レポート', filename, true);
+             
+             // メモリリークを防ぐためURLを解放
+             setTimeout(() => URL.revokeObjectURL(url), 1000);
+         }
+         
+         function downloadExecutionLogs(routeId, stepIndex) {
+             const timestamp = new Date().toISOString();
+             const logContent = 
+                 'AutoPlaywright 実行ログ\\n' +
+                 '========================\\n\\n' +
+                 'ルートID: ' + routeId + '\\n' +
+                 'ステップ: ' + stepIndex + '\\n' +
+                 '生成時刻: ' + timestamp + '\\n\\n' +
+                 '実行ログ詳細:\\n' +
+                 '- このログは現在のHTMLレポートから生成されました\\n' +
+                 '- 詳細な実行ログはPlaywrightの実行時に生成されます\\n' +
+                 '- test-results/ディレクトリで実際のログファイルを確認してください\\n\\n' +
+                 '確認すべきファイル:\\n' +
+                 '- test-results/playwright-report/\\n' +
+                 '- test-results/logs_' + routeId + '.txt\\n' +
+                 '- test-results/' + routeId + '/execution.log';
+             
+             const blob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
+             const url = URL.createObjectURL(blob);
+             const filename = 'execution_logs_' + routeId + '_step_' + stepIndex + '.txt';
+             
+             downloadFile(url, filename);
+             showDownloadStatus('実行ログ', filename, true);
+             
+             // メモリリークを防ぐためURLを解放
+             setTimeout(() => URL.revokeObjectURL(url), 1000);
+         }
+         
+         function downloadElementAnalysis(target, action, routeId, stepIndex) {
+             const timestamp = new Date().toISOString();
+             const analysisContent = 
+                 'AutoPlaywright 要素分析レポート\\n' +
+                 '===============================\\n\\n' +
+                 'ルートID: ' + routeId + '\\n' +
+                 'ステップ: ' + stepIndex + '\\n' +
+                 '生成時刻: ' + timestamp + '\\n\\n' +
+                 '失敗した要素情報:\\n' +
+                 'ターゲット: ' + target + '\\n' +
+                 'アクション: ' + action + '\\n\\n' +
+                 '分析結果:\\n' +
+                 '1. 要素の可視性の問題が考えられます\\n' +
+                 '2. セレクタの正確性を確認してください\\n' +
+                 '3. ページの読み込み完了を待機する必要があります\\n' +
+                 '4. 要素のCSS状態を確認してください\\n\\n' +
+                 '推奨対応:\\n' +
+                 '- waitForSelector() を使用して要素の出現を待機\\n' +
+                 '- セレクタの階層や属性を再確認\\n' +
+                 '- ブラウザの開発者ツールで要素を検査\\n' +
+                 '- 代替セレクタの検討';
+             
+             const blob = new Blob([analysisContent], { type: 'text/plain;charset=utf-8' });
+             const url = URL.createObjectURL(blob);
+             const filename = 'element_analysis_' + routeId + '_step_' + stepIndex + '.txt';
+             
+             downloadFile(url, filename);
+             showDownloadStatus('要素分析', filename, true);
+             
+             // メモリリークを防ぐためURLを解放
+             setTimeout(() => URL.revokeObjectURL(url), 1000);
+         }
+         
+         function showDownloadStatus(type, filename, success) {
+             const message = success 
+                 ? type + ' をダウンロードしました: ' + filename
+                 : type + ' ファイルが見つかりませんでした。test-resultsディレクトリを確認してください。';
+             
+             // 一時的な通知を表示
+             const notification = document.createElement('div');
+             notification.style.position = 'fixed';
+             notification.style.top = '20px';
+             notification.style.right = '20px';
+             notification.style.padding = '12px 20px';
+             notification.style.borderRadius = '6px';
+             notification.style.color = 'white';
+             notification.style.fontWeight = 'bold';
+             notification.style.zIndex = '10000';
+             notification.style.maxWidth = '400px';
+             notification.style.wordWrap = 'break-word';
+             notification.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+             
+             if (success) {
+                 notification.style.backgroundColor = '#28a745';
+                 notification.innerHTML = '✅ ' + message;
+             } else {
+                 notification.style.backgroundColor = '#dc3545';
+                 notification.innerHTML = '❌ ' + message;
+             }
+             
+             document.body.appendChild(notification);
+             
+             // 3秒後に通知を削除
+             setTimeout(() => {
+                 if (notification.parentNode) {
+                     notification.parentNode.removeChild(notification);
+                 }
+             }, 3000);
+         }
+        
+        // ESCキーでモーダルを閉じる
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeScreenshot();
+            }
+        });
+        
+        // モーダル背景クリックで閉じる
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('screenshotModal');
+            if (event.target === modal) {
+                closeScreenshot();
+            }
+        });
+        
+                 // ページ読み込み時の初期化
+         document.addEventListener('DOMContentLoaded', function() {
+             console.log('🎯 失敗原因トグルグループ機能が読み込まれました');
+             console.log('📊 失敗グループ数:', document.querySelectorAll('.failure-group').length);
+             console.log('🔍 デバッグボタン機能が読み込まれました');
+             console.log('⬇️ ダウンロード機能が読み込まれました');
+            
+            // 初期状態ですべてのグループを閉じておく
+            document.querySelectorAll('.group-content').forEach(content => {
+                content.classList.add('collapsed');
+            });
+            document.querySelectorAll('.group-toggle').forEach(toggle => {
+                toggle.classList.add('collapsed');
+                toggle.textContent = '▶';
+            });
+        });
+    </script>
 </body>
 </html>
   `;
@@ -2235,5 +3203,133 @@ function mapRouteResultsToTestCases(routes, results, testCases) {
     console.log(`📊 マッピング結果: ${successCount}/${mappedTestCases.length} テストケースが成功`);
     
     return mappedTestCases;
+}
+
+/**
+ * 🚀 フェーズ3: 包括的テスト用のステップマッピング
+ */
+function createComprehensiveStepMapping(testPoints, steps) {
+  const mapping = {};
+  
+  steps.forEach((step, stepIndex) => {
+    if (step.comprehensive_test) {
+      // 包括的テストの場合、フェーズ別にマッピング
+      const phase = step.phase || 'execution';
+      const elementName = step.dom_element_info?.name || step.dom_element_info?.id || 'unknown';
+      
+      mapping[stepIndex] = {
+        functionKey: `comprehensive_${elementName}`,
+        functionIndex: 0,
+        functionName: `包括的テスト: ${elementName}`,
+        viewpointIndex: getPhaseIndex(phase),
+        viewpoint: `${phase}フェーズ: ${step.label}`,
+        stepInViewpoint: stepIndex,
+        mappingType: 'comprehensive'
+      };
+    } else {
+      // 標準テストの場合は従来のマッピング
+      mapping[stepIndex] = createStandardStepMapping(testPoints, step, stepIndex);
+    }
+  });
+  
+  return mapping;
+}
+
+/**
+ * フェーズインデックス取得
+ */
+function getPhaseIndex(phase) {
+  const phaseMap = {
+    'structure_validation': 0,
+    'value_validation': 1,
+    'operation_test': 2,
+    'dependency_test': 3,
+    'valid_input_test': 4,
+    'invalid_input_test': 5,
+    'execution': 6
+  };
+  
+  return phaseMap[phase] || 6;
+}
+
+/**
+ * 標準ステップマッピング
+ */
+function createStandardStepMapping(testPoints, step, stepIndex) {
+  // 従来のロジックを流用
+  return {
+    functionKey: `standard_function`,
+    functionIndex: 0,
+    functionName: '標準機能テスト',
+    viewpointIndex: Math.floor(stepIndex / 3),
+    viewpoint: step.label || `ステップ${stepIndex + 1}`,
+    stepInViewpoint: stepIndex % 3,
+    mappingType: 'standard'
+  };
+}
+
+/**
+ * 包括的テスト対応のステップフォーマット
+ */
+function formatComprehensiveTestSteps(step, isComprehensive) {
+  if (!isComprehensive) {
+    return formatTestSteps(step);
+  }
+  
+  // 包括的テストの詳細フォーマット
+  let formatted = `[${step.phase || 'execution'}] ${step.label}`;
+  
+  if (step.action) {
+    formatted += ` (${step.action})`;
+  }
+  
+  if (step.description) {
+    formatted += `: ${step.description}`;
+  }
+  
+  // バリデーション情報の追加
+  if (step.expectedCount !== undefined) {
+    formatted += ` [期待値: ${step.expectedCount}]`;
+  }
+  
+  if (step.expectedTexts && step.expectedTexts.length > 0) {
+    formatted += ` [期待テキスト: ${step.expectedTexts.join(', ')}]`;
+  }
+  
+  if (step.expectedValues && step.expectedValues.length > 0) {
+    formatted += ` [期待値: ${step.expectedValues.join(', ')}]`;
+  }
+  
+  return formatted;
+}
+
+/**
+ * バリデーション数カウント
+ */
+function getValidationCount(step) {
+  let count = 0;
+  
+  // アサーション系アクションをカウント
+  const validationActions = [
+    'assertOptionCount', 'assertOptionTexts', 'assertOptionValues',
+    'assertSelectedValue', 'assertEmailValidation', 'assertPhoneValidation',
+    'assertNumericValidation', 'assertValidationError', 'assertPlaceholder',
+    'assertPattern', 'assertChecked', 'assertUnchecked'
+  ];
+  
+  if (validationActions.includes(step.action)) {
+    count++;
+  }
+  
+  // 複数期待値がある場合は追加カウント
+  if (step.expectedTexts && step.expectedTexts.length > 1) {
+    count += step.expectedTexts.length - 1;
+  }
+  
+  if (step.expectedValues && step.expectedValues.length > 1) {
+    count += step.expectedValues.length - 1;
+  }
+  
+  return count;
 }
 

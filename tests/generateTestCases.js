@@ -1210,3 +1210,72 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 export default NaturalLanguageTestCaseGenerator;
+
+// 複雑なテストケース生成時のトレーサビリティ強化
+function generateComplexTestWithTraceability(testCase, userStoryInfo) {
+  const complexTestMetadata = {
+    // 基本トレーサビリティ
+    original_viewpoint: testCase.original_viewpoint,
+    generated_from_natural_case: testCase.id,
+    user_story_id: userStoryInfo ? userStoryInfo.currentId : null,
+    
+    // 複雑テスト固有のトレーサビリティ
+    test_structure: {
+      type: 'complex_validation', // detailed, comprehensive, complex_validation
+      phases: [], // setup, execution, validation, cleanup
+      assertions: [], // 各検証ポイント
+      dependencies: [] // 依存要素
+    },
+    
+    // 観点の細分化
+    viewpoint_breakdown: {
+      primary_concern: extractPrimaryConcern(testCase.original_viewpoint),
+      validation_aspects: extractValidationAspects(testCase.original_viewpoint),
+      edge_cases: extractEdgeCases(testCase.original_viewpoint)
+    },
+    
+    // 逆引き用インデックス
+    trace_mapping: {
+      step_to_viewpoint: {},  // ステップ番号 → 観点マッピング
+      assertion_to_concern: {}, // アサーション → 検証観点マッピング
+      element_to_purpose: {}  // 要素 → 目的マッピング
+    }
+  };
+  
+  return complexTestMetadata;
+}
+
+// 観点から主要関心事を抽出
+function extractPrimaryConcern(viewpoint) {
+  const concerns = {
+    'select要素': 'プルダウン選択操作',
+    'input要素': 'テキスト入力操作', 
+    'button要素': 'ボタン押下操作',
+    'form送信': 'フォーム処理',
+    '画面遷移': 'ナビゲーション',
+    'バリデーション': '入力検証'
+  };
+  
+  for (const [keyword, concern] of Object.entries(concerns)) {
+    if (viewpoint.includes(keyword)) {
+      return concern;
+    }
+  }
+  return '汎用操作';
+}
+
+// 検証観点を抽出
+function extractValidationAspects(viewpoint) {
+  const aspects = [];
+  
+  if (viewpoint.includes('選択')) aspects.push('選択可能性');
+  if (viewpoint.includes('入力')) aspects.push('入力可能性');
+  if (viewpoint.includes('表示')) aspects.push('表示確認');
+  if (viewpoint.includes('エラー')) aspects.push('エラーハンドリング');
+  if (viewpoint.includes('遷移')) aspects.push('画面遷移');
+  if (viewpoint.includes('値')) aspects.push('値の正確性');
+  
+  return aspects.length > 0 ? aspects : ['基本動作確認'];
+}
+
+// ... existing code ...
