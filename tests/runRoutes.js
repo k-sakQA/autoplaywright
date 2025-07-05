@@ -1967,8 +1967,13 @@ export class PlaywrightRunner {
     // 手動セレクタのマッピング（PC版・スマホ版対応）
     const manualSelectors = {
       '渋谷': [
-        // PC版セレクタ（ユーザー提供）
+        // F12コンソール形式セレクタ（ユーザー提供）
+        '#__next > div:nth-child(2) > main > div > div.shops_inner__g55WC > div > div.shops_columnLeft__Ki5VN > div > div.SearchInput_sort__newQ4 > div.md\\:none > div > div > div > div > div._SearchItem_form__Nx_1C > div:nth-child(11) > div:nth-child(1) > div._SearchItem_itemSub__Y7NMw._SearchItem_areaSub__66bQd > label:nth-child(1)',
+        // F12コンソール形式（p要素まで含む）
         '#__next > div:nth-child(2) > main > div > div.shops_inner__g55WC > div > div.shops_columnLeft__Ki5VN > div > div.SearchInput_sort__newQ4 > div.md\\:none > div > div > div > div > div._SearchItem_form__Nx_1C > div:nth-child(11) > div:nth-child(1) > div._SearchItem_itemSub__Y7NMw._SearchItem_areaSub__66bQd > label:nth-child(1) > p',
+        // 短縮版F12セレクタ
+        'div._SearchItem_itemSub__Y7NMw._SearchItem_areaSub__66bQd > label:nth-child(1)',
+        'label:nth-child(1) > p',
         // スマホ版対応セレクタ
         'label[class*="_SearchItem_areaCheck"]:has-text("渋谷")',
         'label[class*="areaCheck"]:has-text("渋谷")',
@@ -2022,10 +2027,14 @@ export class PlaywrightRunner {
         
         // 複数のセレクタパターンを順次試行
         for (let i = 0; i < prioritizedSelectors.length; i++) {
-          const selector = prioritizedSelectors[i];
+          let selector = prioritizedSelectors[i];
           console.log(`   🔍 パターン${i + 1}: ${selector}`);
           
           try {
+            // F12コンソール形式のセレクタ正規化
+            selector = this.normalizeF12Selector(selector);
+            console.log(`   🔧 正規化後セレクタ: ${selector}`);
+            
             // 要素の存在確認
             const elements = await this.page.locator(selector).count();
             if (elements > 0) {
@@ -2052,7 +2061,7 @@ export class PlaywrightRunner {
                   pattern: i + 1,
                   elementType: elementType,
                   deviceType: isMobile ? 'mobile' : 'desktop',
-                  originalSelector: selector
+                  originalSelector: prioritizedSelectors[i]
                 };
               } else {
                 console.log(`   ⚠️ 要素は存在するが非可視`);
@@ -2064,10 +2073,65 @@ export class PlaywrightRunner {
             console.log(`   ❌ セレクタエラー: ${error.message}`);
           }
         }
+        
+        // キーワードが見つかった場合は、他のキーワードは試行しない
+        break;
       }
     }
     
     return null;
+  }
+
+  /**
+   * F12コンソール形式セレクタの正規化
+   */
+  normalizeF12Selector(selector) {
+    // エスケープされたコロンを正規化（CSS Modules対応）
+    let normalized = selector;
+    
+    // md\:none のようなエスケープされたコロンを正規化
+    normalized = normalized.replace(/\\:/g, ':');
+    
+    // 複数のスペースを単一スペースに
+    normalized = normalized.replace(/\s+/g, ' ');
+    
+    // 先頭・末尾の空白を除去
+    normalized = normalized.trim();
+    
+    console.log(`🔧 F12セレクタ正規化: ${selector} → ${normalized}`);
+    
+    return normalized;
+  }
+
+  /**
+   * F12コンソール形式セレクタの検証
+   */
+  async validateF12Selector(selector) {
+    try {
+      // セレクタの基本的な構文チェック
+      if (!selector || typeof selector !== 'string') {
+        return { valid: false, error: 'セレクタが空または無効な形式です' };
+      }
+      
+      // エスケープ文字の処理
+      const normalizedSelector = this.normalizeF12Selector(selector);
+      
+      // Playwrightでセレクタをテスト
+      const elements = await this.page.locator(normalizedSelector).count();
+      
+      return { 
+        valid: true, 
+        elementCount: elements,
+        normalizedSelector: normalizedSelector,
+        found: elements > 0
+      };
+    } catch (error) {
+      return { 
+        valid: false, 
+        error: error.message,
+        normalizedSelector: this.normalizeF12Selector(selector)
+      };
+    }
   }
 
   /**

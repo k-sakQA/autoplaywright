@@ -947,21 +947,42 @@
                                 <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-bottom: 10px;">
                                     <h5 style="margin: 0 0 8px 0; color: #495057;">🔍 要素指定方法</h5>
                                     <p style="margin: 0; font-size: 13px; color: #6c757d;">
-                                        1. 失敗したテストのスクリーンショットを確認<br>
-                                        2. 実際の画面で要素を右クリック → 「検証」<br>
-                                        3. 要素のclass名やtext内容を確認<br>
-                                        4. 下記の形式で指定してください
+                                        <strong>方法1: F12セレクタ直接入力（推奨）</strong><br>
+                                        1. 要素を右クリック → 「検証」<br>
+                                        2. 開発者ツールで要素を右クリック → 「Copy」→ 「Copy selector」<br>
+                                        3. 下記フィールドにそのまま貼り付け<br><br>
+                                        <strong>方法2: JSON形式入力</strong><br>
+                                        従来のJSON形式でも入力可能
                                     </p>
                                 </div>
                                 
+                                <!-- F12セレクタ直接入力フィールド -->
+                                <div style="margin-bottom: 15px;">
+                                    <label style="font-weight: 500; display: block; margin-bottom: 5px;">
+                                        🎯 F12セレクタ直接入力（推奨）
+                                    </label>
+                                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                        <input type="text" id="f12SelectorInput" placeholder="F12からコピーしたセレクタを貼り付け..." 
+                                               style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;">
+                                        <input type="text" id="f12SelectorLabel" placeholder="要素の名前（例: 渋谷ボタン）" 
+                                               style="width: 200px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                        <button type="button" id="addF12Selector" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                            ➕ 追加
+                                        </button>
+                                    </div>
+                                    <div id="f12SelectorPreview" style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; color: #6c757d; min-height: 20px;">
+                                        プレビュー表示エリア
+                                    </div>
+                                </div>
+
                                 <label style="font-weight: 500; display: block; margin-bottom: 5px;">
-                                    📝 要素指定（JSON形式）:
+                                    📝 手動セレクタ設定（JSON形式）
                                 </label>
                                 <textarea id="manualSelectorJson" style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; border: 1px solid #ced4da; border-radius: 4px; padding: 8px;"
-                                    placeholder='例（実際の画面で確認した要素を指定）:
+                                    placeholder='例（F12からコピーしたセレクタも使用可能）:
 {
   "エリア選択": {
-    "渋谷": "text=渋谷",
+    "渋谷": "#__next > div:nth-child(2) > main > div > div.shops_inner__g55WC > div > div.shops_columnLeft__Ki5VN > div > div.SearchInput_sort__newQ4 > div.md\\:none > div > div > div > div > div._SearchItem_form__Nx_1C > div:nth-child(11) > div:nth-child(1) > div._SearchItem_itemSub__Y7NMw._SearchItem_areaSub__66bQd > label:nth-child(1)",
     "恵比寿": "text=恵比寿"
   },
   "ボタン": {
@@ -1470,6 +1491,7 @@
 
                 <h3>🔍 セレクタのコツ</h3>
                 <ul>
+                    <li><strong>F12コピー（推奨）:</strong> 開発者ツールで要素を右クリック → Copy → Copy selector</li>
                     <li><strong>ID選択:</strong> <code>#element-id</code></li>
                     <li><strong>クラス選択:</strong> <code>.class-name</code></li>
                     <li><strong>属性選択:</strong> <code>input[type="email"]</code></li>
@@ -1479,7 +1501,7 @@
                 </ul>
 
                 <div class="highlight-box">
-                    <strong>🚀 プロのコツ:</strong> ブラウザの開発者ツール（F12キー）でセレクタをテストしてから使用すると確実です！
+                    <strong>🚀 プロのコツ:</strong> F12の「Copy selector」機能を使えば、複雑なセレクタも簡単に取得できます！エスケープ文字も自動処理されるので安心です。
                 </div>
             </div>
         </div>
@@ -3194,22 +3216,33 @@
                     const selectors = JSON.parse(jsonText);
                     let validCount = 0;
                     let totalCount = 0;
+                    let f12Count = 0;
                     
                     // セレクタの構造を検証
                     for (const category in selectors) {
                         if (typeof selectors[category] === 'object') {
                             for (const item in selectors[category]) {
                                 totalCount++;
-                                if (typeof selectors[category][item] === 'string' && selectors[category][item].trim()) {
+                                const selectorValue = selectors[category][item];
+                                if (typeof selectorValue === 'string' && selectorValue.trim()) {
                                     validCount++;
+                                    
+                                    // F12形式セレクタの検出
+                                    if (selectorValue.includes('nth-child') || selectorValue.includes(' > ') || selectorValue.includes('\\:')) {
+                                        f12Count++;
+                                    }
                                 }
                             }
                         }
                     }
                     
                     if (validCount === totalCount && totalCount > 0) {
-                        resultDiv.innerHTML = `<span style="color: #28a745;">✅ 形式チェック成功: ${totalCount}個の要素指定が正常です</span>`;
-                        addLogAI(`🎯 要素指定形式チェック成功: ${totalCount}個の要素指定が正常です`);
+                        let message = `✅ 形式チェック成功: ${totalCount}個の要素指定が正常です`;
+                        if (f12Count > 0) {
+                            message += `<br>📋 F12形式セレクタ: ${f12Count}個（エスケープ文字は自動処理されます）`;
+                        }
+                        resultDiv.innerHTML = `<span style="color: #28a745;">${message}</span>`;
+                        addLogAI(`🎯 要素指定形式チェック成功: ${totalCount}個の要素指定が正常です（F12形式: ${f12Count}個）`);
                     } else {
                         resultDiv.innerHTML = `<span style="color: #ffc107;">⚠️ 部分的に成功: ${validCount}/${totalCount}個の要素指定が有効です</span>`;
                     }
@@ -3240,9 +3273,17 @@
 1. 失敗したテストのスクリーンショットを確認
 2. 実際のWebページを開く
 3. 要素を右クリック → 「検証」（Chrome/Edge）
-4. 要素の情報を確認して、下記の形式で指定
+4. 開発者ツールで要素を右クリック → 「Copy」→ 「Copy selector」
+5. コピーしたセレクタをそのまま下記の形式で指定
+
+【F12からのコピー方法】
+• Chrome/Edge: 要素を右クリック → Copy → Copy selector
+• コピーされたセレクタ例:
+  #__next > div:nth-child(2) > main > div > div.shops_inner__g55WC
+• このセレクタをそのまま使用可能（エスケープ文字も自動処理）
 
 【よく使う指定方法】
+• F12コピー: "#__next > div:nth-child(2) > main..."（そのまま使用）
 • テキストで指定: "text=ボタン名"
 • ボタン: "button:has-text(\\"ボタン名\\")"
 • リンク: "a:has-text(\\"リンク名\\")"
@@ -3252,16 +3293,18 @@
 【例】
 {
   "ボタン": {
-    "検索": "text=検索",
+    "検索": "#__next > div:nth-child(2) > main > div > button",
     "送信": "button:has-text(\\"送信\\")"
   },
   "エリア選択": {
-    "東京": "text=東京",
+    "東京": "div.area-item:nth-child(1) > label",
     "大阪": "text=大阪"
   }
 }
 
 【注意点】
+• F12からコピーしたセレクタはそのまま使用できます
+• エスケープ文字（\\）は自動で処理されます
 • 失敗分析時のみ使用してください
 • 初回テストでは使用しないでください
 • 分からない場合はエンジニアに相談してください
@@ -3397,6 +3440,154 @@
                 });
         });
 
+        // F12セレクタ直接入力機能
+        const f12SelectorInput = document.getElementById('f12SelectorInput');
+        const f12SelectorLabel = document.getElementById('f12SelectorLabel');
+        const f12SelectorPreview = document.getElementById('f12SelectorPreview');
+        const addF12SelectorButton = document.getElementById('addF12Selector');
+        const manualSelectorJson = document.getElementById('manualSelectorJson');
+        
+        // F12セレクタのプレビュー表示
+        f12SelectorInput.addEventListener('input', function() {
+            const selector = this.value.trim();
+            if (selector) {
+                const normalized = normalizeF12Selector(selector);
+                f12SelectorPreview.innerHTML = `<strong>正規化後:</strong> ${normalized}`;
+                f12SelectorPreview.style.color = '#28a745';
+            } else {
+                f12SelectorPreview.innerHTML = 'プレビュー表示エリア';
+                f12SelectorPreview.style.color = '#6c757d';
+            }
+        });
+        
+        // F12セレクタ追加ボタン
+        addF12SelectorButton.addEventListener('click', function() {
+            const selector = f12SelectorInput.value.trim();
+            const label = f12SelectorLabel.value.trim();
+            
+            if (!selector) {
+                alert('⚠️ F12セレクタを入力してください');
+                return;
+            }
+            
+            if (!label) {
+                alert('⚠️ 要素の名前を入力してください');
+                return;
+            }
+            
+            // 現在のJSONを取得
+            let currentJson = {};
+            const currentText = manualSelectorJson.value.trim();
+            if (currentText) {
+                try {
+                    currentJson = JSON.parse(currentText);
+                } catch (e) {
+                    // 既存のJSONが無効な場合は新しく作成
+                    currentJson = {};
+                }
+            }
+            
+            // F12セレクタを正規化してJSONに追加
+            const normalized = normalizeF12Selector(selector);
+            
+            // カテゴリを自動判定（ボタン、リンク、入力欄など）
+            let category = 'その他';
+            if (label.includes('ボタン') || label.includes('button')) {
+                category = 'ボタン';
+            } else if (label.includes('リンク') || label.includes('link')) {
+                category = 'リンク';
+            } else if (label.includes('入力') || label.includes('input')) {
+                category = '入力欄';
+            } else if (label.includes('チェック') || label.includes('checkbox')) {
+                category = 'チェックボックス';
+            } else if (label.includes('プルダウン') || label.includes('select')) {
+                category = 'プルダウン';
+            }
+            
+            // JSONに追加
+            if (!currentJson[category]) {
+                currentJson[category] = {};
+            }
+            currentJson[category][label] = normalized;
+            
+            // JSONを整形して表示
+            manualSelectorJson.value = JSON.stringify(currentJson, null, 2);
+            
+            // 入力欄をクリア
+            f12SelectorInput.value = '';
+            f12SelectorLabel.value = '';
+            f12SelectorPreview.innerHTML = 'プレビュー表示エリア';
+            f12SelectorPreview.style.color = '#6c757d';
+            
+            // 成功メッセージ
+            const successMsg = document.createElement('div');
+            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; z-index: 1000;';
+            successMsg.textContent = `✅ ${label} を追加しました`;
+            document.body.appendChild(successMsg);
+            setTimeout(() => successMsg.remove(), 3000);
+        });
+        
+        // F12セレクタの正規化関数
+        function normalizeF12Selector(selector) {
+            if (!selector) return '';
+            
+            // エスケープ文字の正規化
+            let normalized = selector
+                .replace(/\\\\/g, '\\')  // 二重エスケープを単一に
+                .replace(/\\:/g, ':')    // エスケープされたコロンを正規化
+                .replace(/\s+/g, ' ')    // 複数スペースを単一に
+                .trim();                 // 前後の空白を除去
+            
+            return normalized;
+        }
+        
+        // セレクタ検証ボタン
+        validateSelectors.addEventListener('click', function() {
+            const jsonText = document.getElementById('manualSelectorJson').value.trim();
+            
+            if (!jsonText) {
+                resultDiv.innerHTML = '<span style="color: #dc3545;">⚠️ セレクタJSONを入力してください</span>';
+                return;
+            }
+            
+            try {
+                const selectors = JSON.parse(jsonText);
+                let validCount = 0;
+                let totalCount = 0;
+                let f12Count = 0;
+                
+                // セレクタの構造を検証
+                for (const category in selectors) {
+                    if (typeof selectors[category] === 'object') {
+                        for (const item in selectors[category]) {
+                            totalCount++;
+                            const selectorValue = selectors[category][item];
+                            if (typeof selectorValue === 'string' && selectorValue.trim()) {
+                                validCount++;
+                                
+                                // F12形式セレクタの検出
+                                if (selectorValue.includes('nth-child') || selectorValue.includes(' > ') || selectorValue.includes('\\:')) {
+                                    f12Count++;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (validCount === totalCount && totalCount > 0) {
+                    let message = `✅ 形式チェック成功: ${totalCount}個の要素指定が正常です`;
+                    if (f12Count > 0) {
+                        message += `<br>📋 F12形式セレクタ: ${f12Count}個（エスケープ文字は自動処理されます）`;
+                    }
+                    resultDiv.innerHTML = `<span style="color: #28a745;">${message}</span>`;
+                    addLogAI(`🎯 要素指定形式チェック成功: ${totalCount}個の要素指定が正常です（F12形式: ${f12Count}個）`);
+                } else {
+                    resultDiv.innerHTML = `<span style="color: #ffc107;">⚠️ 部分的に成功: ${validCount}/${totalCount}個の要素指定が有効です</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: #dc3545;">❌ JSON形式エラー: ${error.message}</span>`;
+            }
+        });
 
     </script>
 </body>
