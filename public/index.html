@@ -722,6 +722,47 @@
             opacity: 1;
         }
         
+        /* Android実機設定のスタイル */
+        .adb-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .adb-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .adb-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .adb-status.checking {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .android-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .android-info h4 {
+            margin: 0 0 8px 0;
+            color: #1976d2;
+        }
+        
+        .android-info ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #1565c0;
+        }
+        
         /* Firefox用 */
         input::-moz-placeholder,
         textarea::-moz-placeholder {
@@ -960,6 +1001,56 @@
                 <div class="form-group">
                     <label for="pdfFile">仕様書PDF (オプション):</label>
                     <input type="file" id="pdfFile" accept=".pdf">
+                </div>
+            </div>
+            
+            <!-- 実行環境選択セクション -->
+            <div class="section">
+                <h2>📱 実行環境選択</h2>
+                
+                <div class="form-group">
+                    <label for="executionEnvironment">テスト実行環境:</label>
+                    <select id="executionEnvironment" onchange="onEnvironmentChange()">
+                        <option value="pc">🖥️ PC版ブラウザ (標準)</option>
+                        <option value="android">📱 Android実機 (CDP接続)</option>
+                    </select>
+                    <small>Android実機を選択する場合は、事前にADBポートフォワードの設定が必要です</small>
+                </div>
+                
+                <!-- Android実機専用設定 -->
+                <div id="androidSettings" style="display: none;">
+                    <div class="form-group">
+                        <label for="domAnalysisSource">DOM解析元:</label>
+                        <select id="domAnalysisSource">
+                            <option value="pc">🖥️ PC版で解析 (推奨)</option>
+                            <option value="android">📱 Android実機で解析</option>
+                        </select>
+                        <small>PC版の方が要素検出が安定しています</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>ADB接続確認:</label>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                            <button type="button" class="btn-info" onclick="checkADBConnection()" style="padding: 8px 16px; font-size: 14px;">
+                                🔍 接続確認
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="setupADBForward()" style="padding: 8px 16px; font-size: 14px;">
+                                🔧 ADB設定
+                            </button>
+                            <div id="adbStatus" class="adb-status" style="font-size: 14px; font-weight: 600;"></div>
+                        </div>
+                        <small>Android実機でのテスト実行前に接続を確認してください</small>
+                    </div>
+                    
+                    <div class="android-info" style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 15px 0; border-radius: 0 8px 8px 0;">
+                        <h4 style="margin: 0 0 8px 0; color: #1976d2;">📱 Android実機テストの特徴</h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #1565c0;">
+                            <li>スマホ版UIに特化した要素検出</li>
+                            <li>実際のタッチ操作によるテスト</li>
+                            <li>PC版とは異なるUI構造に対応</li>
+                            <li>表示確認テストが最も安定</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             
@@ -1677,6 +1768,11 @@
             // 手動セレクタ設定を取得
             const manualSelectors = getManualSelectorSettings();
             
+            // 実行環境設定を取得
+            const executionEnvironment = document.getElementById('executionEnvironment').value;
+            const domAnalysisSource = document.getElementById('domAnalysisSource') ? 
+                document.getElementById('domAnalysisSource').value : 'pc';
+            
             // 自動改善コマンドかどうかを判定
             const isAICommand = command === 'analyzeFailures' || command === 'discoverNewStories';
             const isNewStoriesCommand = false; // executeNewStoryCommand で処理
@@ -1724,6 +1820,10 @@
                 if (testGoal) formData.append('goal', testGoal);
                 if (pdfFile) formData.append('pdf', pdfFile);
                 if (csvFile) formData.append('csv', csvFile);
+                
+                // 実行環境設定を送信
+                formData.append('executionEnvironment', executionEnvironment);
+                formData.append('domAnalysisSource', domAnalysisSource);
                 
                 // AI修正設定を送信（失敗分析コマンドの場合）
                 if (command === 'analyzeFailures') {
@@ -3188,6 +3288,78 @@
             } catch (error) {
                 addLogAI(`⚠️ 要素指定JSON解析エラー: ${error.message}`);
                 return null;
+            }
+        }
+        
+        // 環境選択変更時の処理
+        function onEnvironmentChange() {
+            const environment = document.getElementById('executionEnvironment').value;
+            const androidSettings = document.getElementById('androidSettings');
+            
+            if (environment === 'android') {
+                androidSettings.style.display = 'block';
+                addLog('📱 Android実機モードが選択されました');
+                // 自動的に接続確認を実行
+                setTimeout(checkADBConnection, 500);
+            } else {
+                androidSettings.style.display = 'none';
+                addLog('🖥️ PC版ブラウザモードが選択されました');
+            }
+        }
+        
+        // ADB接続確認
+        async function checkADBConnection() {
+            const statusDiv = document.getElementById('adbStatus');
+            statusDiv.className = 'adb-status checking';
+            statusDiv.textContent = '🔄 確認中...';
+            
+            try {
+                const response = await fetch('/api/adb-status');
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusDiv.className = 'adb-status connected';
+                    statusDiv.textContent = `✅ 接続済み (${result.deviceCount}台)`;
+                    addLog(`📱 Android実機接続確認: ${result.deviceCount}台のデバイスが検出されました`);
+                    if (result.chromeVersion) {
+                        addLog(`🌐 Chrome バージョン: ${result.chromeVersion}`);
+                    }
+                } else {
+                    statusDiv.className = 'adb-status disconnected';
+                    statusDiv.textContent = '❌ 未接続';
+                    addLog('⚠️ Android実機が検出されません。ADB設定を確認してください');
+                }
+            } catch (error) {
+                statusDiv.className = 'adb-status disconnected';
+                statusDiv.textContent = '❌ エラー';
+                addLog(`❌ ADB接続確認エラー: ${error.message}`);
+            }
+        }
+        
+        // ADB設定実行
+        async function setupADBForward() {
+            const statusDiv = document.getElementById('adbStatus');
+            statusDiv.className = 'adb-status checking';
+            statusDiv.textContent = '🔧 設定中...';
+            
+            try {
+                const response = await fetch('/api/adb-setup', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog('✅ ADBポートフォワード設定完了');
+                    addLog('📱 Android実機でChromeを開いてください');
+                    // 設定後に接続確認を実行
+                    setTimeout(checkADBConnection, 1000);
+                } else {
+                    statusDiv.className = 'adb-status disconnected';
+                    statusDiv.textContent = '❌ 設定失敗';
+                    addLog(`❌ ADB設定エラー: ${result.error}`);
+                }
+            } catch (error) {
+                statusDiv.className = 'adb-status disconnected';
+                statusDiv.textContent = '❌ エラー';
+                addLog(`❌ ADB設定エラー: ${error.message}`);
             }
         }
 

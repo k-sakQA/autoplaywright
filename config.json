@@ -3,8 +3,8 @@
   "openai": {
     "apiKeyEnv": "OPENAI_API_KEY",
     "model": "gpt-4o",
-    "temperature": 0.5,
-    "max_tokens": 5000,
+    "temperature": 0.8,
+    "max_tokens": 8000,
     "top_p": 0.5,
     "timeout": 60000,
     "maxRetries": 3
@@ -18,12 +18,12 @@
   "userStory": {
     "currentId": 1,
     "content": "ストーリー：スポーツバーの検索ができるルート：お店の一覧画面（https://fansta.jp/shops）で1.「エリアから探す」のプルダウンから「東京都」を選択＞「渋谷」チェックボックスを選択＞「この条件で絞り込む」ボタンをタップする 2.「チームから探す」のプルダウンから：国内サッカー＞明治安田J1リーグ＞「FC東京」チェックボックス を選択＞「この条件で絞り込む」ボタンをタップする 3.表示された「対象のお店の一覧画面（https://fansta.jp/shops?areas=36&prefecture=13&teams=6）」に「HUB渋谷店」があることを確認する",
-    "timestamp": "2025-07-05T08:38:39.071Z",
+    "timestamp": "2025-07-05T12:52:33.540Z",
     "history": [
       {
         "id": 1,
         "content": "ストーリー：スポーツバーの検索ができるルート：お店の一覧画面（https://fansta.jp/shops）で1.「エリアから探す」のプルダウンから「東京都」を選択＞「渋谷」チェックボックスを選択＞「この条件で絞り込む」ボタンをタップする 2.「チームから探す」のプルダウンから：国内サッカー＞明治安田J1リーグ＞「FC東京」チェックボックス を選択＞「この条件で絞り込む」ボタンをタップする 3.表示された「対象のお店の一覧画面（https://fansta.jp/shops?areas=36&prefecture=13&teams=6）」に「HUB渋谷店」があることを確認する",
-        "timestamp": "2025-07-05T08:38:39.071Z"
+        "timestamp": "2025-07-05T12:52:33.540Z"
       }
     ]
   }

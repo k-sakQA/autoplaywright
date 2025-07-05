@@ -196,6 +196,111 @@ app.post('/api/config/sheets', (req, res) => {
   }
 });
 
+// ADB接続確認API
+app.get('/api/adb-status', async (req, res) => {
+  try {
+    console.log('🔍 ADB接続状態確認開始');
+    
+    // adb devicesコマンドを実行
+    const adbDevices = spawn('adb', ['devices'], { stdio: 'pipe' });
+    let deviceOutput = '';
+    
+    adbDevices.stdout.on('data', (data) => {
+      deviceOutput += data.toString();
+    });
+    
+    adbDevices.on('close', async (code) => {
+      if (code !== 0) {
+        console.log('❌ ADB接続確認失敗: adbコマンドが見つかりません');
+        return res.json({ success: false, error: 'ADBコマンドが見つかりません' });
+      }
+      
+      // デバイス数をカウント
+      const deviceLines = deviceOutput.split('\n')
+        .filter(line => line.includes('\tdevice'))
+        .length;
+      
+      console.log(`📱 検出されたAndroidデバイス: ${deviceLines}台`);
+      
+      if (deviceLines === 0) {
+        return res.json({ 
+          success: false, 
+          deviceCount: 0, 
+          error: 'Androidデバイスが検出されません' 
+        });
+      }
+      
+      // Chrome接続確認
+      try {
+        const response = await fetch('http://localhost:9222/json/version');
+        const chromeInfo = await response.json();
+        
+        console.log('✅ Chrome接続確認成功');
+        res.json({
+          success: true,
+          deviceCount: deviceLines,
+          chromeVersion: chromeInfo['Browser'] || 'Unknown',
+          chromeConnected: true
+        });
+      } catch (error) {
+        console.log('⚠️ Chrome接続確認失敗:', error.message);
+        res.json({
+          success: true,
+          deviceCount: deviceLines,
+          chromeConnected: false,
+          warning: 'ADBポートフォワードが必要です'
+        });
+      }
+    });
+    
+    adbDevices.on('error', (error) => {
+      console.error('❌ ADB接続確認エラー:', error);
+      res.json({ success: false, error: 'ADBコマンド実行エラー' });
+    });
+    
+  } catch (error) {
+    console.error('❌ ADB接続確認エラー:', error);
+    res.json({ success: false, error: error.message });
+  }
+});
+
+// ADB設定API
+app.post('/api/adb-setup', (req, res) => {
+  try {
+    console.log('🔧 ADBポートフォワード設定開始');
+    
+    const adbForward = spawn('adb', ['forward', 'tcp:9222', 'localabstract:chrome_devtools_remote'], { stdio: 'pipe' });
+    let output = '';
+    
+    adbForward.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    adbForward.stderr.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    adbForward.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ ADBポートフォワード設定完了');
+        res.json({ success: true, message: 'ADBポートフォワード設定完了' });
+      } else {
+        console.error('❌ ADBポートフォワード設定失敗:', output);
+        res.json({ success: false, error: `ADBポートフォワード設定失敗: ${output}` });
+      }
+    });
+    
+    adbForward.on('error', (error) => {
+      console.error('❌ ADBポートフォワード設定エラー:', error);
+      res.json({ success: false, error: 'ADBコマンド実行エラー' });
+    });
+    
+  } catch (error) {
+    console.error('❌ ADBポートフォワード設定エラー:', error);
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // Google Sheets接続テストAPI
 app.post('/api/sheets/test', (req, res) => {
   const { shareEmail, driveFolder } = req.body;
@@ -377,10 +482,16 @@ app.post('/api/execute-json', express.json(), async (req, res) => {
 
 // コマンド実行API（従来のFormData用）
 app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv', maxCount: 1}]), async (req, res) => {
-  const { command, url, goal, routeId } = req.body;
+  const { command, url, goal, routeId, executionEnvironment, domAnalysisSource } = req.body;
   const files = req.files || {};
   const pdfFile = files.pdf ? files.pdf[0] : null;
   const csvFile = files.csv ? files.csv[0] : null;
+  
+  // 環境設定を表示
+  console.log('🌐 実行環境設定:', {
+    executionEnvironment: executionEnvironment || 'pc',
+    domAnalysisSource: domAnalysisSource || 'pc'
+  });
   
   try {
     // 設定ファイルにユーザーストーリー情報を保存（トレーサビリティのため）
@@ -513,6 +624,11 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
 
         case 'runRoutes':
             args = ['tests/runRoutes.js'];
+            // Android実機モードの場合、--android-deviceフラグを追加
+            if (executionEnvironment === 'android') {
+                args.push('--android-device');
+                console.log('📱 Android実機モードでテスト実行');
+            }
             break;
 
         case 'generateTestReport':
