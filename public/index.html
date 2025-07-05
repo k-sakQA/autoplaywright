@@ -880,6 +880,68 @@
                     <textarea id="testGoal" rows="3" placeholder="ストーリー：宿泊予約の入力・選択ができる&#10;ルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する"></textarea>
                     <div class="user-story-info">
                         <small>具体的なテスト手順や確認したい内容を記述してください</small>
+                        
+                        <!-- AI修正オプション -->
+                        <div class="ai-fix-option" style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px; border-left: 4px solid #007bff;">
+                            <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer; font-weight: 500;">
+                                <input type="checkbox" id="enableAIFix" style="margin-right: 8px; transform: scale(1.2);">
+                                <span>🤖 失敗したテストの修正をAIに任せる</span>
+                            </label>
+                            <small style="display: block; margin-top: 5px; color: #6c757d;">
+                                チェックを外すとルールベース修正のみ使用（コスト削減・安定性向上）
+                            </small>
+                        </div>
+                        
+                        <!-- 手動セレクタ指定オプション -->
+                        <div class="manual-selector-option" id="manualSelectorOption" style="display: none; margin: 10px 0; padding: 10px; background: #fff3cd; border-radius: 6px; border-left: 4px solid #ffc107;">
+                            <label class="checkbox-label" style="display: flex; align-items: center; cursor: pointer; font-weight: 500;">
+                                <input type="checkbox" id="enableManualSelector" style="margin-right: 8px; transform: scale(1.2);">
+                                <span>🎯 要素指定サポート（失敗分析時のみ）</span>
+                            </label>
+                            <small style="display: block; margin-top: 5px; color: #856404;">
+                                失敗したテストの要素を実際の画面で確認して指定できます
+                            </small>
+                            
+                            <div id="manualSelectorDetails" style="display: none; margin-top: 10px;">
+                                <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-bottom: 10px;">
+                                    <h5 style="margin: 0 0 8px 0; color: #495057;">🔍 要素指定方法</h5>
+                                    <p style="margin: 0; font-size: 13px; color: #6c757d;">
+                                        1. 失敗したテストのスクリーンショットを確認<br>
+                                        2. 実際の画面で要素を右クリック → 「検証」<br>
+                                        3. 要素のclass名やtext内容を確認<br>
+                                        4. 下記の形式で指定してください
+                                    </p>
+                                </div>
+                                
+                                <label style="font-weight: 500; display: block; margin-bottom: 5px;">
+                                    📝 要素指定（JSON形式）:
+                                </label>
+                                <textarea id="manualSelectorJson" style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; border: 1px solid #ced4da; border-radius: 4px; padding: 8px;"
+                                    placeholder='例（実際の画面で確認した要素を指定）:
+{
+  "エリア選択": {
+    "渋谷": "text=渋谷",
+    "恵比寿": "text=恵比寿"
+  },
+  "ボタン": {
+    "この条件で絞り込む": "button:has-text(\"絞り込む\")"
+  }
+}'></textarea>
+                                <div style="margin-top: 8px; display: flex; gap: 10px;">
+                                    <button type="button" id="validateSelectors" style="background: #17a2b8; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px;">
+                                        ✅ 形式チェック
+                                    </button>
+                                    <button type="button" id="clearSelectors" style="background: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px;">
+                                        🗑️ クリア
+                                    </button>
+                                    <button type="button" id="helpSelectors" style="background: #28a745; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px;">
+                                        ❓ 使い方
+                                    </button>
+                                </div>
+                                <div id="selectorValidationResult" style="margin-top: 8px; font-size: 12px;"></div>
+                            </div>
+                        </div>
+                        
                         <div id="userStoryId" class="user-story-id" style="display: none;">
                             🔗 <strong>トレーサビリティID:</strong> <span id="currentUserStoryId">-</span>
                             <button type="button" class="btn" onclick="resetTestHistory()">
@@ -1442,6 +1504,127 @@
             logArea.scrollTop = logArea.scrollHeight;
         }
         
+        // レスポンシブ対応F12キー機能
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F12') {
+                e.preventDefault();
+                
+                // デバイスタイプを検出
+                const viewport = window.innerWidth;
+                const deviceType = viewport < 768 ? 'mobile' : 'desktop';
+                
+                console.log(`📱 現在のデバイスタイプ: ${deviceType} (幅: ${viewport}px)`);
+                
+                // マウス位置から要素を取得
+                const element = document.elementFromPoint(window.lastMouseX || 0, window.lastMouseY || 0);
+                if (element) {
+                    const selectors = generateResponsiveSelectors(element, deviceType);
+                    console.log('🎯 レスポンシブ対応セレクタ:', selectors);
+                    
+                    // クリップボードにコピー
+                    const selectorText = selectors.map((sel, i) => `${i + 1}. ${sel}`).join('\n');
+                    navigator.clipboard.writeText(selectorText).then(() => {
+                        alert(`📱 レスポンシブ対応セレクタを取得しました！\n\nデバイス: ${deviceType}\n\n${selectorText}\n\n✅ クリップボードにコピー済み`);
+                    });
+                }
+            }
+        });
+        
+        // マウス位置を追跡
+        document.addEventListener('mousemove', function(e) {
+            window.lastMouseX = e.clientX;
+            window.lastMouseY = e.clientY;
+        });
+        
+        // レスポンシブ対応セレクタ生成関数
+        function generateResponsiveSelectors(element, deviceType) {
+            const selectors = [];
+            
+            // 基本セレクタ
+            if (element.id) selectors.push(`#${element.id}`);
+            if (element.name) selectors.push(`[name="${element.name}"]`);
+            
+            // クラスベースセレクタ（レスポンシブ対応）
+            if (element.className) {
+                const classes = element.className.split(' ').filter(c => c.trim());
+                classes.forEach(cls => {
+                    if (cls.includes('_') && !cls.includes('md:')) {
+                        selectors.push(`[class*="${cls}"]`);
+                    }
+                });
+            }
+            
+            // デバイス固有セレクタ
+            if (deviceType === 'mobile') {
+                // スマホ版では、PC専用クラスを除外
+                selectors.push(`${element.tagName.toLowerCase()}:not([class*="md:"])`);
+            } else {
+                // PC版では、詳細なパスを含める
+                const fullPath = generateFullPath(element);
+                if (fullPath) selectors.push(fullPath);
+            }
+            
+            // テキストベースセレクタ
+            if (element.textContent) {
+                const text = element.textContent.trim();
+                if (text.length > 0 && text.length < 50) {
+                    selectors.push(`text="${text}"`);
+                    selectors.push(`${element.tagName.toLowerCase()}:has-text("${text}")`);
+                }
+            }
+            
+            // 要素タイプ別セレクタ
+            if (element.tagName.toLowerCase() === 'select') {
+                selectors.push(`select[name="${element.name}"]`);
+            } else if (element.tagName.toLowerCase() === 'input') {
+                if (element.type) {
+                    selectors.push(`input[type="${element.type}"]`);
+                }
+            } else if (element.tagName.toLowerCase() === 'button') {
+                selectors.push(`button:visible`);
+            }
+            
+            return selectors.filter(s => s && s.length > 0);
+        }
+        
+        // 完全パス生成関数
+        function generateFullPath(element) {
+            const path = [];
+            let current = element;
+            
+            while (current && current.tagName && path.length < 5) {
+                let selector = current.tagName.toLowerCase();
+                
+                if (current.id) {
+                    selector += `#${current.id}`;
+                    path.unshift(selector);
+                    break;
+                }
+                
+                if (current.className) {
+                    const classes = current.className.split(' ').filter(c => c.trim());
+                    if (classes.length > 0) {
+                        selector += '.' + classes.join('.');
+                    }
+                }
+                
+                // nth-child の追加
+                if (current.parentNode) {
+                    const siblings = Array.from(current.parentNode.children);
+                    const sameTagSiblings = siblings.filter(s => s.tagName === current.tagName);
+                    if (sameTagSiblings.length > 1) {
+                        const index = sameTagSiblings.indexOf(current) + 1;
+                        selector += `:nth-child(${index})`;
+                    }
+                }
+                
+                path.unshift(selector);
+                current = current.parentNode;
+            }
+            
+            return path.join(' > ');
+        }
+        
         // 新ストーリータブ用のログ関数
         function addLogNewStories(message, type = 'info') {
             const logArea = document.getElementById('logAreaNewStories');
@@ -1488,6 +1671,12 @@
             const pdfFile = document.getElementById('pdfFile').files[0];
             const csvFile = document.getElementById('csvFile').files[0];
             
+            // AI修正オプションの状態を取得
+            const enableAIFix = document.getElementById('enableAIFix').checked;
+            
+            // 手動セレクタ設定を取得
+            const manualSelectors = getManualSelectorSettings();
+            
             // 自動改善コマンドかどうかを判定
             const isAICommand = command === 'analyzeFailures' || command === 'discoverNewStories';
             const isNewStoriesCommand = false; // executeNewStoryCommand で処理
@@ -1507,6 +1696,18 @@
                 showUserStoryId();
             }
             
+            // AI修正設定の表示
+            if (command === 'analyzeFailures') {
+                if (enableAIFix) {
+                    addLogAI(`🤖 AI修正モード: 有効 (ChatGPTによる失敗分析を実行)`);
+                } else {
+                    addLogAI(`🔧 ルールベース修正モード: 有効 (コスト削減・安定性重視)`);
+                }
+                
+                // 失敗分析時のみ手動セレクタオプションを表示
+                showManualSelectorOption();
+            }
+            
             // ログとステータス表示を自動改善コマンドに応じて分岐
             if (isAICommand) {
                 addLogAI(`🚀 ${getCommandName(command)} を開始しています...`);
@@ -1523,6 +1724,17 @@
                 if (testGoal) formData.append('goal', testGoal);
                 if (pdfFile) formData.append('pdf', pdfFile);
                 if (csvFile) formData.append('csv', csvFile);
+                
+                // AI修正設定を送信（失敗分析コマンドの場合）
+                if (command === 'analyzeFailures') {
+                    formData.append('enableAIFix', enableAIFix ? 'true' : 'false');
+                    
+                    // 手動セレクタ設定を送信
+                    if (manualSelectors) {
+                        formData.append('manualSelectors', JSON.stringify(manualSelectors));
+                        addLogAI(`🎯 要素指定設定を送信: ${Object.keys(manualSelectors).length}カテゴリ`);
+                    }
+                }
                 
                 const response = await fetch('/api/execute', {
                     method: 'POST',
@@ -1789,6 +2001,15 @@
                 // 6. 失敗分析（失敗がある場合）
                 if (hasFailures) {
                     updateBulkProgress('step-analyze', 'active', '🔧 失敗テストを分析中...');
+                    
+                    // AI修正設定を反映して失敗分析を実行
+                    const enableAIFix = document.getElementById('enableAIFix').checked;
+                    if (enableAIFix) {
+                        addLog('🤖 AI修正モードで失敗分析を実行中...');
+                    } else {
+                        addLog('🔧 ルールベース修正モードで失敗分析を実行中...');
+                    }
+                    
                     await executeCommand('analyzeFailures');
                     await delay(2000); // 分析は時間がかかるため少し長めに待機
                     
@@ -2831,6 +3052,145 @@
             }
         });
 
+        // 手動セレクタオプション表示（失敗分析時のみ）
+        function showManualSelectorOption() {
+            const optionDiv = document.getElementById('manualSelectorOption');
+            if (optionDiv) {
+                optionDiv.style.display = 'block';
+                addLogAI('🎯 要素指定サポート機能が利用可能になりました（失敗分析時のみ）');
+            }
+        }
+        
+        // 手動セレクタ機能の初期化
+        function initializeManualSelectorFeature() {
+            const enableCheckbox = document.getElementById('enableManualSelector');
+            const detailsDiv = document.getElementById('manualSelectorDetails');
+            const validateButton = document.getElementById('validateSelectors');
+            const clearButton = document.getElementById('clearSelectors');
+            const helpButton = document.getElementById('helpSelectors');
+            const resultDiv = document.getElementById('selectorValidationResult');
+            
+            // チェックボックスのイベントリスナー
+            enableCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    detailsDiv.style.display = 'block';
+                    addLogAI('🎯 要素指定サポート機能が有効になりました');
+                } else {
+                    detailsDiv.style.display = 'none';
+                    addLogAI('🎯 要素指定サポート機能が無効になりました');
+                }
+            });
+            
+            // セレクタ検証ボタン
+            validateButton.addEventListener('click', function() {
+                const jsonText = document.getElementById('manualSelectorJson').value.trim();
+                
+                if (!jsonText) {
+                    resultDiv.innerHTML = '<span style="color: #dc3545;">⚠️ セレクタJSONを入力してください</span>';
+                    return;
+                }
+                
+                try {
+                    const selectors = JSON.parse(jsonText);
+                    let validCount = 0;
+                    let totalCount = 0;
+                    
+                    // セレクタの構造を検証
+                    for (const category in selectors) {
+                        if (typeof selectors[category] === 'object') {
+                            for (const item in selectors[category]) {
+                                totalCount++;
+                                if (typeof selectors[category][item] === 'string' && selectors[category][item].trim()) {
+                                    validCount++;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (validCount === totalCount && totalCount > 0) {
+                        resultDiv.innerHTML = `<span style="color: #28a745;">✅ 形式チェック成功: ${totalCount}個の要素指定が正常です</span>`;
+                        addLogAI(`🎯 要素指定形式チェック成功: ${totalCount}個の要素指定が正常です`);
+                    } else {
+                        resultDiv.innerHTML = `<span style="color: #ffc107;">⚠️ 部分的に成功: ${validCount}/${totalCount}個の要素指定が有効です</span>`;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<span style="color: #dc3545;">❌ JSON形式エラー: ${error.message}</span>`;
+                }
+            });
+            
+            // ヘルプボタン
+            helpButton.addEventListener('click', function() {
+                showSelectorHelp();
+            });
+            
+            // クリアボタン
+            clearButton.addEventListener('click', function() {
+                document.getElementById('manualSelectorJson').value = '';
+                resultDiv.innerHTML = '';
+                addLogAI('🎯 要素指定がクリアされました');
+            });
+        }
+        
+        // 要素指定ヘルプ表示
+        function showSelectorHelp() {
+            const helpContent = `
+🔍 要素指定の方法（QA担当者向け）
+
+【基本的な流れ】
+1. 失敗したテストのスクリーンショットを確認
+2. 実際のWebページを開く
+3. 要素を右クリック → 「検証」（Chrome/Edge）
+4. 要素の情報を確認して、下記の形式で指定
+
+【よく使う指定方法】
+• テキストで指定: "text=ボタン名"
+• ボタン: "button:has-text(\\"ボタン名\\")"
+• リンク: "a:has-text(\\"リンク名\\")"
+• 入力欄: "input[name=\\"項目名\\"]"
+• プルダウン: "select[name=\\"項目名\\"]"
+
+【例】
+{
+  "ボタン": {
+    "検索": "text=検索",
+    "送信": "button:has-text(\\"送信\\")"
+  },
+  "エリア選択": {
+    "東京": "text=東京",
+    "大阪": "text=大阪"
+  }
+}
+
+【注意点】
+• 失敗分析時のみ使用してください
+• 初回テストでは使用しないでください
+• 分からない場合はエンジニアに相談してください
+            `;
+            
+            alert(helpContent);
+            addLogAI('🎯 要素指定ヘルプを表示しました');
+        }
+        
+        // 手動セレクタ設定を取得
+        function getManualSelectorSettings() {
+            const enableManualSelector = document.getElementById('enableManualSelector').checked;
+            if (!enableManualSelector) {
+                return null;
+            }
+            
+            const jsonText = document.getElementById('manualSelectorJson').value.trim();
+            if (!jsonText) {
+                return null;
+            }
+            
+            try {
+                return JSON.parse(jsonText);
+            } catch (error) {
+                addLogAI(`⚠️ 要素指定JSON解析エラー: ${error.message}`);
+                return null;
+            }
+        }
+
         // 初期化
         document.addEventListener('DOMContentLoaded', function() {
             addLog('🎉 AutoPlaywright WebUI が準備完了しました');
@@ -2838,6 +3198,9 @@
             // スライダーのイベントリスナー追加
             document.getElementById('aiTemperature').addEventListener('input', updateTemperatureDisplay);
             document.getElementById('aiTopP').addEventListener('input', updateTopPDisplay);
+            
+            // 手動セレクタ機能の初期化
+            initializeManualSelectorFeature();
             
             // config.jsonからデフォルト設定を読み込み
             fetch('/api/config')

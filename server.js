@@ -529,6 +529,26 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (goal) args.push('--goal', goal);
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
+            
+            // AI修正オプションの処理
+            const enableAIFix = req.body.enableAIFix === 'true';
+            if (enableAIFix) {
+                args.push('--enable-ai');
+                console.log('🤖 AI修正モードが有効化されました');
+            } else {
+                console.log('🔧 ルールベース修正モードで実行します（コスト削減・安定性重視）');
+            }
+            
+            // 手動セレクタ設定の処理
+            if (req.body.manualSelectors) {
+                try {
+                    const manualSelectors = JSON.parse(req.body.manualSelectors);
+                    args.push('--manual-selectors', JSON.stringify(manualSelectors));
+                    console.log('🎯 手動セレクタ設定が有効化されました:', Object.keys(manualSelectors).length, 'カテゴリ');
+                } catch (error) {
+                    console.error('⚠️ 手動セレクタ設定の解析エラー:', error.message);
+                }
+            }
             break;
 
         case 'discoverNewStories':

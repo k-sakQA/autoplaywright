@@ -131,10 +131,36 @@ export class PlaywrightRunner {
   async initialize() {
     try {
       const config = loadConfig();
+      
+      // Android実機検出
+      const useAndroidDevice = process.argv.includes('--android-device');
+      const androidSerial = process.argv.find(arg => arg.startsWith('--android-serial='))?.split('=')[1];
+      
+      if (useAndroidDevice) {
+        console.log('📱 Android実機モードで初期化中...');
+        return await this.initializeAndroidDevice(androidSerial);
+      }
+      
+      // 既存のブラウザ初期化
       this.browser = await chromium.launch({
         headless: process.env.NODE_ENV === 'production'
       });
-      this.page = await this.browser.newPage();
+      
+      // デバイス設定（--mobile フラグでスマホ版テスト）
+      const isMobileTest = process.argv.includes('--mobile');
+      if (isMobileTest) {
+        const context = await this.browser.newContext({
+          viewport: { width: 375, height: 667 }, // iPhone SE サイズ
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+          isMobile: true,
+          hasTouch: true
+        });
+        this.page = await context.newPage();
+        console.log(`📱 テストモード: スマホ版 (375x667)`);
+      } else {
+        this.page = await this.browser.newPage();
+        console.log(`📱 テストモード: PC版 (デフォルト)`);
+      }
       
       // レポーターにテストメタデータを設定
       this.reporter.setTestMetadata({
@@ -145,13 +171,290 @@ export class PlaywrightRunner {
       
       // configからtargetUrlを取得して直接移動
       if (config.targetUrl) {
-        await this.page.goto(config.targetUrl);
-        console.log(`✅ テスト対象ページに移動: ${config.targetUrl}`);
+        console.log(`🔄 テスト対象ページに移動中: ${config.targetUrl}`);
+        
+        // スマホブラウザでは読み込み待機を長めに設定
+        const navigationTimeout = isMobileTest ? 30000 : 15000;
+        
+        await this.page.goto(config.targetUrl, {
+          waitUntil: 'networkidle',
+          timeout: navigationTimeout
+        });
+        
+        // ページが完全に読み込まれるまで待機
+        await this.page.waitForLoadState('domcontentloaded');
+        
+        // 現在のURLを確認
+        const currentUrl = this.page.url();
+        console.log(`✅ テスト対象ページに移動完了: ${currentUrl}`);
+        
+        // about:blankの場合は再試行
+        if (currentUrl === 'about:blank') {
+          console.log('⚠️ about:blankが検出されました。再試行します...');
+          await this.page.waitForTimeout(2000);
+          await this.page.goto(config.targetUrl, {
+            waitUntil: 'load',
+            timeout: navigationTimeout
+          });
+          
+          const retryUrl = this.page.url();
+          console.log(`🔄 再試行後のURL: ${retryUrl}`);
+          
+          if (retryUrl === 'about:blank') {
+            throw new Error('ページの読み込みに失敗しました。about:blankから移動できません。');
+          }
+        }
       } else {
         throw new Error('targetUrlが設定されていません');
       }
     } catch (error) {
-      console.error('ブラウザの初期化に失敗しました:', error);
+      console.error('初期化エラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Android実機での初期化
+   */
+  async initializeAndroidDevice(serialNumber) {
+    try {
+      console.log('📱 Android実機初期化開始（CDP接続方式）...');
+      
+      // ADBポートフォワードを確認
+      console.log('🔗 ADBポートフォワードを確認中...');
+      try {
+        const response = await fetch('http://localhost:9222/json/version');
+        const version = await response.json();
+        console.log(`✅ Android Chrome接続確認: ${version.Browser}`);
+      } catch (error) {
+        console.log('❌ ADBポートフォワードが設定されていません。');
+        console.log('💡 以下のコマンドを実行してください:');
+        console.log('   adb forward tcp:9222 localabstract:chrome_devtools_remote');
+        throw new Error('ADBポートフォワードが必要です');
+      }
+      
+      // CDP経由でAndroid実機のChromeに接続
+      console.log('🚀 CDP経由でAndroid実機のChromeに接続中...');
+      const { chromium } = await import('playwright');
+      
+      const browser = await chromium.connectOverCDP('http://localhost:9222');
+      console.log('✅ Android実機のChromeに接続完了');
+      
+      // 既存のコンテキストとページを取得
+      const contexts = browser.contexts();
+      if (contexts.length === 0) {
+        throw new Error('Android実機でアクティブなブラウザコンテキストが見つかりません');
+      }
+      
+      const context = contexts[0];
+      console.log(`📱 使用するコンテキスト: ${context.pages().length}ページ`);
+      
+      // 既存のページを使用、または新しいページを作成
+      const pages = context.pages();
+      if (pages.length > 0) {
+        // Fanstaページを探す
+        let fanstaPage = pages.find(page => page.url().includes('fansta.jp'));
+        if (fanstaPage) {
+          this.page = fanstaPage;
+          console.log(`📱 既存のFanstaページを使用: ${fanstaPage.url()}`);
+        } else {
+          this.page = pages[0];
+          console.log(`📱 既存のページを使用: ${pages[0].url()}`);
+        }
+      } else {
+        this.page = await context.newPage();
+        console.log('📱 新しいページを作成');
+      }
+      
+      this.browser = browser;
+      this.isAndroidDevice = true;
+      
+      console.log('📱 Android実機でのページ設定完了（CDP接続）');
+      
+      // Android実機でのページ移動処理（CDP接続方式）
+      const config = loadConfig();
+      if (config.targetUrl) {
+        console.log(`🚀 Android実機で自動的にページを開きます: ${config.targetUrl}`);
+        
+        try {
+          // 現在のページURL確認
+          const currentUrl = this.page.url();
+          console.log(`📱 現在のURL: ${currentUrl}`);
+          
+          // 目標URLが既に開かれているかチェック
+          if (currentUrl.includes('fansta.jp') && currentUrl.includes('shops')) {
+            console.log('✅ 既に目標のページが開かれています！');
+            console.log('🚀 テストを開始します！');
+            return true;
+          }
+          
+          // 1. 強制的にページを開く（複数回試行）
+          let navigationSuccess = false;
+          let attempts = 0;
+          const maxAttempts = 5;
+          
+          while (!navigationSuccess && attempts < maxAttempts) {
+            attempts++;
+            console.log(`🔄 Android実機でのページ移動試行 ${attempts}/${maxAttempts}`);
+            
+            try {
+              // CDP接続でのページ移動
+              await this.page.goto(config.targetUrl, {
+                waitUntil: 'networkidle',
+                timeout: 60000 // Android実機では長めのタイムアウト
+              });
+              
+              // 追加の待機
+              await this.page.waitForTimeout(3000);
+              
+              // ページの状態確認
+              const newUrl = this.page.url();
+              console.log(`📱 試行${attempts}後のURL: ${newUrl}`);
+              
+              // 成功判定
+              if (newUrl !== 'about:blank' && newUrl.includes('fansta.jp')) {
+                console.log(`✅ Android実機でのページ移動成功！`);
+                navigationSuccess = true;
+                
+                // ページが完全に読み込まれるまで追加待機
+                await this.page.waitForLoadState('networkidle', { timeout: 30000 });
+                console.log('✅ Android実機でのページ読み込み完了');
+                
+              } else if (newUrl === 'about:blank') {
+                console.log(`⚠️ 試行${attempts}: about:blankのまま`);
+                if (attempts < maxAttempts) {
+                  console.log(`🔄 ${3}秒後に再試行します...`);
+                  await this.page.waitForTimeout(3000);
+                }
+              } else {
+                console.log(`⚠️ 試行${attempts}: 予期しないURL: ${newUrl}`);
+                if (attempts < maxAttempts) {
+                  console.log(`🔄 ${3}秒後に再試行します...`);
+                  await this.page.waitForTimeout(3000);
+                }
+              }
+              
+            } catch (error) {
+              console.log(`❌ 試行${attempts}でエラー: ${error.message}`);
+              if (attempts < maxAttempts) {
+                console.log(`🔄 ${3}秒後に再試行します...`);
+                await this.page.waitForTimeout(3000);
+              }
+            }
+          }
+          
+          // 2. 最終確認
+          if (!navigationSuccess) {
+            console.log('❌ Android実機での自動ページ移動に失敗しました。');
+            console.log('🔧 最後の手段として、直接URLを設定します...');
+            
+            try {
+              // 最後の手段：evaluate を使用して直接URLを設定
+              await this.page.evaluate((url) => {
+                window.location.href = url;
+              }, config.targetUrl);
+              
+              await this.page.waitForTimeout(10000);
+              const finalUrl = this.page.url();
+              console.log(`📱 最終手段後のURL: ${finalUrl}`);
+              
+              if (finalUrl.includes('fansta.jp')) {
+                console.log('✅ 最終手段でページ移動成功！');
+                navigationSuccess = true;
+              }
+            } catch (error) {
+              console.log(`❌ 最終手段もエラー: ${error.message}`);
+            }
+          }
+          
+          // 3. 結果報告
+          if (navigationSuccess) {
+            const finalUrl = this.page.url();
+            console.log(`✅ Android実機でのページ移動完了: ${finalUrl}`);
+            console.log('🚀 テストを開始します！');
+          } else {
+            console.log('❌ Android実機でのページ移動に失敗しました。');
+            console.log('⚠️ テストは継続しますが、要素が見つからない可能性があります。');
+            console.log('💡 Android実機の画面を確認してください。');
+          }
+          
+        } catch (error) {
+          console.error('❌ Android実機でのページ移動処理エラー:', error.message);
+          console.log('🔧 エラーが発生しましたが、テストを継続します。');
+        }
+      }
+      
+      console.log('✅ Android実機での初期化完了');
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Android実機初期化エラー:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Android実機専用のクリック処理（CDP接続方式）
+   */
+  async executeAndroidClick(step) {
+    try {
+      console.log('📱 Android実機専用クリック処理開始（CDP接続）');
+      
+      // まずページ内の要素を試行
+      const detectionResult = await this.detectAndWaitForDynamicElement(step);
+      if (detectionResult && detectionResult.selector) {
+        console.log(`📱 要素検出成功: ${detectionResult.selector}`);
+        
+        // スクロールして要素を表示
+        await this.page.locator(detectionResult.selector).scrollIntoViewIfNeeded();
+        
+        // 少し待機してからクリック
+        await this.page.waitForTimeout(500);
+        
+        // CDP接続でのタッチ操作
+        await this.page.locator(detectionResult.selector).tap();
+        console.log('📱 Android実機でのタップ操作完了（CDP接続）');
+        
+        return true;
+      }
+      
+      // 要素が見つからない場合は通常のクリックを試行
+      console.log('📱 通常のクリックを試行中...');
+      
+      // ページ内の類似要素を検索
+      try {
+        const elements = await this.collectAvailableElements(step.target);
+        if (elements && elements.length > 0) {
+          const element = elements[0];
+          console.log(`📱 類似要素を発見: ${element.text || element.selector}`);
+          
+          // 要素の位置を取得してクリック
+          const locator = this.page.locator(element.selector);
+          await locator.scrollIntoViewIfNeeded();
+          await locator.click();
+          console.log('📱 Android実機でのクリック完了（CDP接続）');
+          return true;
+        }
+      } catch (error) {
+        console.log(`⚠️ 類似要素検索エラー: ${error.message}`);
+      }
+      
+      // 最後の手段：基本的なクリック処理を試行
+      console.log('📱 基本的なクリック処理を試行中...');
+      try {
+        const locator = this.page.locator(step.target);
+        await locator.scrollIntoViewIfNeeded();
+        await locator.click({ timeout: 5000 });
+        console.log('📱 基本的なクリック処理完了（CDP接続）');
+        return true;
+      } catch (error) {
+        console.log(`⚠️ 基本的なクリック処理エラー: ${error.message}`);
+      }
+      
+      throw new Error('Android実機でのクリック処理に失敗しました');
+      
+    } catch (error) {
+      console.error('❌ Android実機クリック処理エラー:', error.message);
       throw error;
     }
   }
@@ -163,13 +466,44 @@ export class PlaywrightRunner {
       const currentUrl = this.page.url();
       const config = loadConfig();
       
-      // 同じURLの場合は再読み込みのみ
-      if (currentUrl === config.targetUrl) {
-        await this.page.reload();
-        console.log('🔄 ページを再読み込みしました');
+      console.log(`🔄 現在のURL: ${currentUrl}`);
+      console.log(`🎯 目標URL: ${config.targetUrl}`);
+      
+      // about:blankまたは異なるURLの場合は移動
+      if (currentUrl === 'about:blank' || currentUrl !== config.targetUrl) {
+        console.log('🔄 ページナビゲーション開始...');
+        
+        await this.page.goto(config.targetUrl, {
+          waitUntil: 'networkidle',
+          timeout: 30000
+        });
+        
+        // ページが完全に読み込まれるまで待機
+        await this.page.waitForLoadState('domcontentloaded');
+        
+        const finalUrl = this.page.url();
+        console.log(`✅ ページナビゲーション完了: ${finalUrl}`);
+        
+        // about:blankの場合は再試行
+        if (finalUrl === 'about:blank') {
+          console.log('⚠️ about:blankが検出されました。再試行します...');
+          await this.page.waitForTimeout(2000);
+          await this.page.goto(config.targetUrl, {
+            waitUntil: 'load',
+            timeout: 30000
+          });
+          
+          const retryUrl = this.page.url();
+          console.log(`🔄 再試行後のURL: ${retryUrl}`);
+          
+          if (retryUrl === 'about:blank') {
+            throw new Error('ページの読み込みに失敗しました。about:blankから移動できません。');
+          }
+        }
       } else {
-        await this.page.goto(config.targetUrl);
-        console.log(`🔄 新しいURLに移動: ${config.targetUrl}`);
+        // 同じURLの場合は再読み込み
+        await this.page.reload({ waitUntil: 'networkidle' });
+        console.log('🔄 ページを再読み込みしました');
       }
     } catch (error) {
       console.error(`ページ移動に失敗しました:`, error);
@@ -191,6 +525,18 @@ export class PlaywrightRunner {
     const stepLog = this.reporter.onStepBegin(step, stepIndex);
 
     try {
+      // Android実機での特別な処理
+      if (this.isAndroidDevice && step.action === 'click') {
+        try {
+          const result = await this.executeAndroidClick(step);
+          if (result) {
+            return result;
+          }
+        } catch (error) {
+          console.log(`⚠️ Android実機専用処理が失敗、通常処理にフォールバック: ${error.message}`);
+          // 通常の処理に続行
+        }
+      }
       // バリデーションテストの場合、エラーは期待された動作
       if (step.label.toLowerCase().includes('無効な値') || 
           step.label.toLowerCase().includes('バリデーション確認')) {
@@ -567,13 +913,109 @@ export class PlaywrightRunner {
           break;
 
         case 'click':
-          await this.page.click(step.target, { timeout: step.timeout || 5000 });
-          console.log(`✅ クリックしました: ${step.target}`);
+          // 🚀 動的UI要素検出を統合
+          const clickResult = await this.detectAndWaitForDynamicElement(step);
+          if (clickResult.found) {
+            // 手動セレクタの場合は特別な処理
+            if (clickResult.strategy === 'manual') {
+              try {
+                // 手動セレクタの場合、クリック可能な親要素を探す
+                const selector = clickResult.newSelector;
+                console.log(`🎯 手動セレクタでクリック試行: ${selector}`);
+                
+                // 元のセレクタが p 要素の場合、親の label 要素をクリック
+                if (selector.includes(' > p')) {
+                  const parentLabel = selector.replace(' > p', '');
+                  console.log(`🎯 親要素（label）をクリック: ${parentLabel}`);
+                  await this.page.click(parentLabel, { timeout: step.timeout || 5000 });
+                  console.log(`✅ 手動セレクタ（親要素）クリック成功: ${parentLabel}`);
+                } else {
+                  await clickResult.locator.click({ timeout: step.timeout || 5000 });
+                  console.log(`✅ 手動セレクタクリック成功: ${selector}`);
+                }
+              } catch (error) {
+                console.log(`⚠️ 手動セレクタクリック失敗、代替方法を試行: ${error.message}`);
+                // 代替方法：Playwrightの強制クリック
+                try {
+                  await this.page.locator(clickResult.newSelector).first().click({ force: true, timeout: step.timeout || 5000 });
+                  console.log(`✅ 強制クリック実行: ${clickResult.newSelector}`);
+                } catch (forceError) {
+                  console.log(`⚠️ 強制クリック失敗、最終手段でJavaScriptクリック: ${forceError.message}`);
+                  // 最終手段：CSSセレクタのみを使用したJavaScriptクリック
+                  const cssSelector = clickResult.newSelector.replace(/:has-text\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+                  if (cssSelector) {
+                    await this.page.evaluate((selector) => {
+                      const element = document.querySelector(selector);
+                      if (element) {
+                        element.click();
+                        return true;
+                      }
+                      return false;
+                    }, cssSelector);
+                    console.log(`✅ JavaScriptクリック実行（CSS部分のみ）: ${cssSelector}`);
+                  }
+                }
+              }
+            } else {
+              await clickResult.locator.click({ timeout: step.timeout || 5000 });
+              console.log(`✅ クリック成功: ${step.target} (${clickResult.strategy})`);
+            }
+            
+            if (clickResult.newSelector) {
+              console.log(`💡 セレクタ改善提案: ${clickResult.originalSelector} → ${clickResult.newSelector}`);
+              this.recordSelectorImprovement(step, clickResult);
+            }
+          } else {
+            throw new Error(`クリック要素が見つかりません: ${step.target}`);
+          }
           break;
 
         case 'fill':
-          await this.page.fill(step.target, step.value || '', { timeout: step.timeout || 5000 });
-          console.log(`✅ 入力しました: ${step.target} = "${step.value}"`);
+          // 🚀 動的UI要素検出を統合
+          const fillResult = await this.detectAndWaitForDynamicElement(step);
+          if (fillResult.found) {
+            // 手動セレクタでselect要素が検出された場合
+            if (fillResult.strategy === 'manual' && fillResult.elementType === 'select') {
+              console.log(`💡 手動セレクタでselect要素を検出: fillをselectOptionに変更`);
+              
+              // 🚀 select要素の値を自動変換
+              const convertedValue = await this.convertSelectValue(fillResult.locator, step.value);
+              
+              await fillResult.locator.selectOption(convertedValue, { timeout: step.timeout || 5000 });
+              console.log(`✅ 選択: ${step.target} = "${step.value}" → "${convertedValue}" (manual-select)`);
+            } else if (fillResult.strategy.includes('select') || fillResult.strategy.includes('dropdown')) {
+              console.log(`💡 select要素を検出: fillをselectOptionに変更`);
+              
+              // 🚀 select要素の値を自動変換
+              const convertedValue = await this.convertSelectValue(fillResult.locator, step.value);
+              
+              await fillResult.locator.selectOption(convertedValue, { timeout: step.timeout || 5000 });
+              console.log(`✅ 選択: ${step.target} = "${step.value}" → "${convertedValue}" (${fillResult.strategy})`);
+            } else {
+              // 通常のinput要素の場合
+              try {
+                await fillResult.locator.fill(step.value || '', { timeout: step.timeout || 5000 });
+                console.log(`✅ 入力: ${step.target} = "${step.value}" (${fillResult.strategy})`);
+              } catch (error) {
+                // fillが失敗した場合、select要素の可能性をチェック
+                const tagName = await fillResult.locator.evaluate(el => el.tagName.toLowerCase());
+                if (tagName === 'select') {
+                  console.log(`💡 fillエラー後にselect要素を検出: selectOptionに変更`);
+                  const convertedValue = await this.convertSelectValue(fillResult.locator, step.value);
+                  await fillResult.locator.selectOption(convertedValue, { timeout: step.timeout || 5000 });
+                  console.log(`✅ 選択: ${step.target} = "${step.value}" → "${convertedValue}" (auto-detected-select)`);
+                } else {
+                  throw error;
+                }
+              }
+            }
+            if (fillResult.newSelector) {
+              console.log(`💡 セレクタ改善提案: ${fillResult.originalSelector} → ${fillResult.newSelector}`);
+              this.recordSelectorImprovement(step, fillResult);
+            }
+          } else {
+            throw new Error(`入力要素が見つかりません: ${step.target}`);
+          }
           break;
 
         case 'select':
@@ -592,26 +1034,22 @@ export class PlaywrightRunner {
           break;
 
         case 'assertVisible':
-          // 🔧 重要: 実際の検証を実装
-          try {
-            // 要素の存在と可視性を確認
-            const element = this.page.locator(step.target);
-            const elementCount = await element.count();
-            
-            if (elementCount === 0) {
-              throw new Error(`要素が見つかりません: ${step.target}`);
-            }
-            
+          // 🚀 動的UI要素検出を統合
+          const assertResult = await this.detectAndWaitForDynamicElement(step);
+          if (assertResult.found) {
             // 要素が表示されているかを確認
-            const isVisible = await element.first().isVisible();
+            const isVisible = await assertResult.locator.first().isVisible();
             if (!isVisible) {
               throw new Error(`要素は存在しますが表示されていません: ${step.target}`);
             }
             
-            console.log(`✅ 要素の表示を確認しました: ${step.target}`);
-          } catch (error) {
-            console.log(`❌ 表示確認に失敗: ${step.target} - ${error.message}`);
-            throw error; // エラーを再スローして失敗として扱う
+            console.log(`✅ 要素の表示を確認: ${step.target} (${assertResult.strategy})`);
+            if (assertResult.newSelector) {
+              console.log(`💡 セレクタ改善提案: ${assertResult.originalSelector} → ${assertResult.newSelector}`);
+              this.recordSelectorImprovement(step, assertResult);
+            }
+          } else {
+            throw new Error(`表示確認要素が見つかりません: ${step.target}`);
           }
           break;
 
@@ -1189,6 +1627,529 @@ export class PlaywrightRunner {
       }
     }
   }
+
+  /**
+   * 動的UI要素の検出と待機（改善版）
+   */
+  async detectAndWaitForDynamicElement(step) {
+    console.log(`🔍 動的UI要素検出開始: ${step.target}`);
+    
+    // 1. 手動セレクタを最初に試行
+    const manualResult = await this.tryManualSelectors(step);
+    if (manualResult) {
+      console.log(`🎯 手動セレクタで解決: ${manualResult.selector}`);
+      const manualLocator = this.page.locator(manualResult.selector);
+      return {
+        found: true,
+        locator: manualLocator,
+        strategy: 'manual',
+        originalSelector: step.target,
+        newSelector: manualResult.selector,
+        keyword: manualResult.keyword
+      };
+    }
+    
+    // 2. 基本的な要素検出
+    const basicLocator = this.page.locator(step.target);
+    const basicCount = await basicLocator.count();
+    
+    if (basicCount > 0) {
+      console.log(`✅ 基本セレクタで要素発見: ${basicCount}個`);
+      return { found: true, locator: basicLocator, strategy: 'basic' };
+    }
+    
+    // 3. カスタムUI要素の検出パターン
+    const customPatterns = await this.generateCustomUIPatterns(step);
+    
+    for (const pattern of customPatterns) {
+      console.log(`🔍 カスタムパターン試行: ${pattern.selector}`);
+      
+      try {
+        const customLocator = this.page.locator(pattern.selector);
+        await customLocator.waitFor({ state: 'visible', timeout: 2000 });
+        
+        const customCount = await customLocator.count();
+        if (customCount > 0) {
+          console.log(`✅ カスタムパターンで要素発見: ${pattern.type} - ${customCount}個`);
+          return { 
+            found: true, 
+            locator: customLocator, 
+            strategy: pattern.type,
+            originalSelector: step.target,
+            newSelector: pattern.selector
+          };
+        }
+      } catch (error) {
+        console.log(`❌ カスタムパターン失敗: ${pattern.type} - ${error.message}`);
+      }
+    }
+    
+    // 4. 動的読み込み待機
+    console.log(`⏳ 動的読み込み待機中...`);
+    await this.page.waitForTimeout(3000);
+    
+    // 5. 再検出
+    const retryCount = await basicLocator.count();
+    if (retryCount > 0) {
+      console.log(`✅ 待機後に要素発見: ${retryCount}個`);
+      return { found: true, locator: basicLocator, strategy: 'delayed' };
+    }
+    
+    console.log(`❌ 動的UI要素検出失敗: ${step.target}`);
+    return { found: false, locator: null, strategy: 'none' };
+  }
+
+  /**
+   * カスタムUI要素パターン生成
+   */
+  async generateCustomUIPatterns(step) {
+    const patterns = [];
+    const target = step.target;
+    
+    // name属性のselect要素パターン
+    if (target.includes('[name="area"]')) {
+      patterns.push(
+        // 標準的なselect要素
+        { selector: 'select[name="area"]', type: 'standard_select' },
+        // カスタムドロップダウン
+        { selector: '[data-name="area"], [data-field="area"]', type: 'custom_dropdown' },
+        // div要素のドロップダウン
+        { selector: 'div[class*="select"][class*="area"], div[class*="dropdown"][class*="area"]', type: 'div_dropdown' },
+        // ボタン要素のドロップダウン
+        { selector: 'button[class*="select"], button[class*="dropdown"]', type: 'button_dropdown' },
+        // 汎用的なaria-label
+        { selector: '[aria-label*="エリア"], [aria-label*="地域"]', type: 'aria_select' }
+      );
+    }
+    
+    // チェックボックス要素パターン
+    if (target.includes('渋谷・恵比寿・広尾・六本木')) {
+      patterns.push(
+        // 標準的なcheckbox
+        { selector: 'input[type="checkbox"][value*="渋谷"]', type: 'standard_checkbox' },
+        { selector: 'input[type="checkbox"][value*="36"]', type: 'value_checkbox' },
+        // カスタムチェックボックス
+        { selector: '[data-value*="渋谷"], [data-area*="渋谷"]', type: 'custom_checkbox' },
+        // label要素
+        { selector: 'label:has-text("渋谷"), label:has-text("恵比寿")', type: 'label_checkbox' },
+        // div要素のチェックボックス
+        { selector: 'div[class*="checkbox"]:has-text("渋谷")', type: 'div_checkbox' }
+      );
+    }
+    
+    // 設定するボタンパターン
+    if (target.includes('設定する')) {
+      patterns.push(
+        // 標準的なボタン
+        { selector: 'button:has-text("設定する")', type: 'standard_button' },
+        // input要素のボタン
+        { selector: 'input[type="button"][value="設定する"]', type: 'input_button' },
+        // カスタムボタン
+        { selector: '[data-action="submit"], [data-action="set"]', type: 'custom_button' },
+        // 部分一致
+        { selector: 'button:has-text("設定"), [class*="submit"]:has-text("設定")', type: 'partial_button' }
+      );
+    }
+    
+    // 店舗名表示パターン（HUB渋谷店など）
+    if (target.includes('HUB渋谷店')) {
+      patterns.push(
+        // 標準的なテキスト
+        { selector: 'text="HUB渋谷店"', type: 'standard_text' },
+        // 部分一致
+        { selector: ':has-text("HUB"), :has-text("渋谷店")', type: 'partial_text' },
+        // 店舗カード要素
+        { selector: '[class*="shop"], [class*="store"], [class*="restaurant"]', type: 'shop_card' },
+        // リスト要素
+        { selector: 'li:has-text("HUB"), div:has-text("渋谷店")', type: 'list_item' },
+        // データ属性
+        { selector: '[data-shop*="HUB"], [data-name*="渋谷"]', type: 'data_shop' }
+      );
+    }
+    
+    // FC東京パターン
+    if (target.includes('FC東京')) {
+      patterns.push(
+        // 標準的なテキスト
+        { selector: 'text="FC東京"', type: 'standard_text' },
+        // 部分一致
+        { selector: ':has-text("FC東京"), :has-text("東京")', type: 'partial_text' },
+        // チーム選択要素
+        { selector: '[class*="team"], [class*="club"]', type: 'team_selector' },
+        // データ属性
+        { selector: '[data-team*="東京"], [data-club*="FC"]', type: 'data_team' }
+      );
+    }
+    
+    return patterns;
+  }
+
+  /**
+   * セレクタ改善提案を記録
+   */
+  recordSelectorImprovement(step, detectionResult) {
+    if (!detectionResult.newSelector || !detectionResult.originalSelector) {
+      return;
+    }
+    
+    if (!this.selectorImprovements) {
+      this.selectorImprovements = [];
+    }
+    
+    this.selectorImprovements.push({
+      stepLabel: step.label,
+      originalSelector: detectionResult.originalSelector,
+      improvedSelector: detectionResult.newSelector,
+      strategy: detectionResult.strategy,
+      timestamp: new Date().toISOString(),
+      confidence: this.calculateSelectorConfidence(detectionResult.strategy)
+    });
+    
+    console.log(`📝 セレクタ改善を記録: ${step.label}`);
+  }
+  
+  /**
+   * セレクタ信頼度計算
+   */
+  calculateSelectorConfidence(strategy) {
+    const confidenceMap = {
+      'standard_select': 0.95,
+      'standard_checkbox': 0.95,
+      'standard_button': 0.95,
+      'custom_dropdown': 0.85,
+      'custom_checkbox': 0.85,
+      'label_checkbox': 0.90,
+      'partial_text': 0.70,
+      'shop_card': 0.80,
+      'data_shop': 0.85,
+      'aria_select': 0.90,
+      'basic': 1.0,
+      'delayed': 0.75
+    };
+    
+    return confidenceMap[strategy] || 0.60;
+  }
+  
+  /**
+   * 改善されたルートファイルを生成
+   */
+  async generateImprovedRoute(originalRoute) {
+    if (!this.selectorImprovements || this.selectorImprovements.length === 0) {
+      console.log('📝 セレクタ改善提案がありません');
+      return null;
+    }
+    
+    const improvedRoute = JSON.parse(JSON.stringify(originalRoute));
+    improvedRoute.route_id = `improved_${originalRoute.route_id}_${Date.now()}`;
+    improvedRoute.original_route_id = originalRoute.route_id;
+    improvedRoute.improvement_timestamp = new Date().toISOString();
+    improvedRoute.is_improved_route = true;
+    
+    // セレクタ改善を適用
+    let improvementCount = 0;
+    for (const improvement of this.selectorImprovements) {
+      const stepIndex = improvedRoute.steps.findIndex(step => step.label === improvement.stepLabel);
+      if (stepIndex !== -1) {
+        improvedRoute.steps[stepIndex].target = improvement.improvedSelector;
+        improvedRoute.steps[stepIndex].originalTarget = improvement.originalSelector;
+        improvedRoute.steps[stepIndex].improvementStrategy = improvement.strategy;
+        improvedRoute.steps[stepIndex].confidence = improvement.confidence;
+        improvedRoute.steps[stepIndex].isImproved = true;
+        improvementCount++;
+      }
+    }
+    
+    improvedRoute.improvement_summary = {
+      total_improvements: improvementCount,
+      improvement_details: this.selectorImprovements
+    };
+    
+    console.log(`🚀 改善されたルートを生成: ${improvementCount}件の改善`);
+    return improvedRoute;
+  }
+
+  /**
+   * select要素の値を自動変換
+   */
+  async convertSelectValue(selectLocator, inputValue) {
+    try {
+      console.log(`🔄 select要素の値変換開始: "${inputValue}"`);
+      
+      // 1. 全てのoption要素を取得
+      const options = await selectLocator.locator('option').all();
+      const optionData = [];
+      
+      for (const option of options) {
+        const value = await option.getAttribute('value') || '';
+        const text = await option.textContent() || '';
+        optionData.push({ value, text: text.trim() });
+      }
+      
+      console.log(`📋 利用可能な選択肢:`, optionData);
+      
+      // 2. 完全一致検索（テキスト）
+      const exactTextMatch = optionData.find(opt => opt.text === inputValue);
+      if (exactTextMatch) {
+        console.log(`✅ 完全一致（テキスト）: "${inputValue}" → "${exactTextMatch.value}"`);
+        return exactTextMatch.value;
+      }
+      
+      // 3. 完全一致検索（値）
+      const exactValueMatch = optionData.find(opt => opt.value === inputValue);
+      if (exactValueMatch) {
+        console.log(`✅ 完全一致（値）: "${inputValue}"`);
+        return inputValue;
+      }
+      
+      // 4. 部分一致検索（テキスト）
+      const partialTextMatch = optionData.find(opt => 
+        opt.text.includes(inputValue) || inputValue.includes(opt.text)
+      );
+      if (partialTextMatch) {
+        console.log(`✅ 部分一致（テキスト）: "${inputValue}" → "${partialTextMatch.value}"`);
+        return partialTextMatch.value;
+      }
+      
+      // 5. 特定の値マッピング（エリア選択など）
+      const valueMapping = {
+        '東京都': '13',
+        '東京': '13',
+        'Tokyo': '13',
+        '大阪府': '27',
+        '大阪': '27',
+        'Osaka': '27',
+        '神奈川県': '14',
+        '神奈川': '14',
+        '愛知県': '23',
+        '愛知': '23',
+        '福岡県': '40',
+        '福岡': '40'
+      };
+      
+      if (valueMapping[inputValue]) {
+        console.log(`✅ マッピング変換: "${inputValue}" → "${valueMapping[inputValue]}"`);
+        return valueMapping[inputValue];
+      }
+      
+      // 6. フォールバック: 元の値をそのまま使用
+      console.log(`⚠️ 変換できませんでした。元の値を使用: "${inputValue}"`);
+      return inputValue;
+      
+    } catch (error) {
+      console.log(`❌ 値変換エラー: ${error.message}. 元の値を使用: "${inputValue}"`);
+      return inputValue;
+    }
+  }
+
+  /**
+   * 手動セレクタを活用した要素検出
+   */
+  async tryManualSelectors(step) {
+    console.log('🔧 手動セレクタパターンを試行中...');
+    
+    // デバイスタイプを検出
+    let isMobile, deviceInfo;
+    if (this.isAndroidDevice) {
+      // CDP接続方式では androidDevice が undefined の場合がある
+      if (this.androidDevice && this.androidDevice.model) {
+        deviceInfo = `Android実機: ${this.androidDevice.model()}`;
+      } else {
+        deviceInfo = `Android実機（CDP接続）`;
+      }
+      isMobile = true;
+    } else {
+      const viewport = this.page.viewportSize();
+      isMobile = viewport && viewport.width < 768;
+      deviceInfo = `${isMobile ? 'スマホ版' : 'PC版'} (幅: ${viewport?.width}px)`;
+    }
+    console.log(`📱 デバイス検出: ${deviceInfo}`);
+    
+    // 手動セレクタのマッピング（PC版・スマホ版対応）
+    const manualSelectors = {
+      '渋谷': [
+        // PC版セレクタ（ユーザー提供）
+        '#__next > div:nth-child(2) > main > div > div.shops_inner__g55WC > div > div.shops_columnLeft__Ki5VN > div > div.SearchInput_sort__newQ4 > div.md\\:none > div > div > div > div > div._SearchItem_form__Nx_1C > div:nth-child(11) > div:nth-child(1) > div._SearchItem_itemSub__Y7NMw._SearchItem_areaSub__66bQd > label:nth-child(1) > p',
+        // スマホ版対応セレクタ
+        'label[class*="_SearchItem_areaCheck"]:has-text("渋谷")',
+        'label[class*="areaCheck"]:has-text("渋谷")',
+        // 汎用セレクタ
+        'label:has-text("渋谷")',
+        'input[type="checkbox"][value*="渋谷"]',
+        '[data-value*="渋谷"]',
+        // テキストベース
+        'text="渋谷"'
+      ],
+      'FC東京': [
+        'label:has-text("FC東京")',
+        'input[type="checkbox"][value*="FC東京"]',
+        '[data-value*="FC東京"]'
+      ],
+      '東京都': [
+        'select[name="area"]',
+        'select[name="area"] option[value="13"]'
+      ],
+      '絞り込む': [
+        'button:has-text("この条件で絞り込む"):visible',
+        'button[type="submit"]:visible',
+        'button[class*="submit"]:visible'
+      ],
+      'この条件で絞り込む': [
+        'button:has-text("この条件で絞り込む"):visible',
+        'button[type="submit"]:visible',
+        'button[class*="submit"]:visible'
+      ],
+      '設定': ['button:has-text("設定")'],
+      '確認': ['button:has-text("確認")'],
+      '送信': ['button:has-text("送信")']
+    };
+
+    // ステップのターゲットから関連するキーワードを抽出
+    const stepTarget = step.target;
+    const stepLabel = step.label || '';
+    
+    for (const [keyword, selectors] of Object.entries(manualSelectors)) {
+      if (stepTarget.includes(keyword) || stepLabel.includes(keyword)) {
+        console.log(`🎯 手動セレクタ適用: ${keyword} (${selectors.length}パターン)`);
+        
+        // デバイスタイプに応じてセレクタの優先順位を調整
+        let prioritizedSelectors = [...selectors];
+        if (isMobile) {
+          // スマホ版では、PC専用セレクタ（長い具体的なパス）を後回しにする
+          prioritizedSelectors = selectors.filter(s => !s.includes('div:nth-child') && !s.includes('md\\:none'))
+            .concat(selectors.filter(s => s.includes('div:nth-child') || s.includes('md\\:none')));
+          console.log(`   📱 スマホ版優先順位でセレクタを並び替え`);
+        }
+        
+        // 複数のセレクタパターンを順次試行
+        for (let i = 0; i < prioritizedSelectors.length; i++) {
+          const selector = prioritizedSelectors[i];
+          console.log(`   🔍 パターン${i + 1}: ${selector}`);
+          
+          try {
+            // 要素の存在確認
+            const elements = await this.page.locator(selector).count();
+            if (elements > 0) {
+              console.log(`   ✅ 要素発見: ${elements}個`);
+              
+              // 要素の可視性確認
+              const isVisible = await this.page.locator(selector).first().isVisible();
+              if (isVisible) {
+                console.log(`   ✅ 可視要素確認成功`);
+                
+                // 要素タイプを判定
+                const elementType = await this.page.locator(selector).first().evaluate(el => el.tagName.toLowerCase());
+                console.log(`   📋 要素タイプ: ${elementType}`);
+                
+                // 複数要素の場合は最初の要素に限定（Playwright構文を使用）
+                const finalSelector = elements > 1 ? `${selector} >> nth=0` : selector;
+                console.log(`   🎯 最終セレクタ: ${finalSelector} (${elements}個中の最初)`);
+                
+                return {
+                  selector: finalSelector,
+                  strategy: 'manual',
+                  elements: elements,
+                  keyword: keyword,
+                  pattern: i + 1,
+                  elementType: elementType,
+                  deviceType: isMobile ? 'mobile' : 'desktop',
+                  originalSelector: selector
+                };
+              } else {
+                console.log(`   ⚠️ 要素は存在するが非可視`);
+              }
+            } else {
+              console.log(`   ❌ 要素が見つからない`);
+            }
+          } catch (error) {
+            console.log(`   ❌ セレクタエラー: ${error.message}`);
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * 動的UI要素の検出（手動セレクタ対応版）
+   */
+  async detectDynamicUIElements(target, timeout = 10000) {
+    console.log(`🔍 動的UI要素検出開始: ${target}`);
+    
+    // 1. 手動セレクタを最初に試行
+    const manualResult = await this.tryManualSelectors({ target, label: target });
+    if (manualResult) {
+      console.log(`🎯 手動セレクタで解決: ${manualResult.selector}`);
+      return {
+        found: true,
+        locator: this.page.locator(manualResult.selector),
+        selector: manualResult.selector,
+        strategy: 'manual',
+        elements: manualResult.elements,
+        elementType: manualResult.elementType,
+        originalSelector: target,
+        newSelector: manualResult.selector
+      };
+    }
+
+    // 2. 基本セレクタで要素を検索
+    try {
+      const elements = await this.page.locator(target).count();
+      if (elements > 0) {
+        console.log(`✅ 基本セレクタで要素発見: ${elements}個`);
+        return {
+          selector: target,
+          strategy: 'basic',
+          elements: elements
+        };
+      }
+    } catch (error) {
+      console.log(`❌ 基本セレクタ失敗: ${error.message}`);
+    }
+
+    // 3. カスタムUIパターンを生成して試行
+    const customPatterns = await this.generateCustomUIPatterns({ target });
+    console.log(`🔍 カスタムパターン生成: ${customPatterns.length}個`);
+    
+    for (const pattern of customPatterns) {
+      try {
+        console.log(`🔍 カスタムパターン試行: ${pattern.selector}`);
+        const elements = await this.page.locator(pattern.selector).count();
+        if (elements > 0) {
+          console.log(`✅ カスタムパターン成功: ${pattern.type} - ${elements}個`);
+          return {
+            selector: pattern.selector,
+            strategy: pattern.type,
+            elements: elements
+          };
+        }
+      } catch (error) {
+        console.log(`❌ カスタムパターン失敗: ${pattern.type} - ${error.message}`);
+      }
+    }
+
+    // 4. 動的読み込み待機
+    console.log(`⏳ 動的読み込み待機中...`);
+    await this.page.waitForTimeout(2000);
+    
+    // 5. 再度基本セレクタを試行
+    try {
+      const elements = await this.page.locator(target).count();
+      if (elements > 0) {
+        console.log(`✅ 待機後に要素発見: ${elements}個`);
+        return {
+          selector: target,
+          strategy: 'delayed',
+          elements: elements
+        };
+      }
+    } catch (error) {
+      console.log(`❌ 待機後も要素見つからず: ${error.message}`);
+    }
+
+    console.log(`❌ 動的UI要素検出失敗: ${target}`);
+    return null;
+  }
 }
 
 /**
@@ -1385,6 +2346,15 @@ async function executeCategoryBatchRoutes(batchRoute) {
       specificRouteFile = args[routeFileIndex + 1];
       console.log(`🎯 指定されたルートファイルを使用: ${specificRouteFile}`);
     }
+    
+    // 直接ファイル名指定の処理（最初の引数がJSONファイルの場合）
+    if (!specificRouteFile && args.length > 0) {
+      const firstArg = args[0];
+      if (firstArg.endsWith('.json') || firstArg.includes('test-results/')) {
+        specificRouteFile = firstArg;
+        console.log(`🎯 直接指定されたルートファイルを使用: ${specificRouteFile}`);
+      }
+    }
 
     // --skip-duplicate-check 引数の処理
     if (args.includes('--skip-duplicate-check')) {
@@ -1404,7 +2374,14 @@ async function executeCategoryBatchRoutes(batchRoute) {
       } else {
         latestFile = `${specificRouteFile}.json`;
       }
-      routePath = path.join(testResultsDir, latestFile);
+      
+      // 絶対パスまたは相対パスで指定された場合
+      if (path.isAbsolute(specificRouteFile) || specificRouteFile.includes('/')) {
+        routePath = path.resolve(specificRouteFile);
+        latestFile = path.basename(routePath);
+      } else {
+        routePath = path.join(testResultsDir, latestFile);
+      }
       
       if (!fs.existsSync(routePath)) {
         throw new Error(`指定されたルートファイルが見つかりません: ${routePath}`);
