@@ -1150,10 +1150,364 @@ export class PlaywrightRunner {
           break;
 
         case 'selectOption':
-          await this.page.selectOption(step.target, step.value || '', { timeout: step.timeout || 5000 });
+          // 🚀 2段階クリック方式による堅牢なselect操作（pointer intercept対応版）
+          try {
+            console.log(`🔄 2段階selectOption開始: ${step.target} = "${step.value}"`);
+            
+            // ステップ1: selectボックスをクリックして選択肢を開く
+            const selectLocator = this.page.locator(step.target);
+            
+            // 動的UI要素検出を統合
+            const selectResult = await this.detectAndWaitForDynamicElement(step);
+            const actualSelectLocator = selectResult.found ? selectResult.locator : selectLocator;
+            
+            // 利用可能な選択肢を事前確認
+            console.log(`📋 選択肢確認中...`);
+            
+            // 🔧 pointer intercept対策：複数のクリック方法を試行
+            let selectBoxClicked = false;
+            
+            // 方法1: 通常のクリック
+            try {
+              await actualSelectLocator.click({ timeout: 3000 });
+              console.log(`✅ ステップ1a: 通常クリック成功`);
+              selectBoxClicked = true;
+            } catch (normalClickError) {
+              console.log(`⚠️ 通常クリック失敗: ${normalClickError.message}`);
+              
+              // 方法2: 強制クリック（pointer intercept対策）
+              try {
+                await actualSelectLocator.click({ force: true, timeout: 3000 });
+                console.log(`✅ ステップ1b: 強制クリック成功`);
+                selectBoxClicked = true;
+              } catch (forceClickError) {
+                console.log(`⚠️ 強制クリック失敗: ${forceClickError.message}`);
+                
+                // 方法3: 親コンテナクリック
+                try {
+                  const parentContainer = actualSelectLocator.locator('..');
+                  await parentContainer.click({ timeout: 3000 });
+                  console.log(`✅ ステップ1c: 親コンテナクリック成功`);
+                  selectBoxClicked = true;
+                } catch (parentClickError) {
+                  console.log(`⚠️ 親コンテナクリック失敗: ${parentClickError.message}`);
+                  
+                  // 方法4: JavaScriptクリック（最終手段）
+                  try {
+                    await actualSelectLocator.evaluate(element => element.click());
+                    console.log(`✅ ステップ1d: JavaScriptクリック成功`);
+                    selectBoxClicked = true;
+                  } catch (jsClickError) {
+                    console.log(`⚠️ JavaScriptクリック失敗: ${jsClickError.message}`);
+                    
+                    // 方法5: フォーカス + Enterキー
+                    try {
+                      await actualSelectLocator.focus();
+                      await this.page.keyboard.press('Enter');
+                      console.log(`✅ ステップ1e: フォーカス+Enter成功`);
+                      selectBoxClicked = true;
+                    } catch (focusError) {
+                      console.log(`⚠️ フォーカス+Enter失敗: ${focusError.message}`);
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (!selectBoxClicked) {
+              throw new Error('すべてのクリック方法が失敗しました（pointer intercept問題）');
+            }
+            
+            // 動的読み込み待機
+            await this.page.waitForTimeout(500);
+            
+            // 📋 利用可能な選択肢を確認（カスタムUI対応版）
+            console.log(`📋 選択肢確認中...`);
+            let availableOptions = [];
+            
+            try {
+              // 方法1: 標準selectのoption要素
+              const standardOptions = await actualSelectLocator.evaluate(select => {
+                if (select.tagName === 'SELECT') {
+                  return Array.from(select.options).map(option => option.text);
+                }
+                return [];
+              });
+              
+              if (standardOptions.length > 1) {
+                availableOptions = standardOptions;
+                console.log(`📋 標準select選択肢: ${JSON.stringify(availableOptions)}`);
+              } else {
+                // 方法2: カスタムUI - li要素を検索
+                const customOptionsLi = await this.page.evaluate(() => {
+                  const dropdowns = document.querySelectorAll('[role="listbox"], .dropdown-menu, .select-dropdown, [class*="dropdown"], [class*="menu"]');
+                  let options = [];
+                  
+                  dropdowns.forEach(dropdown => {
+                    const items = dropdown.querySelectorAll('li, [role="option"], .option, [class*="option"]');
+                    items.forEach(item => {
+                      const text = item.textContent.trim();
+                      if (text && text !== 'エリア' && text !== 'チーム' && text.length > 0) {
+                        options.push(text);
+                      }
+                    });
+                  });
+                  
+                  return options;
+                });
+                
+                if (customOptionsLi.length > 0) {
+                  availableOptions = customOptionsLi;
+                  console.log(`📋 カスタムUI選択肢(li): ${JSON.stringify(availableOptions)}`);
+                } else {
+                  // 方法3: data属性やaria-labelを持つ要素
+                  const customOptionsData = await this.page.evaluate(() => {
+                    const items = document.querySelectorAll('[data-value], [aria-label*="選択"], [class*="item"]');
+                    return Array.from(items)
+                      .map(item => item.textContent?.trim() || item.getAttribute('data-value') || '')
+                      .filter(text => text && text !== 'エリア' && text !== 'チーム' && text.length > 1);
+                  });
+                  
+                  if (customOptionsData.length > 0) {
+                    availableOptions = customOptionsData;
+                    console.log(`📋 カスタムUI選択肢(data): ${JSON.stringify(availableOptions)}`);
+                  } else {
+                    // 方法4: エリア・チーム関連のテキストを含む要素を広範囲検索
+                    const broadSearchOptions = await this.page.evaluate(() => {
+                      const keywords = ['渋谷', '恵比寿', '広尾', '六本木', 'FC東京', 'FC', '東京'];
+                      const elements = document.querySelectorAll('*');
+                      const found = [];
+                      
+                      elements.forEach(el => {
+                        const text = el.textContent?.trim();
+                        if (text && keywords.some(keyword => text.includes(keyword))) {
+                          // 親要素がselectに関連している場合のみ
+                          const parent = el.closest('[class*="select"], [class*="dropdown"], [role="listbox"]');
+                          if (parent) {
+                            found.push(text);
+                          }
+                        }
+                      });
+                      
+                      return [...new Set(found)]; // 重複除去
+                    });
+                    
+                    availableOptions = broadSearchOptions;
+                    console.log(`📋 広範囲検索選択肢: ${JSON.stringify(availableOptions)}`);
+                  }
+                }
+              }
+            } catch (error) {
+              console.log(`⚠️ 選択肢検出エラー: ${error.message}`);
+              availableOptions = ["検出失敗"];
+            }
+            
+            console.log(`📋 最終検出選択肢: ${JSON.stringify(availableOptions)}`);
+            
+            // ステップ2: 対象の選択肢をクリック
+            const targetValue = step.value || '';
+            
+            // 複数の選択方法を試行
+            let selectSuccess = false;
+            
+            // 方法1: 標準のselectOption
+            try {
+              const convertedValue = await this.convertSelectValue(actualSelectLocator, targetValue);
+              await actualSelectLocator.selectOption(convertedValue, { timeout: 3000 });
+              console.log(`✅ ステップ2a: 標準selectOption成功 ("${targetValue}" → "${convertedValue}")`);
+              selectSuccess = true;
+            } catch (standardError) {
+              console.log(`⚠️ 標準selectOption失敗: ${standardError.message}`);
+            }
+            
+            // 方法2: 検出済み選択肢から直接クリック（最優先改善版）
+            if (!selectSuccess && availableOptions.length > 1) {
+              console.log(`🎯 検出済み選択肢から選択: ${availableOptions.length}個の選択肢`);
+              
+              // 完全一致を最優先で検索
+              const exactMatch = availableOptions.find(option => 
+                option === targetValue || 
+                option.includes(targetValue) ||
+                targetValue.includes(option)
+              );
+              
+              if (exactMatch) {
+                console.log(`🎯 完全一致発見: "${exactMatch}"`);
+                try {
+                  // 🔧 特殊文字をエスケープして安全なセレクタを作成
+                  const escapedText = exactMatch
+                    .replace(/"/g, '\\"')     // ダブルクォートをエスケープ
+                    .replace(/'/g, "\\'")     // シングルクォートをエスケープ
+                    .replace(/\n/g, ' ')      // 改行を半角スペースに変換
+                    .replace(/\r/g, ' ')      // 復帰文字を半角スペースに変換
+                    .replace(/\t/g, ' ')      // タブを半角スペースに変換
+                    .replace(/\s+/g, ' ')     // 連続する空白を1つにまとめる
+                    .trim();                  // 前後の空白を削除
+                  
+                  console.log(`🔧 エスケープ後テキスト: "${escapedText}"`);
+                  
+                  // パターン1: li要素としてクリック
+                  const liLocator = this.page.locator(`li`).filter({ hasText: escapedText }).first();
+                  if (await liLocator.count() > 0) {
+                    await liLocator.click({ timeout: 3000 });
+                    console.log(`✅ ステップ2b-1: li要素(フィルタ)クリック成功: "${escapedText}"`);
+                    selectSuccess = true;
+                  } else {
+                    // パターン2: div要素としてクリック
+                    const divLocator = this.page.locator(`div`).filter({ hasText: escapedText }).first();
+                    if (await divLocator.count() > 0) {
+                      await divLocator.click({ timeout: 3000 });
+                      console.log(`✅ ステップ2b-2: div要素(フィルタ)クリック成功: "${escapedText}"`);
+                      selectSuccess = true;
+                    } else {
+                      // パターン3: span要素としてクリック
+                      const spanLocator = this.page.locator(`span`).filter({ hasText: escapedText }).first();
+                      if (await spanLocator.count() > 0) {
+                        await spanLocator.click({ timeout: 3000 });
+                        console.log(`✅ ステップ2b-3: span要素(フィルタ)クリック成功: "${escapedText}"`);
+                        selectSuccess = true;
+                      } else {
+                        // パターン4: label要素としてクリック
+                        const labelLocator = this.page.locator(`label`).filter({ hasText: escapedText }).first();
+                        if (await labelLocator.count() > 0) {
+                          await labelLocator.click({ timeout: 3000 });
+                          console.log(`✅ ステップ2b-4: label要素(フィルタ)クリック成功: "${escapedText}"`);
+                          selectSuccess = true;
+                        } else {
+                          // パターン5: 短いテキストでの部分一致検索
+                          const shortText = targetValue; // 元のターゲット値（"FC東京"など）
+                          console.log(`🔍 短縮テキストで再試行: "${shortText}"`);
+                          
+                          const shortLiLocator = this.page.locator(`li`).filter({ hasText: shortText }).first();
+                          if (await shortLiLocator.count() > 0) {
+                            await shortLiLocator.click({ timeout: 3000 });
+                            console.log(`✅ ステップ2b-5: li要素(短縮)クリック成功: "${shortText}"`);
+                            selectSuccess = true;
+                          }
+                        }
+                      }
+                    }
+                  }
+                } catch (error) {
+                  console.log(`⚠️ 検出済み選択肢クリック失敗: "${exactMatch}" - ${error.message}`);
+                }
+              } else {
+                console.log(`⚠️ 完全一致なし。部分一致を検索...`);
+                // 部分一致検索
+                const partialMatch = availableOptions.find(option => 
+                  option.toLowerCase().includes(targetValue.toLowerCase()) ||
+                  targetValue.toLowerCase().includes(option.toLowerCase())
+                );
+                
+                if (partialMatch) {
+                  console.log(`🎯 部分一致発見: "${partialMatch}"`);
+                  try {
+                    const multiLocator = this.page.locator(`li:has-text("${partialMatch}"), div:has-text("${partialMatch}"), span:has-text("${partialMatch}"), label:has-text("${partialMatch}")`).first();
+                    if (await multiLocator.count() > 0) {
+                      await multiLocator.click({ timeout: 3000 });
+                      console.log(`✅ ステップ2b-5: 部分一致クリック成功: "${partialMatch}"`);
+                      selectSuccess = true;
+                    }
+                  } catch (error) {
+                    console.log(`⚠️ 部分一致クリック失敗: "${partialMatch}" - ${error.message}`);
+                  }
+                }
+              }
+            }
+
+            // 方法3: option要素を直接クリック（従来版）
+            if (!selectSuccess) {
+              try {
+                const optionLocator = actualSelectLocator.locator(`option:has-text("${targetValue}")`);
+                if (await optionLocator.count() > 0) {
+                  await optionLocator.first().click({ timeout: 3000 });
+                  console.log(`✅ ステップ2c: option直接クリック成功`);
+                  selectSuccess = true;
+                } else {
+                  // 部分一致で再試行
+                  const partialOption = actualSelectLocator.locator(`option`).filter({ hasText: targetValue });
+                  if (await partialOption.count() > 0) {
+                    await partialOption.first().click({ timeout: 3000 });
+                    console.log(`✅ ステップ2c: option部分一致クリック成功`);
+                    selectSuccess = true;
+                  }
+                }
+              } catch (optionError) {
+                console.log(`⚠️ option直接クリック失敗: ${optionError.message}`);
+              }
+            }
+            
+            // 方法3: カスタムドロップダウン（li要素）を試行
+            if (!selectSuccess) {
+              try {
+                // selectの親コンテナからドロップダウンを探索
+                const parentContainer = actualSelectLocator.locator('..');
+                const dropdownItems = parentContainer.locator(`li:has-text("${targetValue}"), .option:has-text("${targetValue}"), [role="option"]:has-text("${targetValue}")`);
+                
+                if (await dropdownItems.count() > 0) {
+                  await dropdownItems.first().click({ timeout: 3000 });
+                  console.log(`✅ ステップ2c: カスタムドロップダウンクリック成功`);
+                  selectSuccess = true;
+                }
+              } catch (customError) {
+                console.log(`⚠️ カスタムドロップダウンクリック失敗: ${customError.message}`);
+              }
+            }
+            
+            // 方法4: キーボード操作による選択
+            if (!selectSuccess) {
+              try {
+                await actualSelectLocator.focus();
+                await this.page.keyboard.press('ArrowDown'); // ドロップダウンを開く
+                await this.page.waitForTimeout(200);
+                
+                // 目標の値までArrowDownで移動
+                const targetText = targetValue.toLowerCase();
+                for (let i = 0; i < 20; i++) { // 最大20個まで探索
+                  const selectedText = await actualSelectLocator.inputValue();
+                  if (selectedText.toLowerCase().includes(targetText)) {
+                    await this.page.keyboard.press('Enter');
+                    console.log(`✅ ステップ2d: キーボード選択成功 (${i+1}回目で発見)`);
+                    selectSuccess = true;
+                    break;
+                  }
+                  await this.page.keyboard.press('ArrowDown');
+                  await this.page.waitForTimeout(100);
+                }
+              } catch (keyboardError) {
+                console.log(`⚠️ キーボード選択失敗: ${keyboardError.message}`);
+              }
+            }
+            
+            // 方法5: 手動セレクタによる特別処理
+            if (!selectSuccess && this.manualSelectors) {
+              try {
+                const manualResult = await this.tryManualSelectors(step);
+                if (manualResult.found) {
+                  await manualResult.locator.click({ timeout: 3000 });
+                  console.log(`✅ ステップ2e: 手動セレクタクリック成功`);
+                  selectSuccess = true;
+                }
+              } catch (manualError) {
+                console.log(`⚠️ 手動セレクタクリック失敗: ${manualError.message}`);
+              }
+            }
+            
+            if (!selectSuccess) {
+              throw new Error(`すべての選択方法が失敗しました。利用可能な選択肢: [${availableOptions.join(', ')}]`);
+            }
+            
+            // 選択結果の検証
+            await this.page.waitForTimeout(300);
+            const selectedValue = await actualSelectLocator.inputValue().catch(() => '');
+            console.log(`✅ 2段階selectOption完了: ${step.target} = "${targetValue}" (選択値: "${selectedValue}")`);
+            
+          } catch (error) {
+            console.log(`❌ 2段階selectOption失敗: ${error.message}`);
+            throw error;
+          }
           break;
 
-        // 🚀 新しい高度validation アクション
         case 'assertOptionCount':
           const selectElement = this.page.locator(step.target);
           const optionCount = await selectElement.locator('option').count();

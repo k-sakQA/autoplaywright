@@ -381,6 +381,8 @@ autoplaywright/
 
 MIT License - 詳細は [LICENSE](./LICENSE) ファイルを参照
 
+Copyright (c) 2025 Sakata Kazunori
+
 ### 開発者
 - **Original Author**: [k-sakQA](https://github.com/k-sakQA)
 - **AI Assistant**: Claude (Anthropic) - 革命的機能開発パートナー # Claudeが書いた
