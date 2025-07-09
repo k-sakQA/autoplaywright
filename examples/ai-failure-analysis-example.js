@@ -57,7 +57,7 @@ async function demonstrateAIAnalysis() {
     } else if (error.message.includes('テスト結果ファイルが見つかりません')) {
       console.error('❌ 分析対象のテスト結果がありません');
       console.log('\n💡 まず失敗したテストを実行してください:');
-      console.log('   node tests/runRoutes.js');
+      console.log('   node tests/runScenarios.js');
     } else {
       console.error('❌ 分析エラー:', error.message);
     }

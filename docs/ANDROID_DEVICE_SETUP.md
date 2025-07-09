@@ -90,10 +90,10 @@ adb devices
 
 ```bash
 # Android実機でテスト実行
-node tests/runRoutes.js --url "https://example.com" --android-device
+node tests/runScenarios.js --url "https://example.com" --android-device
 
-# 特定のデバイスを指定
-node tests/runRoutes.js --url "https://example.com" --android-device --android-serial=ABC123DEF456
+# 特定のAndroidデバイスを指定する場合
+node tests/runScenarios.js --url "https://example.com" --android-device --android-serial=ABC123DEF456
 ```
 
 ### 利用可能なオプション
@@ -108,11 +108,11 @@ node tests/runRoutes.js --url "https://example.com" --android-device --android-s
 
 ```bash
 # スポーツバー検索のテスト
-node tests/runRoutes.js --url "https://fansta.jp/shops" --android-device --user-story-id=1
+node tests/runScenarios.js --url "https://fansta.jp/shops" --android-device --user-story-id=1
 
 # 複数デバイスがある場合
 adb devices  # デバイス一覧を確認
-node tests/runRoutes.js --url "https://fansta.jp/shops" --android-device --android-serial=YOUR_DEVICE_SERIAL
+node tests/runScenarios.js --url "https://fansta.jp/shops" --android-device --android-serial=YOUR_DEVICE_SERIAL
 ```
 
 ## 🔍 トラブルシューティング
@@ -138,7 +138,7 @@ adb devices
 adb shell am force-stop com.android.chrome
 
 # 再度テスト実行
-node tests/runRoutes.js --android-device
+node tests/runScenarios.js --android-device
 ```
 
 #### 4. 接続が不安定
@@ -213,7 +213,7 @@ adb devices
 
 ### 3. USBケーブルを抜いてテスト実行
 ```bash
-node tests/runRoutes.js --android-device --url "https://example.com"
+node tests/runScenarios.js --android-device --url "https://example.com"
 ```
 
 ## 📝 参考資料

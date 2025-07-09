@@ -398,8 +398,10 @@ ${domInfo.recommendedSelectors ? Object.entries(domInfo.recommendedSelectors).ma
     
     const fixedRoute = {
       ...originalRoute,
-      route_id: `ai_fixed_${originalRoute.route_id}_${Date.now()}`,
-      original_route_id: originalRoute.route_id,
+      scenario_id: `scenario_ai_fixed_${originalRoute.route_id}_${Date.now()}`,
+      route_id: `ai_fixed_${originalRoute.route_id}_${Date.now()}`, // 🔄 後方互換性のために保持
+      original_scenario_id: originalRoute.scenario_id || originalRoute.route_id, // 新フィールド
+      original_route_id: originalRoute.route_id, // 🔄 後方互換性のために保持
       fix_timestamp: new Date().toISOString(),
       ai_analysis: true,
       fix_source: 'ai_powered_analysis'

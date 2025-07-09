@@ -1108,16 +1108,16 @@ class FailureAnalyzer {
   }
 
   /**
-   * 修正されたルートを生成（DOM解析結果活用）
+   * 修正されたルートを生成
    */
-  async generateFixedRoute(originalRoute, failedSteps, url, detailedAnalyses = [], intelligentFixes = null) {
+  async generateFixedRoute(originalScenario, failedSteps, url, detailedAnalyses = [], intelligentFixes = null) {
     console.log(`\n🔧 修正されたルートを生成中...`);
 
     // 失敗した要素を検証
     const verificationResults = await this.verifyFailedElements(url, failedSteps);
 
     // 修正されたステップを作成
-    const fixedSteps = originalRoute.steps.map(step => {
+    const fixedSteps = originalScenario.steps.map(step => {
       const failedStep = failedSteps.find(f => f.label === step.label);
       
       if (!failedStep) {
@@ -1219,7 +1219,7 @@ class FailureAnalyzer {
 
     // 修正サマリーを生成
     const fixSummary = {
-      total_steps: originalRoute.steps.length,
+      total_steps: originalScenario.steps.length,
       fixed_steps: fixedSteps.filter(s => s.fix_reason).length,
       skipped_steps: fixedSteps.filter(s => s.action === 'skip').length,
       alternative_selectors: fixedSteps.filter(s => s.original_target && s.target !== s.original_target).length,
@@ -1228,16 +1228,18 @@ class FailureAnalyzer {
 
     // ユニークなIDを生成（重複を避けるため）
     const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
-    const fixedRouteId = `fixed_${originalRoute.route_id || 'unknown'}_${timestamp}`;
+    const fixedRouteId = `fixed_${originalScenario.route_id || 'unknown'}_${timestamp}`;
 
-    const fixedRoute = {
-      route_id: fixedRouteId,
-      original_route_id: originalRoute.route_id,
+    const fixedScenario = {
+      scenario_id: `scenario_${fixedRouteId}`,
+      route_id: fixedRouteId, // 🔄 後方互換性のために保持
+      original_scenario_id: originalScenario.scenario_id || originalScenario.route_id, // 新フィールド
+      original_route_id: originalScenario.route_id, // 🔄 後方互換性のために保持
       fix_timestamp: new Date().toISOString(),
       fix_summary: fixSummary,
       steps: fixedSteps,
-      user_story_id: originalRoute.user_story_id || null,
-      generated_at: originalRoute.generated_at || null,
+      user_story_id: originalScenario.user_story_id || null,
+      generated_at: originalScenario.generated_at || null,
       // 修正時の参照情報を追加
       analysis_context: {
         user_story: this.userStory || null,
@@ -1253,7 +1255,7 @@ class FailureAnalyzer {
     
     // 失敗ステップの修正を試行
     for (const step of failedSteps) {
-      const stepIndex = originalRoute.steps.findIndex(s => 
+      const stepIndex = originalScenario.steps.findIndex(s => 
         s.action === step.action && s.target === step.target
       );
       
@@ -1278,7 +1280,7 @@ class FailureAnalyzer {
         });
         
         // ステップを修正
-        fixedRoute.steps[stepIndex] = {
+        fixedScenario.steps[stepIndex] = {
           ...step,
           ...bestFix.fix
         };
@@ -1286,11 +1288,11 @@ class FailureAnalyzer {
     }
     
     // 修正情報を結果に含める
-    fixedRoute.is_fixed_route = true;
-    fixedRoute.original_failed_steps = originalFailedSteps;
-    fixedRoute.applied_fixes = appliedFixes;
+    fixedScenario.is_fixed_route = true;
+    fixedScenario.original_failed_steps = originalFailedSteps;
+    fixedScenario.applied_fixes = appliedFixes;
     
-    return fixedRoute;
+    return fixedScenario;
   }
 
   /**
@@ -1420,9 +1422,9 @@ class FailureAnalyzer {
         console.log('🚀 AI修正ルートを自動実行します...');
         
         const { spawn } = await import('child_process');
-        const runProcess = spawn('node', ['tests/runRoutes.js', routeFilePath], {
-          stdio: 'inherit',
-          cwd: process.cwd()
+        const runProcess = spawn('node', ['tests/runScenarios.js', routeFilePath], {
+          cwd: process.cwd(),
+          stdio: 'pipe'
         });
         
         return new Promise((resolve, reject) => {
@@ -1448,7 +1450,7 @@ class FailureAnalyzer {
         });
       } else {
         console.log('💡 手動実行用コマンド:');
-        console.log(`   node tests/runRoutes.js ${routeFilePath}`);
+        console.log(`   node tests/runScenarios.js ${routeFilePath}`);
       }
       
     } catch (error) {
@@ -1563,7 +1565,7 @@ class FailureAnalyzer {
       }
 
       // 元のルートファイルを取得
-      let routeFile, routePath;
+      let scenarioFile, routePath;
       
       // 修正されたルートファイルの場合は元のルートIDを使用
       if (testResult.route_id.startsWith('fixed_')) {
@@ -1572,29 +1574,29 @@ class FailureAnalyzer {
         const match = testResult.route_id.match(/fixed_(?:route_)?(\d+)/);
         if (match) {
           const originalRouteId = match[1];
-          routeFile = `route_${originalRouteId}.json`;
+          scenarioFile = `route_${originalRouteId}.json`;
         } else {
           throw new Error(`修正ルートIDの解析に失敗しました: ${testResult.route_id}`);
         }
       } else {
         // 通常のルートファイルの場合
         const routeId = testResult.route_id.replace(/^route_/, '');
-        routeFile = `route_${routeId}.json`;
+        scenarioFile = `route_${routeId}.json`;
       }
       
-      routePath = path.join(process.cwd(), 'test-results', routeFile);
+      routePath = path.join(process.cwd(), 'test-results', scenarioFile);
       
       if (!fs.existsSync(routePath)) {
         throw new Error(`ルートファイルが見つかりません: ${routePath}`);
       }
 
-      const originalRoute = JSON.parse(fs.readFileSync(routePath, 'utf-8'));
+      const originalScenario = JSON.parse(fs.readFileSync(routePath, 'utf-8'));
       
       await this.init();
 
       // 🧠 高度な失敗パターン分析を実行
       console.log('\n🧠 高度な失敗パターン分析を実行中...');
-      const intelligentFixes = await this.generateIntelligentFixes(failedSteps, originalRoute, targetUrl);
+      const intelligentFixes = await this.generateIntelligentFixes(failedSteps, originalScenario, targetUrl);
       
       console.log(`🔍 分析結果:`);
       console.log(`  - 検出パターン数: ${intelligentFixes.fixes.length}`);
@@ -1605,32 +1607,32 @@ class FailureAnalyzer {
       // 🔧 修正されたルートを生成（汎用的な修正を優先適用）
       console.log('\n🔧 修正されたルートを生成中...');
       
-      let fixedRoute;
+      let fixedScenario;
       
       // まず汎用的な修正を試行
       try {
-        fixedRoute = await this.applyDirectFixes(failedSteps, originalRoute);
-        console.log(`✅ 汎用修正完了: ${fixedRoute.fix_summary.fixed_steps}件のステップを修正`);
+        fixedScenario = await this.applyDirectFixes(failedSteps, originalScenario);
+        console.log(`✅ 汎用修正完了: ${fixedScenario.fix_summary.fixed_steps}件のステップを修正`);
       } catch (error) {
         console.log(`⚠️ 汎用修正でエラーが発生、フォールバックします: ${error.message}`);
         // フォールバック: 既存の修正ロジック
-        fixedRoute = await this.generateFixedRoute(originalRoute, failedSteps, targetUrl, detailedAnalyses, intelligentFixes);
+        fixedScenario = await this.generateFixedRoute(originalScenario, failedSteps, targetUrl, detailedAnalyses, intelligentFixes);
       }
 
       // 修正されたルートを保存
-      const fixedRoutePath = path.join(process.cwd(), 'test-results', `${fixedRoute.route_id}.json`);
-      fs.writeFileSync(fixedRoutePath, JSON.stringify(fixedRoute, null, 2));
+      const fixedRoutePath = path.join(process.cwd(), 'test-results', `${fixedScenario.route_id}.json`);
+      fs.writeFileSync(fixedRoutePath, JSON.stringify(fixedScenario, null, 2));
 
       console.log(`\n📝 修正されたルートを保存しました: ${fixedRoutePath}`);
       console.log(`🔧 修正サマリー:`);
-      console.log(`  - 総ステップ数: ${fixedRoute.fix_summary.total_steps}`);
-      console.log(`  - 修正ステップ数: ${fixedRoute.fix_summary.fixed_steps}`);
-      console.log(`  - スキップステップ数: ${fixedRoute.fix_summary.skipped_steps}`);
-      console.log(`  - 簡単な修正適用: ${fixedRoute.fix_summary.simple_fixes}`);
+      console.log(`  - 総ステップ数: ${fixedScenario.fix_summary.total_steps}`);
+      console.log(`  - 修正ステップ数: ${fixedScenario.fix_summary.fixed_steps}`);
+      console.log(`  - スキップステップ数: ${fixedScenario.fix_summary.skipped_steps}`);
+      console.log(`  - 簡単な修正適用: ${fixedScenario.fix_summary.simple_fixes}`);
 
       // 自動再テスト実行オプション
       console.log(`\n🚀 修正されたテストを実行するには:`);
-      console.log(`node tests/runRoutes.js --route-file ${fixedRoute.route_id}.json`);
+      console.log(`node tests/runScenarios.js --route-file ${fixedScenario.route_id}.json`);
 
     } catch (error) {
       console.error('❌ 分析エラー:', error.message);
@@ -2857,14 +2859,14 @@ class FailureAnalyzer {
   /**
    * 汎用的な失敗修正を直接適用（ChatGPT助言統合版）
    */
-  async applyDirectFixes(failedSteps, originalRoute) {
+  async applyDirectFixes(failedSteps, originalScenario) {
     console.log(`🔧 汎用修正を適用中... (${failedSteps.length}件の失敗)`);
     
     const fixedSteps = [];
     let fixCount = 0;
     
-    for (let i = 0; i < originalRoute.steps.length; i++) {
-      const step = originalRoute.steps[i];
+    for (let i = 0; i < originalScenario.steps.length; i++) {
+      const step = originalScenario.steps[i];
       const failedStep = failedSteps.find(f => f.label === step.label);
       
       let fixedStep = { ...step };
@@ -2966,20 +2968,21 @@ class FailureAnalyzer {
       fixedSteps.push(fixedStep);
     }
 
-    // ... existing code ...
-
     console.log(`\n📊 修正サマリー: ${fixCount}件のステップを修正`);
     
     // 修正されたルートを生成
-    const fixedRoute = {
-      ...originalRoute,
-      route_id: `fixed_${originalRoute.route_id}_${new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)}`,
-      original_route_id: originalRoute.route_id,
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15);
+    const fixedScenario = {
+      ...originalScenario,
+      scenario_id: `scenario_fixed_${originalScenario.route_id}_${timestamp}`,
+      route_id: `fixed_${originalScenario.route_id}_${timestamp}`, // 🔄 後方互換性のために保持
+      original_scenario_id: originalScenario.scenario_id || originalScenario.route_id, // 新フィールド
+      original_route_id: originalScenario.route_id, // 🔄 後方互換性のために保持
       fix_timestamp: new Date().toISOString(),
       is_fixed_route: true,
       steps: fixedSteps,
       fix_summary: {
-        total_steps: originalRoute.steps.length,
+        total_steps: originalScenario.steps.length,
         fixed_steps: fixCount,
         skipped_steps: fixedSteps.filter(s => s.action === 'skip').length,
         alternative_selectors: 0,
@@ -2988,15 +2991,15 @@ class FailureAnalyzer {
       applied_fixes: fixedSteps
         .filter(s => s.isFixed)
         .map((s, index) => ({
-          stepIndex: originalRoute.steps.findIndex(orig => orig.label === s.label),
-          originalAction: originalRoute.steps.find(orig => orig.label === s.label)?.action,
+          stepIndex: originalScenario.steps.findIndex(orig => orig.label === s.label),
+          originalAction: originalScenario.steps.find(orig => orig.label === s.label)?.action,
           newAction: s.action,
           type: s.fix_type,
           description: s.fixReason
         }))
     };
     
-    return fixedRoute;
+    return fixedScenario;
   }
 
   /**

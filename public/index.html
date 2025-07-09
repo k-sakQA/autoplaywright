@@ -917,8 +917,8 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="testGoal">テスト対象のユーザーストーリーと主なルート:</label>
-                    <textarea id="testGoal" rows="3" placeholder="ストーリー：宿泊予約の入力・選択ができる&#10;ルート：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する"></textarea>
+                    <label for="testGoal">テスト対象のユーザーストーリーと主なシナリオ:</label>
+                    <textarea id="testGoal" rows="3" placeholder="ストーリー：宿泊予約の入力・選択ができる&#10;シナリオ：『宿泊予約画面で各項目に有効な値を入力、または選択して「予約内容を確認する」を押下すると、「宿泊予約確認」画面に値が反映されることを確認する"></textarea>
                     <div class="user-story-info">
                         <small>具体的なテスト手順や確認したい内容を記述してください</small>
                         
@@ -1122,11 +1122,11 @@
                         🧠 テストケース生成
                     </button>
                     
-                    <button class="btn-info" onclick="executeCommand('generateSmartRoutes')">
+                    <button class="btn-info" onclick="executeCommand('generateSmartScenarios')">
                         🎭 Playwright用に変換
                     </button>
                     
-                    <button class="btn-success" onclick="executeCommand('runRoutes')">
+                    <button class="btn-success" onclick="executeCommand('runScenarios')">
                         ▶️ テスト実行
                     </button>
                     
@@ -1284,7 +1284,7 @@
                             <li><strong>ユーザーストーリー参照</strong>: 上記で入力されたユーザーストーリーを考慮して重要な要素を特定</li>
                             <li><strong>コンテキスト修正</strong>: PDF仕様書やCSV観点ファイルも参照して適切な修正を提案</li>
                             <li><strong>代替セレクタ提案</strong>: 要素が見つからない場合の代替案を生成</li>
-                            <li><strong>修正ルート生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
+                            <li><strong>修正シナリオ生成</strong>: 失敗原因を解析し、修正されたテストを自動作成</li>
                         </ul>
                         <div class="highlight-box">
                             <strong>💡 ヒント:</strong> 失敗分析実行時に上記の「ユーザーストーリー/テスト目標」が入力されていれば、
@@ -1331,10 +1331,10 @@
                             <button class="btn btn-secondary" onclick="executeNewStoryCommand('generateTestCases')">
                                 🧠 テストケース生成
                             </button>
-                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateSmartRoutes')">
+                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateSmartScenarios')">
                                 🎭 Playwright用に変換
                             </button>
-                            <button class="btn btn-success" onclick="executeNewStoryCommand('runRoutes')">
+                            <button class="btn btn-success" onclick="executeNewStoryCommand('runScenarios')">
                                 ▶️ テスト実行
                             </button>
                             <button class="btn btn-warning" onclick="executeNewStoryCommand('generateTestReport')">
@@ -1418,6 +1418,7 @@
                 <h3>📝 JSON構造</h3>
                 <p>以下の構造でJSONファイルを作成してください：</p>
                 <pre><code>{
+  "scenario_id": "scenario_manual_test_001",
   "route_id": "manual_test_001",
   "steps": [
     {
@@ -1442,6 +1443,7 @@
 
                 <h3>📋 完全な例</h3>
                 <pre><code>{
+  "scenario_id": "scenario_manual_login_test",
   "route_id": "manual_login_test",
   "steps": [
     {
@@ -1507,22 +1509,22 @@
         </div>
     </div>
 
-    <!-- 修正ルート実行ポップアップ -->
+    <!-- 修正シナリオ実行ポップアップ -->
     <div id="fixedRouteModal" class="modal-overlay" onclick="closeModal(event)">
         <div class="modal" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <h2>🚀 修正ルート実行</h2>
+                <h2>🚀 修正シナリオ実行</h2>
                 <button class="close-btn" onclick="closeModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <h3>🎯 概要</h3>
-                <p>失敗分析で生成された修正ルートファイルを選択して実行します。</p>
+                <p>失敗分析で生成された修正シナリオファイルを選択して実行します。</p>
                 
                 <div class="highlight-box">
-                    <strong>💡 ヒント:</strong> 修正ルート（fixed_*）は元のテストの失敗を改善したバージョンです。
+                    <strong>💡 ヒント:</strong> 修正シナリオ（fixed_*）は元のテストの失敗を改善したバージョンです。
                 </div>
 
-                <h3>📋 修正ルートファイル一覧</h3>
+                <h3>📋 修正シナリオファイル一覧</h3>
                 <div id="fixedRouteList">
                     <p>読み込み中...</p>
                 </div>
@@ -1530,7 +1532,7 @@
                 <h3>⚠️ 注意事項</h3>
                 <div class="warning-box">
                     <ul>
-                        <li>修正ルートは元のテストの失敗を解決する目的で生成されています</li>
+                        <li>修正シナリオは元のテストの失敗を解決する目的で生成されています</li>
                         <li>一部のステップが「スキップ」される場合があります</li>
                         <li>修正成功率は100%ではありません</li>
                     </ul>
@@ -1779,10 +1781,19 @@
 
         // コマンド実行関数
         async function executeCommand(command) {
-            const url = document.getElementById('testUrl').value;
-            const testGoal = document.getElementById('testGoal').value;
+            console.log(`🚀 [WebUI DEBUG] executeCommand called with: "${command}"`);
+            
+            const url = document.getElementById('testUrl').value.trim();
+            const testGoal = document.getElementById('testGoal').value.trim();
             const pdfFile = document.getElementById('pdfFile').files[0];
             const csvFile = document.getElementById('csvFile').files[0];
+            const executionEnvironment = document.getElementById('executionEnvironment').value || 'pc';
+            const domAnalysisSource = document.getElementById('domAnalysisSource').value || 'pc';
+            
+            console.log(`🚀 [WebUI DEBUG] Parameters: url=${url ? 'SET' : 'EMPTY'}, testGoal=${testGoal ? 'SET' : 'EMPTY'}, executionEnv=${executionEnvironment}, domSource=${domAnalysisSource}`);
+            
+            // テストサマリーを非表示にする
+            document.getElementById('testSummary').style.display = 'none';
             
             // AI修正オプションの状態を取得
             const enableAIFix = document.getElementById('enableAIFix').checked;
@@ -1790,17 +1801,12 @@
             // 手動セレクタ設定を取得
             const manualSelectors = getManualSelectorSettings();
             
-            // 実行環境設定を取得
-            const executionEnvironment = document.getElementById('executionEnvironment').value;
-            const domAnalysisSource = document.getElementById('domAnalysisSource') ? 
-                document.getElementById('domAnalysisSource').value : 'pc';
-            
             // 自動改善コマンドかどうかを判定
             const isAICommand = command === 'analyzeFailures' || command === 'discoverNewStories';
             const isNewStoriesCommand = false; // executeNewStoryCommand で処理
             
             // URL入力チェック
-            if (!url && command !== 'runRoutes' && command !== 'generateTestReport' && command !== 'analyzeFailures') {
+            if (!url && command !== 'runScenarios' && command !== 'generateTestReport' && command !== 'analyzeFailures') {
                 if (isAICommand) {
                     showStatusAI('テスト対象URLを入力してください', 'error');
                 } else {
@@ -1858,12 +1864,19 @@
                     }
                 }
                 
+                console.log(`🚀 [WebUI DEBUG] Sending POST to /api/execute with command: "${command}"`);
+                console.log(`🚀 [WebUI DEBUG] FormData keys:`, Array.from(formData.keys()));
+                
                 const response = await fetch('/api/execute', {
                     method: 'POST',
                     body: formData
                 });
                 
+                console.log(`🚀 [WebUI DEBUG] Response status: ${response.status} ${response.statusText}`);
+                
                 const result = await response.json();
+                
+                console.log(`🚀 [WebUI DEBUG] Response result:`, result);
                 
                 if (result.success) {
                     if (isAICommand) {
@@ -1879,8 +1892,8 @@
                             addLog(result.output);
                         }
                         
-                        // runRoutesコマンドの場合、テスト結果を解析
-                        if (command === 'runRoutes') {
+                        // runScenariosコマンドの場合、テスト結果を解析
+                        if (command === 'runScenarios') {
                             console.log('🛠️ [Debug] Full output for parsing:', result.output);
                             parseTestResults(result.output);
                             showStatus(`テストを実行しました！`, 'success');
@@ -1928,8 +1941,8 @@
                             addLog(result.output);
                         }
                         
-                        // エラーでもrunRoutesの場合は結果を解析
-                        if (command === 'runRoutes') {
+                        // エラーでもrunScenariosの場合は結果を解析
+                        if (command === 'runScenarios') {
                             console.log('🛠️ [Debug] Error output for parsing:', result.output);
                             parseTestResults(result.output);
                             showStatus(`テストを実行しました！（一部エラーあり）`, 'warning');
@@ -1968,8 +1981,8 @@
             const names = {
                 'generateTestPoints': 'テスト観点生成',
                 'generateTestCases': 'テストケース変換',
-                'generateSmartRoutes': 'Playwright用に変換',
-                'runRoutes': 'テスト実行',
+                'generateSmartScenarios': 'Playwright用に変換',
+                'runScenarios': 'テスト実行',
                 'generateTestReport': 'レポート生成',
                 'analyzeFailures': '失敗テスト分析・修正',
                 'discoverNewStories': '新ストーリー発見'
@@ -2025,7 +2038,7 @@
                     // 成功メッセージを表示
                     alert(`✅ テスト履歴をリセットしました。\n\n📊 削除された項目：\n` +
                           `• テスト結果ファイル: ${result.deletedResults || 0}件\n` +
-                          `• ルートファイル: ${result.deletedRoutes || 0}件\n` +
+                          `• シナリオファイル: ${result.deletedRoutes || 0}件\n` +
                           `• レポートファイル: ${result.deletedReports || 0}件\n\n` +
                           '次回のテスト実行時に新しいテストサイクルとして開始されます。');
                     console.log('🔄 テスト履歴をリセットしました:', result);
@@ -2062,7 +2075,7 @@
                 '3. ▶️ テスト実行\n' +
                 '4. 📊 レポート生成\n' +
                 '5. 🔧 失敗分析（失敗がある場合）\n' +
-                '6. 🚀 再トライ（修正ルートがある場合）\n' +
+                '6. 🚀 再トライ（修正シナリオがある場合）\n' +
                 '7. 🔍 新ストーリー発見\n\n' +
                 '実行しますか？（処理に数分かかる場合があります）')) {
                 return;
@@ -2092,13 +2105,13 @@
                 
                 // 3. Playwright用に変換
                 updateBulkProgress('step-routes', 'active', '🎭 Playwright用に変換中...');
-                await executeCommand('generateSmartRoutes');
+                await executeCommand('generateSmartScenarios');
                 await delay(1000);
                 updateBulkProgress('step-routes', 'completed', '✅ Playwright用に変換完了');
                 
                 // 4. テスト実行
                 updateBulkProgress('step-run', 'active', '▶️ テストを実行中...');
-                await executeCommand('runRoutes');
+                await executeCommand('runScenarios');
                 await delay(1000);
                 updateBulkProgress('step-run', 'completed', '✅ テスト実行完了');
                 
@@ -2135,12 +2148,12 @@
                     await executeCommand('analyzeFailures');
                     await delay(2000); // 分析は時間がかかるため少し長めに待機
                     
-                    // 修正ルートが生成されたかチェック
+                    // 修正シナリオが生成されたかチェック
                     const response = await fetch('/api/check-fixed-routes');
                     const result = await response.json();
                     if (result.success && result.hasFixedRoutes) {
                         fixedRouteId = result.latestFixedRoute;
-                        updateBulkProgress('step-analyze', 'completed', '✅ 失敗分析完了（修正ルート生成済み）');
+                        updateBulkProgress('step-analyze', 'completed', '✅ 失敗分析完了（修正シナリオ生成済み）');
                     } else {
                         updateBulkProgress('step-analyze', 'completed', '✅ 失敗分析完了');
                     }
@@ -2148,14 +2161,14 @@
                     updateBulkProgress('step-analyze', 'completed', '⏭️ 失敗なしのためスキップ');
                 }
                 
-                // 7. 再トライ（修正ルートがある場合）
+                // 7. 再トライ（修正シナリオがある場合）
                 if (fixedRouteId) {
-                    updateBulkProgress('step-retry', 'active', '🚀 修正ルートで再トライ中...');
+                    updateBulkProgress('step-retry', 'active', '🚀 修正シナリオで再トライ中...');
                     await runFixedRoute(fixedRouteId);
                     await delay(1000);
                     updateBulkProgress('step-retry', 'completed', '✅ 再トライ完了');
                 } else {
-                    updateBulkProgress('step-retry', 'completed', '⏭️ 修正ルートなしのためスキップ');
+                    updateBulkProgress('step-retry', 'completed', '⏭️ 修正シナリオなしのためスキップ');
                 }
                 
                 // 8. 新ストーリー発見
@@ -2276,13 +2289,13 @@
             const csvFile = document.getElementById('csvFile').files[0];
             
             // URL入力チェック
-            if (!url && command !== 'runRoutes' && command !== 'generateTestReport') {
+            if (!url && command !== 'runScenarios' && command !== 'generateTestReport') {
                 showStatusNewStories('テスト対象URLを入力してください', 'error');
                 return;
             }
             
-            // ストーリー選択チェック
-            if (!testGoal || !testGoal.trim()) {
+            // ストーリー選択チェック（generateSmartScenariosは除外）
+            if ((!testGoal || !testGoal.trim()) && command !== 'generateSmartScenarios' && command !== 'generateTestCases') {
                 showStatusNewStories('発見済みストーリーを選択してください', 'error');
                 return;
             }
@@ -2316,8 +2329,8 @@
                     if (result.output) {
                         addLogNewStories(result.output);
                         
-                        // runRoutesコマンドの場合、テスト結果を解析
-                        if (command === 'runRoutes') {
+                        // runScenariosコマンドの場合、テスト結果を解析
+                        if (command === 'runScenarios') {
                             console.log('🛠️ [Debug] Full output for parsing (New Stories):', result.output);
                             parseTestResultsNewStories(result.output);
                             showStatusNewStories(`新ストーリーテストを実行しました！`, 'success');
@@ -2333,8 +2346,8 @@
                     if (result.output) {
                         addLogNewStories(result.output);
                         
-                        // エラーでもrunRoutesの場合は結果を解析
-                        if (command === 'runRoutes') {
+                        // エラーでもrunScenariosの場合は結果を解析
+                        if (command === 'runScenarios') {
                             console.log('🛠️ [Debug] Error output for parsing (New Stories):', result.output);
                             parseTestResultsNewStories(result.output);
                             showStatusNewStories(`新ストーリーテストを実行しました！（一部エラーあり）`, 'warning');
@@ -3049,16 +3062,16 @@
             showUserStoryId();
         }
 
-        // 修正ルート実行ポップアップ表示
+        // 修正シナリオ実行ポップアップ表示
         async function showFixedRouteModal() {
             document.getElementById('fixedRouteModal').style.display = 'block';
-            addLogAI('🚀 修正ルート選択画面を表示しました');
+            addLogAI('🚀 修正シナリオ選択画面を表示しました');
             
-            // 修正ルートファイル一覧を読み込み
+            // 修正シナリオファイル一覧を読み込み
             await loadFixedRoutes();
         }
 
-        // 修正ルートファイル一覧を読み込み
+        // 修正シナリオファイル一覧を読み込み
         async function loadFixedRoutes() {
             try {
                 const response = await fetch('/api/results');
@@ -3072,7 +3085,7 @@
                 const listContainer = document.getElementById('fixedRouteList');
                 
                 if (fixedRoutes.length === 0) {
-                    listContainer.innerHTML = '<p>❌ 修正ルートファイルが見つかりません</p><p>先に「失敗テスト分析・修正」を実行してください。</p>';
+                    listContainer.innerHTML = '<p>❌ 修正シナリオファイルが見つかりません</p><p>先に「失敗テスト分析・修正」を実行してください。</p>';
                     return;
                 }
                 
@@ -3090,7 +3103,7 @@
                     html += `
                         <div class="route-item">
                             <h4>🔧 ${fileName}</h4>
-                            <p><strong>元ルート:</strong> route_${originalId}</p>
+                            <p><strong>元シナリオ:</strong> route_${originalId}</p>
                             <p><strong>修正日時:</strong> ${modifiedDate}</p>
                             <button class="btn btn-primary" onclick="runFixedRoute('${fileName}')">
                                 ▶️ 実行
@@ -3107,11 +3120,11 @@
             }
         }
 
-        // 修正ルートを実行
+        // 修正シナリオを実行
         async function runFixedRoute(routeId) {
             try {
-                addLogAI(`🚀 修正ルート実行開始: ${routeId}`);
-                showStatusAI(`修正ルート実行中: ${routeId}`, 'info');
+                addLogAI(`🚀 修正シナリオ実行開始: ${routeId}`);
+                showStatusAI(`修正シナリオ実行中: ${routeId}`, 'info');
                 
                 console.log('🛠️ [Debug] Sending request to:', '/api/execute-json');
                 console.log('🛠️ [Debug] Request body:', JSON.stringify({
@@ -3139,9 +3152,9 @@
                 const result = JSON.parse(responseText);
                 
                 if (result.success) {
-                    addLogAI(`✅ 修正ルート実行完了: ${routeId}`);
+                    addLogAI(`✅ 修正シナリオ実行完了: ${routeId}`);
                     addLogAI(result.output);
-                    showStatusAI('修正ルート実行完了！', 'success');
+                    showStatusAI('修正シナリオ実行完了！', 'success');
                     
 
                     
@@ -3151,19 +3164,19 @@
                     // 自動改善タブ用のテスト結果解析
                     parseTestResultsAI(result.output);
                 } else {
-                    addLogAI(`❌ 修正ルート実行エラー: ${result.error}`);
+                    addLogAI(`❌ 修正シナリオ実行エラー: ${result.error}`);
                     if (result.output) {
                         addLogAI(result.output);
                         // エラーでも自動改善タブのテスト結果を解析（部分的な結果があるため）
                         parseTestResultsAI(result.output);
-                        showStatusAI('修正ルート実行完了（一部エラーあり）', 'warning');
+                        showStatusAI('修正シナリオ実行完了（一部エラーあり）', 'warning');
                     } else {
-                        showStatusAI('修正ルート実行失敗', 'error');
+                        showStatusAI('修正シナリオ実行失敗', 'error');
                     }
                 }
             } catch (error) {
-                addLogAI(`❌ 修正ルート実行エラー: ${error.message}`);
-                showStatusAI(`修正ルート実行失敗: ${error.message}`, 'error');
+                addLogAI(`❌ 修正シナリオ実行エラー: ${error.message}`);
+                showStatusAI(`修正シナリオ実行失敗: ${error.message}`, 'error');
             }
         }
         
@@ -3430,8 +3443,6 @@
                     loadAIConfig(config);
                     addLog(`🤖 AI設定を読み込みました`);
                     
-
-                    
                     // ユーザーストーリーID表示（トレーサビリティ確保）
                     showUserStoryId();
                 })
@@ -3440,155 +3451,6 @@
                 });
         });
 
-        // F12セレクタ直接入力機能
-        const f12SelectorInput = document.getElementById('f12SelectorInput');
-        const f12SelectorLabel = document.getElementById('f12SelectorLabel');
-        const f12SelectorPreview = document.getElementById('f12SelectorPreview');
-        const addF12SelectorButton = document.getElementById('addF12Selector');
-        const manualSelectorJson = document.getElementById('manualSelectorJson');
-        
-        // F12セレクタのプレビュー表示
-        f12SelectorInput.addEventListener('input', function() {
-            const selector = this.value.trim();
-            if (selector) {
-                const normalized = normalizeF12Selector(selector);
-                f12SelectorPreview.innerHTML = `<strong>正規化後:</strong> ${normalized}`;
-                f12SelectorPreview.style.color = '#28a745';
-            } else {
-                f12SelectorPreview.innerHTML = 'プレビュー表示エリア';
-                f12SelectorPreview.style.color = '#6c757d';
-            }
-        });
-        
-        // F12セレクタ追加ボタン
-        addF12SelectorButton.addEventListener('click', function() {
-            const selector = f12SelectorInput.value.trim();
-            const label = f12SelectorLabel.value.trim();
-            
-            if (!selector) {
-                alert('⚠️ F12セレクタを入力してください');
-                return;
-            }
-            
-            if (!label) {
-                alert('⚠️ 要素の名前を入力してください');
-                return;
-            }
-            
-            // 現在のJSONを取得
-            let currentJson = {};
-            const currentText = manualSelectorJson.value.trim();
-            if (currentText) {
-                try {
-                    currentJson = JSON.parse(currentText);
-                } catch (e) {
-                    // 既存のJSONが無効な場合は新しく作成
-                    currentJson = {};
-                }
-            }
-            
-            // F12セレクタを正規化してJSONに追加
-            const normalized = normalizeF12Selector(selector);
-            
-            // カテゴリを自動判定（ボタン、リンク、入力欄など）
-            let category = 'その他';
-            if (label.includes('ボタン') || label.includes('button')) {
-                category = 'ボタン';
-            } else if (label.includes('リンク') || label.includes('link')) {
-                category = 'リンク';
-            } else if (label.includes('入力') || label.includes('input')) {
-                category = '入力欄';
-            } else if (label.includes('チェック') || label.includes('checkbox')) {
-                category = 'チェックボックス';
-            } else if (label.includes('プルダウン') || label.includes('select')) {
-                category = 'プルダウン';
-            }
-            
-            // JSONに追加
-            if (!currentJson[category]) {
-                currentJson[category] = {};
-            }
-            currentJson[category][label] = normalized;
-            
-            // JSONを整形して表示
-            manualSelectorJson.value = JSON.stringify(currentJson, null, 2);
-            
-            // 入力欄をクリア
-            f12SelectorInput.value = '';
-            f12SelectorLabel.value = '';
-            f12SelectorPreview.innerHTML = 'プレビュー表示エリア';
-            f12SelectorPreview.style.color = '#6c757d';
-            
-            // 成功メッセージ
-            const successMsg = document.createElement('div');
-            successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; z-index: 1000;';
-            successMsg.textContent = `✅ ${label} を追加しました`;
-            document.body.appendChild(successMsg);
-            setTimeout(() => successMsg.remove(), 3000);
-        });
-        
-        // F12セレクタの正規化関数
-        function normalizeF12Selector(selector) {
-            if (!selector) return '';
-            
-            // エスケープ文字の正規化
-            let normalized = selector
-                .replace(/\\\\/g, '\\')  // 二重エスケープを単一に
-                .replace(/\\:/g, ':')    // エスケープされたコロンを正規化
-                .replace(/\s+/g, ' ')    // 複数スペースを単一に
-                .trim();                 // 前後の空白を除去
-            
-            return normalized;
-        }
-        
-        // セレクタ検証ボタン
-        validateSelectors.addEventListener('click', function() {
-            const jsonText = document.getElementById('manualSelectorJson').value.trim();
-            
-            if (!jsonText) {
-                resultDiv.innerHTML = '<span style="color: #dc3545;">⚠️ セレクタJSONを入力してください</span>';
-                return;
-            }
-            
-            try {
-                const selectors = JSON.parse(jsonText);
-                let validCount = 0;
-                let totalCount = 0;
-                let f12Count = 0;
-                
-                // セレクタの構造を検証
-                for (const category in selectors) {
-                    if (typeof selectors[category] === 'object') {
-                        for (const item in selectors[category]) {
-                            totalCount++;
-                            const selectorValue = selectors[category][item];
-                            if (typeof selectorValue === 'string' && selectorValue.trim()) {
-                                validCount++;
-                                
-                                // F12形式セレクタの検出
-                                if (selectorValue.includes('nth-child') || selectorValue.includes(' > ') || selectorValue.includes('\\:')) {
-                                    f12Count++;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if (validCount === totalCount && totalCount > 0) {
-                    let message = `✅ 形式チェック成功: ${totalCount}個の要素指定が正常です`;
-                    if (f12Count > 0) {
-                        message += `<br>📋 F12形式セレクタ: ${f12Count}個（エスケープ文字は自動処理されます）`;
-                    }
-                    resultDiv.innerHTML = `<span style="color: #28a745;">${message}</span>`;
-                    addLogAI(`🎯 要素指定形式チェック成功: ${totalCount}個の要素指定が正常です（F12形式: ${f12Count}個）`);
-                } else {
-                    resultDiv.innerHTML = `<span style="color: #ffc107;">⚠️ 部分的に成功: ${validCount}/${totalCount}個の要素指定が有効です</span>`;
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `<span style="color: #dc3545;">❌ JSON形式エラー: ${error.message}</span>`;
-            }
-        });
-
     </script>
 </body>
-</html> 
+</html>

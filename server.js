@@ -392,11 +392,12 @@ app.post('/api/execute-json', express.json(), async (req, res) => {
     
     switch (command) {
         case 'runFixedRoute':
-            args = ['tests/runRoutes.js'];
+            args = ['tests/runScenarios.js'];
             if (routeId) args.push('--route-file', `${routeId}.json`);
             break;
             
         default:
+            console.log(`🚨 [DEBUG-1] 未知のコマンドです - API: /api/execute-json, Command: "${command}", Body:`, JSON.stringify(req.body, null, 2));
             return res.status(400).json({ success: false, error: '未知のコマンドです' });
     }
     
@@ -487,6 +488,8 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
   const pdfFile = files.pdf ? files.pdf[0] : null;
   const csvFile = files.csv ? files.csv[0] : null;
   
+  console.log('🌐 [DEBUG] FormData API リクエスト受信:', { command, url: url ? '(設定済み)' : '(未設定)', goal: goal ? '(設定済み)' : '(未設定)', routeId, executionEnvironment, domAnalysisSource });
+  
   // 環境設定を表示
   console.log('🌐 実行環境設定:', {
     executionEnvironment: executionEnvironment || 'pc',
@@ -549,6 +552,38 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
     // コマンドの実行
     let commandName = command;
     let args = [];
+    
+    console.log(`🔍 [DEBUG] 受信したコマンド名: "${commandName}" (type: ${typeof commandName})`);
+    console.log(`🔍 [DEBUG] リクエストボディ全体:`, JSON.stringify(req.body, null, 2));
+    
+    // 🔧 コマンド名のサニタイズ
+    if (commandName) {
+        commandName = commandName.toString().trim();
+        console.log(`🔍 [DEBUG] サニタイズ後: "${commandName}"`);
+    }
+    
+    // 🔧 よくある問題の自動修正
+    if (!commandName || commandName === '' || commandName === 'undefined') {
+        console.log(`🚨 [DEBUG] 空のコマンド名を受信しました`);
+        return res.status(400).json({ success: false, error: 'コマンド名が指定されていません' });
+    }
+    
+    // 🔧 コマンド名の正規化（よくある間違いを修正）
+    const commandMapping = {
+        'generateSmartRoutes': 'generateSmartScenarios',  // 旧名称→新名称
+        'generateRoutes': 'generateSmartScenarios',       // 旧名称→新名称
+        'runRoutes': 'runScenarios',                      // 旧名称→新名称
+        'Playwright用に変換': 'generateSmartScenarios',    // 日本語名→コマンド名
+        'テスト実行': 'runScenarios',                      // 日本語名→コマンド名
+        'テスト観点生成': 'generateTestPoints',             // 日本語名→コマンド名
+        'テストケース生成': 'generateTestCases',            // 日本語名→コマンド名
+        'レポート生成': 'generateTestReport'               // 日本語名→コマンド名
+    };
+    
+    if (commandMapping[commandName]) {
+        console.log(`🔄 [DEBUG] コマンド名を変換: "${commandName}" → "${commandMapping[commandName]}"`);
+        commandName = commandMapping[commandName];
+    }
 
     switch (commandName) {
         case 'generateTestPoints':
@@ -587,7 +622,7 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             break;
 
         case 'generateSmartRoutes':
-            args = ['tests/generateSmartRoutes.js'];
+            args = ['tests/generateSmartScenarios.js'];
             if (url) args.push('--url', url);
             if (goal) args.push('--goal', goal);
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
@@ -621,14 +656,50 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
                 console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
             }
             break;
+        case 'generateSmartScenarios':
+            args = ['tests/generateSmartScenarios.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            if (csvFile) args.push('--test-csv', csvFile.path);
+            
+            // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
+            const testResultsDir3 = path.join(__dirname, 'test-results');
+            try {
+                const files = fs.readdirSync(testResultsDir3);
+                
+                // 軽量版を優先的に検索
+                let naturalTestCasesFiles = files
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
+                    .sort()
+                    .reverse();
+                
+                // 軽量版が見つからない場合は従来のファイルを検索
+                if (naturalTestCasesFiles.length === 0) {
+                    naturalTestCasesFiles = files
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+                        .sort()
+                        .reverse();
+                }
+                
+                if (naturalTestCasesFiles.length > 0) {
+                    const latestNaturalTestCases = path.join(testResultsDir3, naturalTestCasesFiles[0]);
+                    args.push('--natural-test-cases', latestNaturalTestCases);
+                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
+                }
+            } catch (error) {
+                console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
+            }
+            break;
 
         case 'runRoutes':
-            args = ['tests/runRoutes.js'];
-            // Android実機モードの場合、--android-deviceフラグを追加
-            if (executionEnvironment === 'android') {
-                args.push('--android-device');
-                console.log('📱 Android実機モードでテスト実行');
-            }
+            args = ['tests/runScenarios.js'];
+            break;
+        case 'runScenarios':
+            args = ['tests/runScenarios.js'];
+            break;
+        case 'runRoutesJson':
+            args = ['tests/runScenarios.js'];
             break;
 
         case 'generateTestReport':
@@ -673,11 +744,12 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             break;
 
         case 'runFixedRoute':
-            args = ['tests/runRoutes.js'];
+            args = ['tests/runScenarios.js'];
             if (routeId) args.push('--route-file', `${routeId}.json`);
             break;
 
         default:
+            console.log(`🚨 [DEBUG-2] 未知のコマンドです - API: /api/execute, Command: "${commandName}", Body:`, JSON.stringify(req.body, null, 2));
             return res.status(400).json({ success: false, error: '未知のコマンドです' });
     }
     
@@ -1094,10 +1166,10 @@ app.post('/api/generate-routes-unautomated', express.json(), async (req, res) =>
     const latestTestCaseFile = naturalLanguageFiles[0];
     console.log(`📊 使用するテストケースファイル: ${latestTestCaseFile}`);
     
-    // generateRoutesForUnautomated.jsを実行
-    const routesForUnautomatedPath = path.join(__dirname, 'tests', 'generateRoutesForUnautomated.js');
+    // generateScenariosForUnautomated.jsを実行
+    const routesForUnautomatedPath = path.join(__dirname, 'tests', 'generateScenariosForUnautomated.js');
     
-    console.log(`⚡ 未自動化ケース用ルート生成を実行: ${routesForUnautomatedPath}`);
+    console.log(`⚡ 未自動化ケース用シナリオ生成を実行: ${routesForUnautomatedPath}`);
     
     const child = spawn('node', [routesForUnautomatedPath], {
       stdio: 'pipe',

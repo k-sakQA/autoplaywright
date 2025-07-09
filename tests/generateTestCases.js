@@ -3,12 +3,13 @@
 /**
  * テスト観点を自然言語のテストケースに変換する中間処理ファイル
  * generateTestPoints.js の出力JSONを受け取り、理解しやすい自然言語テストケースを生成
- * 後続のgenerateSmartRoutes.jsでDOM解析と組み合わせてPlaywright実装に変換される
+ * 後続のgenerateSmartScenarios.jsでDOM解析と組み合わせてPlaywright実装に変換される
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import OpenAI from 'openai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,7 @@ class NaturalLanguageTestCaseGenerator {
   constructor() {
     this.outputDir = path.join(__dirname, '../test-results');
     this.config = null;
+    this.openai = null;
     this.userStory = null;
     this.targetUrl = null;
     this.pdfSpecContent = null;
@@ -33,10 +35,153 @@ class NaturalLanguageTestCaseGenerator {
       if (fs.existsSync(configPath)) {
         this.config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         console.log('📋 設定ファイルを読み込みました');
+        
+        // OpenAI設定
+        const apiKey = process.env[this.config.openai.apiKeyEnv];
+        if (apiKey) {
+          this.openai = new OpenAI({
+            apiKey,
+            timeout: this.config.openai.timeout || 60000,
+            maxRetries: this.config.openai.maxRetries || 3
+          });
+          console.log('🤖 OpenAI APIクライアントを初期化しました');
+        } else {
+          console.warn('⚠️ OpenAI APIキーが設定されていません');
+        }
       }
     } catch (error) {
       console.warn('⚠️ 設定ファイルの読み込みに失敗:', error.message);
     }
+  }
+
+  /**
+   * AIを使って観点から具体的なテストケースを生成
+   * @param {string} viewpoint - テスト観点
+   * @param {string} category - カテゴリ
+   * @param {Object} baseCase - 基本テストケース構造
+   * @returns {Object} AI生成されたテストケース
+   */
+  async generateTestCaseWithAI(viewpoint, category, baseCase) {
+    if (!this.openai) {
+      console.log('⚠️ OpenAI APIが利用できません。フォールバックします。');
+      return null;
+    }
+
+    try {
+      console.log(`🤖 AI生成中: ${category} - ${viewpoint.substring(0, 50)}...`);
+      
+      const systemPrompt = `あなたはE2Eテストの専門家です。与えられたテスト観点から、具体的で実行可能な自然言語テストケースを生成してください。
+
+重要: ユーザーストーリーで指定された具体的なデータを必ず使用してください。勝手にデータを変更しないでください。
+
+以下の形式でJSONを返してください：
+{
+  "test_scenarios": ["具体的なテスト手順1", "具体的なテスト手順2", ...],
+  "expected_results": ["期待する結果1", "期待する結果2", ...],
+  "test_data": [{"type": "データ種別", "value": "テストデータ", "description": "説明"}, ...],
+  "preconditions": ["前提条件1", "前提条件2", ...]
+}`;
+
+      // ユーザーストーリーから具体的なテストデータを抽出
+      const extractedTestData = this.extractTestDataFromUserStory();
+      
+      const userPrompt = `テスト観点: ${viewpoint}
+カテゴリ: ${category}
+対象URL: ${this.targetUrl || '未指定'}
+
+【重要】ユーザーストーリー:
+${this.userStory || '未指定'}
+
+【必須】以下の具体的なデータを必ず使用してください:
+${extractedTestData}
+
+仕様書: ${this.pdfSpecContent || '未指定'}
+
+この観点に基づいて、具体的で実行可能なテストケースを生成してください。
+特に以下に注意してください：
+- ユーザーストーリーで指定された具体的なデータ（日付、氏名、メール等）を必ず使用する
+- 勝手にデータを変更したり、サンプルデータで置き換えたりしない
+- 実際の操作手順を具体的に記述する
+- 検証すべき結果を明確に示す
+- 必要なテストデータを提案する
+- 前提条件を明確にする`;
+
+      const response = await this.openai.chat.completions.create({
+        model: this.config.openai.model || 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: this.config.openai.temperature || 0.3,
+        max_tokens: this.config.openai.max_tokens || 2000,
+        top_p: this.config.openai.top_p || 0.9
+      });
+
+      const content = response.choices[0].message.content.trim();
+      
+      // JSON部分を抽出
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn('⚠️ AI応答からJSONを抽出できませんでした');
+        return null;
+      }
+
+      const aiResult = JSON.parse(jsonMatch[0]);
+      
+      // AIの結果をbaseCaseにマージ
+      baseCase.test_scenarios = aiResult.test_scenarios || [];
+      baseCase.expected_results = aiResult.expected_results || [];
+      baseCase.test_data = aiResult.test_data || [];
+      baseCase.preconditions = aiResult.preconditions || [];
+      
+      // AI生成フラグを追加
+      baseCase.metadata.ai_generated = true;
+      baseCase.metadata.ai_model = this.config.openai.model;
+      
+      console.log(`✅ AI生成完了: ${baseCase.test_scenarios.length}シナリオ, ${baseCase.expected_results.length}期待結果`);
+      
+      return baseCase;
+
+    } catch (error) {
+      console.error(`❌ AI生成エラー (${category}):`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * ユーザーストーリーから具体的なテストデータを抽出
+   * @returns {string} 抽出されたテストデータの文字列
+   */
+  extractTestDataFromUserStory() {
+    if (!this.userStory) {
+      return '具体的なテストデータが指定されていません。';
+    }
+
+    const testDataPatterns = [
+      { pattern: /宿泊日[：:]\s*([^\s\r\n]+)/g, label: '宿泊日' },
+      { pattern: /宿泊数[：:]\s*([^\s\r\n]+)/g, label: '宿泊数' },
+      { pattern: /人数[：:]\s*([^\s\r\n]+)/g, label: '人数' },
+      { pattern: /氏名[：:]\s*[「"]([^」"]+)[」"]/g, label: '氏名' },
+      { pattern: /メールアドレス[：:]\s*([^\s\r\n]+)/g, label: 'メールアドレス' },
+      { pattern: /確認のご連絡[：:]\s*[「"]([^」"]+)[」"]/g, label: '確認のご連絡' },
+      { pattern: /追加プラン[：:]\s*[「"]([^」"]+)[」"]/g, label: '追加プラン' },
+      { pattern: /ご要望[・･]ご連絡事項等[：:]\s*[「"]([^」"]+)[」"]/g, label: 'ご要望・ご連絡事項' }
+    ];
+
+    const extractedData = [];
+    
+    testDataPatterns.forEach(({ pattern, label }) => {
+      let match;
+      while ((match = pattern.exec(this.userStory)) !== null) {
+        extractedData.push(`${label}: ${match[1]}`);
+      }
+    });
+
+    if (extractedData.length === 0) {
+      return `ユーザーストーリー全文を参照: ${this.userStory}`;
+    }
+
+    return extractedData.join('\n');
   }
 
   /**
@@ -100,7 +245,19 @@ class NaturalLanguageTestCaseGenerator {
       
       console.log('📄 JSON形式として読み込み中...');
       const parsedData = JSON.parse(data);
-      const testPoints = Array.isArray(parsedData) ? parsedData : [parsedData];
+      
+      // ✨ 新しいJSON構造対応: { metadata: {...}, points: [...] }
+      let testPoints;
+      if (parsedData.points && Array.isArray(parsedData.points)) {
+        console.log('🔍 新しいJSON構造を検出: { metadata, points }');
+        testPoints = parsedData.points;
+      } else if (Array.isArray(parsedData)) {
+        console.log('🔍 レガシーJSON構造を検出: [...]');
+        testPoints = parsedData;
+      } else {
+        console.log('🔍 単一オブジェクト構造を検出: {...}');
+        testPoints = [parsedData];
+      }
       
       // 空の観点や不完全な観点をフィルター
       const validTestPoints = testPoints.filter(point => {
@@ -182,7 +339,7 @@ class NaturalLanguageTestCaseGenerator {
    * @param {number} index - インデックス
    * @returns {Object} 自然言語テストケース
    */
-  generateNaturalLanguageTestCase(viewpoint, category, index) {
+  async generateNaturalLanguageTestCase(viewpoint, category, index) {
     const testCaseId = `NL_TC_${Date.now()}_${index.toString().padStart(3, '0')}`;
     
     // 基本的なテストケース構造
@@ -204,11 +361,22 @@ class NaturalLanguageTestCaseGenerator {
       metadata: {
         generated_at: new Date().toISOString(),
         source: 'generateTestCases.js',
-        version: '2.1.0',
+        version: '2.2.0',
         type: 'natural_language'
       }
     };
 
+    // 🤖 AI生成を最優先で試行
+    if (this.openai) {
+      const aiResult = await this.generateTestCaseWithAI(viewpoint, category, testCase);
+      if (aiResult && aiResult.test_scenarios.length > 0) {
+        return aiResult;
+      }
+    }
+
+    // フォールバック: 従来のテンプレート生成
+    console.log(`⚠️ AIが利用できないため、テンプレート生成を使用: ${category}`);
+    
     // カテゴリ別に自然言語テストケースを生成
     switch (category) {
       case 'display':
@@ -688,13 +856,15 @@ class NaturalLanguageTestCaseGenerator {
    * @param {Array} testPoints - テスト観点配列
    * @returns {Object} 分類別のテストケース群
    */
-  generateNaturalLanguageTestCases(testPoints) {
+  async generateNaturalLanguageTestCases(testPoints) {
     console.log('🔄 自然言語テストケース生成を開始...');
     
     const testCasesByCategory = {};
     const allTestCases = [];
     
-    testPoints.forEach((point, index) => {
+    // 🤖 AI生成のため順次処理（並列だとAPI制限に引っかかる）
+    for (let index = 0; index < testPoints.length; index++) {
+      const point = testPoints[index];
       const viewpoint = point['考慮すべき仕様の具体例'] || point.description || `テスト観点${index + 1}`;
       const originalCategory = this.categorizeViewpoint(viewpoint);
       
@@ -702,9 +872,9 @@ class NaturalLanguageTestCaseGenerator {
       const middleCategory = point['中分類'] || this.mapCategoryToMiddle(originalCategory);
       const finalCategory = this.normalizeMiddleCategory(middleCategory);
       
-      console.log(`📝 ${index + 1}. 中分類: ${middleCategory} → ${finalCategory}, 観点: ${viewpoint.substring(0, 50)}...`);
+      console.log(`📝 ${index + 1}/${testPoints.length} 中分類: ${middleCategory} → ${finalCategory}, 観点: ${viewpoint.substring(0, 50)}...`);
       
-      const testCase = this.generateNaturalLanguageTestCase(viewpoint, originalCategory, index + 1);
+      const testCase = await this.generateNaturalLanguageTestCase(viewpoint, originalCategory, index + 1);
       testCase.middle_category = finalCategory;
       testCase.original_middle_category = middleCategory;
       
@@ -714,7 +884,12 @@ class NaturalLanguageTestCaseGenerator {
       }
       testCasesByCategory[finalCategory].push(testCase);
       allTestCases.push(testCase);
-    });
+      
+      // API制限対応: 1秒待機
+      if (this.openai && index < testPoints.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
     
     const categoryCount = Object.keys(testCasesByCategory).length;
     const totalCases = allTestCases.length;
@@ -725,6 +900,12 @@ class NaturalLanguageTestCaseGenerator {
     Object.entries(testCasesByCategory).forEach(([category, cases]) => {
       console.log(`   📂 ${category}: ${cases.length}件`);
     });
+    
+    // AI生成統計を表示
+    const aiGeneratedCount = allTestCases.filter(tc => tc.metadata.ai_generated).length;
+    if (aiGeneratedCount > 0) {
+      console.log(`🤖 AI生成: ${aiGeneratedCount}件, テンプレート生成: ${totalCases - aiGeneratedCount}件`);
+    }
     
     return {
       byCategory: testCasesByCategory,
@@ -850,7 +1031,7 @@ class NaturalLanguageTestCaseGenerator {
         ...commonMetadata,
         total_categories: Object.keys(testCasesData.byCategory).length,
         total_test_cases: testCasesData.all.length,
-        description: '分類別テストケースファイルのインデックス。generateSmartRoutes.jsでの一括処理に使用。',
+        description: '分類別テストケースファイルのインデックス。generateSmartScenarios.jsでの一括処理に使用。',
         version_type: 'category_index'
       },
       categories: categoryIndex,
@@ -983,13 +1164,13 @@ class NaturalLanguageTestCaseGenerator {
       const testPoints = this.loadTestPoints(testPointsFile);
       
       // 7. 自然言語テストケースを生成（分類別・DOM解析結果を活用）
-      const testCasesData = this.generateNaturalLanguageTestCases(testPoints);
+      const testCasesData = await this.generateNaturalLanguageTestCases(testPoints);
       
       // 8. テストケースを保存（分類別分割）
       const savedFiles = this.saveNaturalLanguageTestCases(testCasesData, options.outputFile);
       
       console.log('✅ 自然言語テストケース生成が完了しました！');
-      console.log('🔄 次のステップ: generateSmartRoutes.js で具体的なPlaywright実装を生成');
+      console.log('🔄 次のステップ: generateSmartScenarios.js で具体的なPlaywright実装を生成');
       console.log(`📋 メインファイル: ${path.basename(savedFiles.indexFile)}`);
       
       // DOM解析結果の効果をレポート
@@ -1170,7 +1351,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   - generateTestPoints.jsで生成されたテスト観点JSONから自然言語テストケースを生成
   - URL、ユーザーストーリー、PDF仕様書を活用してより具体的なテストケースを作成
   - 理解しやすい日本語でテストシナリオを記述
-  - DOM解析やPlaywright実装は含まない（generateSmartRoutes.jsで実装）
+  - DOM解析やPlaywright実装は含まない（generateSmartScenarios.jsで実装）
   - カテゴリ分類とトレーサビリティを提供
   
 📝 入力形式:
@@ -1277,5 +1458,3 @@ function extractValidationAspects(viewpoint) {
   
   return aspects.length > 0 ? aspects : ['基本動作確認'];
 }
-
-// ... existing code ...

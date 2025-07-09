@@ -1,4 +1,4 @@
-// tests/generateRoutesForUnautomated.js
+// tests/generateScenariosForUnautomated.js
 // 未自動化テストケース専用のPlaywrightルート生成
 
 import 'dotenv/config';
@@ -103,13 +103,13 @@ function getUnautomatedCasesInfo(coverageData) {
 }
 
 /**
- * generateSmartRoutes.jsを実行
+ * generateSmartScenarios.jsを実行
  */
-async function runGenerateSmartRoutes(url, naturalTestCasesPath) {
-  const generateSmartRoutesPath = path.join(__dirname, 'generateSmartRoutes.js');
-  
+async function runGenerateSmartScenarios(testCasesFile) {
+    const generateSmartScenariosPath = path.join(__dirname, 'generateSmartScenarios.js');
+    
   // コマンドを構築
-  const command = `node "${generateSmartRoutesPath}" --url "${url}" --natural-test-cases "${naturalTestCasesPath}" --goal "未自動化テストケースのPlaywright自動化"`;
+  const command = `node "${generateSmartScenariosPath}" --test-cases "${testCasesFile}" --goal "未自動化テストケースのPlaywright自動化"`;
   
   console.log(`🚀 Playwrightルート生成実行中...`);
   console.log(`   コマンド: ${command}`);
@@ -121,12 +121,12 @@ async function runGenerateSmartRoutes(url, naturalTestCasesPath) {
       console.error('⚠️ 警告出力:', stderr);
     }
     
-    console.log('✅ generateSmartRoutes.js実行完了');
+    console.log('✅ generateSmartScenarios.js実行完了');
     console.log(stdout);
     
     return { success: true, output: stdout };
   } catch (error) {
-    console.error('❌ generateSmartRoutes.js実行エラー:', error.message);
+    console.error('❌ generateSmartScenarios.js実行エラー:', error.message);
     if (error.stdout) console.log('標準出力:', error.stdout);
     if (error.stderr) console.error('エラー出力:', error.stderr);
     
@@ -162,8 +162,8 @@ async function runGenerateSmartRoutes(url, naturalTestCasesPath) {
     console.log(`   - 未自動化ケース数: ${unautomatedInfo.unautomatedCount}件`);
     console.log('');
     
-    // 4. generateSmartRoutes.jsを実行
-    const result = await runGenerateSmartRoutes(testUrl, naturalTestCasesPath);
+    // 4. generateSmartScenarios.jsを実行
+    const result = await runGenerateSmartScenarios(naturalTestCasesPath);
     
     if (result.success) {
       console.log('');
@@ -171,7 +171,7 @@ async function runGenerateSmartRoutes(url, naturalTestCasesPath) {
       console.log('');
       console.log('💡 次のステップ:');
       console.log('   1. 生成されたroute_*.jsonファイルを確認');
-      console.log('   2. runRoutes.jsで新しいルートを実行');
+      console.log('   2. runScenarios.jsで新しいシナリオを実行');
       console.log('   3. テストレポートを更新してカバレッジを確認');
       console.log('');
       console.log('🔄 レポート更新コマンド:');

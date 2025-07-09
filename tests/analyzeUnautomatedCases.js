@@ -284,7 +284,8 @@ class UnautomatedCaseAnalyzer {
         });
 
         return {
-            route_id: `display_validation_${Date.now()}`,
+            scenario_id: `scenario_display_validation_${Date.now()}`,
+            route_id: `display_validation_${Date.now()}`, // 🔄 後方互換性のために保持
             test_case_id: testCase.id,
             category: 'display_validation',
             title: testCase.title,
@@ -340,7 +341,8 @@ class UnautomatedCaseAnalyzer {
         }
 
         return {
-            route_id: `error_handling_${Date.now()}`,
+            scenario_id: `scenario_error_handling_${Date.now()}`,
+            route_id: `error_handling_${Date.now()}`, // 🔄 後方互換性のために保持
             test_case_id: testCase.id,
             category: 'error_handling',
             title: testCase.title,
@@ -401,7 +403,8 @@ class UnautomatedCaseAnalyzer {
         }
 
         return {
-            route_id: `input_validation_${Date.now()}`,
+            scenario_id: `scenario_input_validation_${Date.now()}`,
+            route_id: `input_validation_${Date.now()}`, // 🔄 後方互換性のために保持
             test_case_id: testCase.id,
             category: 'input_validation',
             title: testCase.title,
@@ -475,7 +478,7 @@ class UnautomatedCaseAnalyzer {
 
             console.log(`\n🎉 未自動化ケース分析完了！`);
             console.log(`📊 生成されたルート数: ${generatedRoutes.length}件`);
-            console.log(`💡 次のステップ: runRoutes.jsで新しいルートを実行してください`);
+            console.log(`💡 次のステップ: runScenarios.jsで新しいシナリオを実行してください`);
 
             return generatedRoutes;
 

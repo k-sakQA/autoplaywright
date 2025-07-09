@@ -250,7 +250,7 @@ docker-compose up
 docker-compose run --rm autoplaywright node tests/generateTestPoints.js --spec-pdf ./specs/requirements.pdf
 
 # テスト実行
-docker-compose run --rm autoplaywright node tests/runRoutes.js
+docker-compose run --rm autoplaywright node tests/runScenarios.js
 ```
 
 ### Docker環境での注意点

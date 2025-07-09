@@ -1230,7 +1230,8 @@ JSON形式で出力してください：
     console.log(`🤖 AIによる新テストケースを適用中...`);
     
     const newRoute = {
-      route_id: `ai_generated_${Date.now()}`,
+      scenario_id: `scenario_ai_generated_${Date.now()}`,
+      route_id: `ai_generated_${Date.now()}`, // 🔄 後方互換性のために保持
       generated_from_analysis: analysis.originalStep.label,
       original_viewpoint: analysis.originalStep.label,
       category: 'ai_generated',
@@ -1722,7 +1723,8 @@ JSON形式で出力してください：
                   
                   const innovativeRoute = {
                     ...originalRoute,
-                    route_id: `untested_${bestApproach.approach_id}_${Date.now()}`,
+                    scenario_id: `scenario_untested_${bestApproach.approach_id}_${Date.now()}`,
+                    route_id: `untested_${bestApproach.approach_id}_${Date.now()}`, // 🔄 後方互換性のために保持
                     approach_name: bestApproach.approach_name,
                     strategy: bestApproach.strategy,
                     expected_success_rate: bestApproach.expected_success_rate,
@@ -1744,7 +1746,8 @@ JSON形式で出力してください：
                   untestedApproaches.slice(1).forEach((approach, index) => {
                     const alternativeRoute = {
                       ...originalRoute,
-                      route_id: `alternative_${approach.approach_id}_${Date.now()}_${index}`,
+                      scenario_id: `scenario_alternative_${approach.approach_id}_${Date.now()}_${index}`,
+                      route_id: `alternative_${approach.approach_id}_${Date.now()}_${index}`, // 🔄 後方互換性のために保持
                       approach_name: approach.approach_name,
                       strategy: approach.strategy,
                       steps: approach.steps,
@@ -1780,7 +1783,8 @@ JSON形式で出力してください：
                   if (alternativeApproach) {
                     const enhancedRoute = {
                       ...originalRoute,
-                      route_id: `enhanced_${Date.now()}`,
+                      scenario_id: `scenario_enhanced_${Date.now()}`,
+                      route_id: `enhanced_${Date.now()}`, // 🔄 後方互換性のために保持
                       approach_name: alternativeApproach.approach_name,
                       strategy_change: alternativeApproach.strategy_change,
                       expected_improvement: alternativeApproach.expected_improvement,
@@ -1812,7 +1816,8 @@ JSON形式で出力してください：
                 if (alternativeApproach) {
                   const innovativeRoute = {
                     ...originalRoute,
-                    route_id: `innovative_${Date.now()}`,
+                    scenario_id: `scenario_innovative_${Date.now()}`,
+                    route_id: `innovative_${Date.now()}`, // 🔄 後方互換性のために保持
                     approach_name: alternativeApproach.approach_name,
                     strategy_change: alternativeApproach.strategy_change,
                     expected_improvement: alternativeApproach.expected_improvement,
@@ -1861,7 +1866,8 @@ JSON形式で出力してください：
             // 該当ステップを修正されたものに置き換え
             const quickFixedRoute = {
               ...originalRoute,
-              route_id: `quick_fix_${Date.now()}`,
+              scenario_id: `scenario_quick_fix_${Date.now()}`,
+              route_id: `quick_fix_${Date.now()}`, // 🔄 後方互換性のために保持
               steps: originalRoute.steps.map(s => 
                 s.label === step.label ? simpleFix.fixedStep : s
               ),
@@ -1916,15 +1922,15 @@ JSON形式で出力してください：
       if (fixedRoutes.length > 0) {
         console.log(`\n🚀 修正されたルートを実行するには:`);
         fixedRoutes.forEach(routeFile => {
-          console.log(`   node tests/runRoutes.js --route-file ${path.basename(routeFile)}`);
+          console.log(`   node tests/runScenarios.js --route-file ${path.basename(routeFile)}`);
         });
       }
 
       // AI生成ルートの実行提案
       if (aiGeneratedRoutes.length > 0) {
-        console.log(`\n🤖 AI生成ルートを実行するには:`);
+        console.log(`\n🤖 AI生成シナリオを実行するには:`);
         aiGeneratedRoutes.forEach(routeFile => {
-          console.log(`   node tests/runRoutes.js --route-file ${path.basename(routeFile)}`);
+          console.log(`   node tests/runScenarios.js --route-file ${path.basename(routeFile)}`);
         });
       }
       

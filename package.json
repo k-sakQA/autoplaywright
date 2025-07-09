@@ -29,8 +29,8 @@
     "start": "node server.js",
     "webui": "node server.js",
     "generate:testpoints": "node tests/generateTestPoints.js",
-    "generate:smartroutes": "node tests/generateSmartRoutes.js",
-    "run:tests": "node tests/runRoutes.js",
+    "generate:smartroutes": "node tests/generateSmartScenarios.js",
+    "run:tests": "node tests/runScenarios.js",
     "upload:sheets": "node tests/uploadToGoogleSheets.js",
     "save:results": "node saveResultsToSheet.js",
     "ci-pipeline": "npm run generate:testpoints && npm run generate:smartroutes && npm run run:tests && npm run upload:sheets"

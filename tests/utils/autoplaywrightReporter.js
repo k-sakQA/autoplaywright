@@ -403,7 +403,7 @@ class AutoPlaywrightReporter {
    * DOM状態をキャプチャ（プレースホルダー - 実際の実装では page.content() 等を使用）
    */
   captureDomState() {
-    // この実装は runRoutes.js 等の実際のブラウザインスタンスから呼び出される
+    // この実装は runScenarios.js 等の実際のブラウザインスタンスから呼び出される
     return {
       timestamp: new Date().toISOString(),
       placeholder: 'DOM state will be captured by browser instance'

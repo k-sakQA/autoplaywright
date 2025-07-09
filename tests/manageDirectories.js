@@ -387,7 +387,8 @@ class DirectoryManagerCLI {
         name: 'route_sample_001.json',
         content: JSON.stringify({
           userStoryId: 2,
-          route_id: 'sample_001',
+          scenario_id: 'scenario_sample_001',
+          route_id: 'sample_001', // 🔄 後方互換性のために保持
           steps: []
         }, null, 2)
       },

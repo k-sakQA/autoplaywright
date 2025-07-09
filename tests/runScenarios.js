@@ -1,4 +1,4 @@
-// tests/runRoutes.js
+// tests/runScenarios.js
 
 import 'dotenv/config';
 import fs from "fs";
@@ -2227,6 +2227,18 @@ export class PlaywrightRunner {
    */
   async convertSelectValue(selectLocator, inputValue) {
     try {
+      // 🔧 null/undefined値のチェック
+      if (inputValue === null || inputValue === undefined || inputValue === '') {
+        console.log(`⚠️ 空の値が渡されました。デフォルト値を使用します`);
+        const options = await selectLocator.locator('option').all();
+        if (options.length > 1) {
+          const firstOption = await options[1].getAttribute('value') || '';
+          console.log(`💡 最初の有効なオプションを選択: "${firstOption}"`);
+          return firstOption;
+        }
+        return '';
+      }
+      
       console.log(`🔄 select要素の値変換開始: "${inputValue}"`);
       
       // 1. 全てのoption要素を取得
@@ -2257,7 +2269,7 @@ export class PlaywrightRunner {
       
       // 4. 部分一致検索（テキスト）
       const partialTextMatch = optionData.find(opt => 
-        opt.text.includes(inputValue) || inputValue.includes(opt.text)
+        opt.text && inputValue && (opt.text.includes(inputValue) || inputValue.includes(opt.text))
       );
       if (partialTextMatch) {
         console.log(`✅ 部分一致（テキスト）: "${inputValue}" → "${partialTextMatch.value}"`);

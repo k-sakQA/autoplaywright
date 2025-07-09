@@ -1,4 +1,4 @@
-// tests/generateSmartRoutes.js
+// tests/generateSmartScenarios.js
 // DOM照合 + Playwright変換特化版
 // 自然言語テストケース(generateTestCases.js出力)をDOM情報と照合してPlaywright実装に変換
 
@@ -1016,7 +1016,7 @@ function createRouteObject(testCase, steps) {
     steps: steps,
     generated_at: new Date().toISOString(),
     metadata: {
-      source: 'generateSmartRoutes.js',
+      source: 'generateSmartScenarios.js',
       version: '2.0.0',
       type: 'playwright_implementation',
       generation_method: 'dom_matching'
@@ -1109,7 +1109,7 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
     steps: steps,
     generated_at: new Date().toISOString(),
     metadata: {
-      source: 'generateSmartRoutes.js DOM照合',
+      source: 'generateSmartScenarios.js DOM照合',
       version: '2.0.0',
       type: 'playwright_implementation',
       generation_method: 'dom_matching'
