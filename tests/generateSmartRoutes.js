@@ -121,16 +121,43 @@ async function extractDynamicPageInfo(url) {
         }
       });
       
-      // ボタン要素
+      // ボタン要素 - より具体的なセレクタ生成
       document.querySelectorAll('button, input[type="button"], input[type="submit"]').forEach((el, index) => {
         if (index < 10) {
           const text = el.textContent?.trim() || el.value || el.getAttribute('aria-label') || '';
           if (text) {
+            // 🔧 Strict Mode Violation対策 - より具体的なセレクタを優先
+            let primarySelector = `text="${text}"`;
+            let robustSelector = primarySelector;
+            
+            // ログインボタンの場合は特別対応
+            if (text.includes('ログイン') || text.includes('login')) {
+              if (el.type === 'submit') {
+                robustSelector = `button[type="submit"]:has-text("${text}")`;
+              } else if (el.id) {
+                robustSelector = `#${el.id}`;
+              } else {
+                robustSelector = `button:has-text("${text}")`;
+              }
+            }
+            // その他のボタンも type や id を活用
+            else if (el.id) {
+              robustSelector = `#${el.id}`;
+            } else if (el.type === 'submit') {
+              robustSelector = `button[type="submit"]:has-text("${text}")`;
+            } else if (el.className) {
+              const mainClass = el.className.split(' ')[0];
+              robustSelector = `button.${mainClass}:has-text("${text}")`;
+            }
+            
             info.elements.buttons.push({
               text: text,
               type: el.type || 'button',
-              selector: `text="${text}"`,
-              fallbackSelector: el.type ? `[type="${el.type}"]` : 'button'
+              id: el.id || '',
+              className: el.className || '',
+              selector: robustSelector, // より具体的なセレクタを使用
+              fallbackSelector: el.type ? `[type="${el.type}"]` : 'button',
+              basicSelector: primarySelector // 基本セレクタも保持
             });
           }
         }
@@ -358,6 +385,20 @@ function calculateFeasibilityScore(testCase, domInfo) {
   const issues = [];
   const suggestions = [];
 
+  // 🔧 新機能: URLベースの適合性判定
+  const currentPageUrl = domInfo.url || domInfo.pageUrl || '';
+  const urlCompatibilityScore = calculateUrlCompatibility(testCase, currentPageUrl);
+  
+  if (urlCompatibilityScore < 0.3) {
+    score = Math.max(score * 0.2, 0.1); // 不適合な場合は大幅減点
+    issues.push(`ページURL適合性が低い (スコア: ${urlCompatibilityScore.toFixed(2)})`);
+    suggestions.push('対象ページとテストケースの整合性を確認してください');
+    console.log(`⚠️ URL不適合: ${testCase.category} - ${currentPageUrl} (スコア: ${urlCompatibilityScore.toFixed(2)})`);
+  } else {
+    score += urlCompatibilityScore * 0.3; // 適合する場合はボーナス
+    console.log(`✅ URL適合: ${testCase.category} - ${currentPageUrl} (スコア: ${urlCompatibilityScore.toFixed(2)})`);
+  }
+
   // カテゴリ別の実行可能性判定
   switch (testCase.category) {
     case 'display':
@@ -462,6 +503,73 @@ function calculateFeasibilityScore(testCase, domInfo) {
     issues,
     suggestions
   };
+}
+
+/**
+ * URLとテストケースの適合性を計算
+ * @param {Object} testCase - テストケース
+ * @param {string} currentPageUrl - 現在のページURL
+ * @returns {number} 適合性スコア (0-1)
+ */
+function calculateUrlCompatibility(testCase, currentPageUrl) {
+  if (!currentPageUrl || !testCase.original_viewpoint) {
+    return 0.5; // 情報不足の場合は中間値
+  }
+  
+  const urlLower = currentPageUrl.toLowerCase();
+  const viewpointLower = testCase.original_viewpoint.toLowerCase();
+  
+  // URL パターンとテストケース内容のマッピング
+  const urlPatterns = [
+    {
+      pattern: /login\.html?$/,
+      keywords: ['ログイン', 'login', 'メールアドレス', 'パスワード', 'email', 'password'],
+      negativeKeywords: ['宿泊', '予約', '連絡方法', 'contact', 'reserve', 'booking']
+    },
+    {
+      pattern: /plans\.html?$|reserve|booking/,
+      keywords: ['宿泊', '予約', '連絡方法', 'contact', 'reserve', 'booking', '宿泊日', '人数'],
+      negativeKeywords: ['ログイン', 'login', 'signup', '会員登録']
+    },
+    {
+      pattern: /signup\.html?$|register/,
+      keywords: ['会員登録', 'signup', 'register', '新規', '登録'],
+      negativeKeywords: ['ログイン', 'login', '宿泊', '予約']
+    },
+    {
+      pattern: /index\.html?$|home|top/,
+      keywords: ['ホーム', 'home', 'トップ', 'index'],
+      negativeKeywords: []
+    }
+  ];
+  
+  for (const urlPattern of urlPatterns) {
+    if (urlPattern.pattern.test(urlLower)) {
+      let score = 0.5; // 基本スコア
+      
+      // 適合キーワードのチェック
+      const matchingKeywords = urlPattern.keywords.filter(keyword => 
+        viewpointLower.includes(keyword)
+      );
+      if (matchingKeywords.length > 0) {
+        score += 0.3 + (matchingKeywords.length * 0.1); // キーワード数に応じてボーナス
+      }
+      
+      // 不適合キーワードのチェック
+      const negativeMatches = urlPattern.negativeKeywords.filter(keyword => 
+        viewpointLower.includes(keyword)
+      );
+      if (negativeMatches.length > 0) {
+        score -= 0.6; // 不適合キーワードがある場合は大幅減点
+        console.log(`🔍 不適合キーワード検出: ${negativeMatches.join(', ')} in ${viewpointLower.substring(0, 50)}...`);
+      }
+      
+      return Math.max(0, Math.min(1, score));
+    }
+  }
+  
+  // どのパターンにも一致しない場合は中間値
+  return 0.4;
 }
 
 /**
@@ -747,7 +855,7 @@ function generateInputValidationSteps(testCase, domInfo, steps) {
     }
   });
 
-  // 送信ボタンの操作
+  // 送信ボタンの操作 - 堅牢なセレクタを使用
   const submitButton = domInfo.elements.buttons.find(btn => 
     btn.text.includes('送信') || btn.text.includes('確認') || btn.type === 'submit'
   );
@@ -756,7 +864,7 @@ function generateInputValidationSteps(testCase, domInfo, steps) {
     steps.push({
       label: "フォームを送信",
       action: "click",
-      target: submitButton.selector
+      target: submitButton.selector // 既に堅牢なセレクタが設定済み
     });
   }
 
@@ -766,14 +874,36 @@ function generateInputValidationSteps(testCase, domInfo, steps) {
 /**
  * 入力検証系のステップをDOM情報から生成（依存関係対応版）
  */
-function generateInputValidationStepsFromDOM(steps, domInfo) {
+function generateInputValidationStepsFromDOM(steps, domInfo, testGoal = null) {
   console.log('🔍 DOM情報から入力検証ステップを生成中...');
   
-  // 動的要素の依存関係パターン
+  // 包括的な値生成戦略を構築
+  console.log('🎯 包括的な値生成戦略を構築中...');
+  const valueStrategy = testGoal ? generateComprehensiveValueStrategy(testGoal, domInfo) : null;
+  const recommendations = valueStrategy?.recommendations || {};
+  
+  // ユーザーストーリーから具体的な値を抽出
+  console.log('🔍 ユーザーストーリーから具体的な値を抽出中...');
+  if (testGoal && typeof testGoal === 'string') {
+    const userStoryValues = extractUserStoryValues(testGoal);
+    if (Object.keys(userStoryValues).length > 0) {
+      console.log('✅ 抽出された値:', userStoryValues);
+      Object.assign(recommendations, userStoryValues);
+    }
+  }
+  
+  console.log(`✅ 値生成戦略構築完了: ${Object.keys(recommendations).length}個のフィールドに対応`);
+  
+  // 現在のページURLを取得（domInfo.urlから）
+  const currentPageUrl = domInfo.url || domInfo.pageUrl || '';
+  console.log(`🔍 現在のページURL: ${currentPageUrl}`);
+  
+  // 動的要素の依存関係パターン（ページ別）
   const dynamicElementPatterns = [
     {
-      name: 'email_field',
+      name: 'email_field_reservation',
       targetPattern: /email/i,
+      pagePattern: /reserve|plans|booking/i, // 宿泊予約ページのみ
       dependencies: [
         {
           label: '確認のご連絡方法のプルダウンから「メールでのご連絡」を選択',
@@ -789,8 +919,9 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
       ]
     },
     {
-      name: 'phone_field',
+      name: 'phone_field_reservation',
       targetPattern: /phone|tel/i,
+      pagePattern: /reserve|plans|booking/i, // 宿泊予約ページのみ
       dependencies: [
         {
           label: '確認のご連絡方法のプルダウンから「電話でのご連絡」を選択',
@@ -811,11 +942,17 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
   domInfo.elements.inputs.forEach(input => {
     const inputSelector = input.recommendedSelector;
     
-    // 動的要素の依存関係をチェック
+    // 動的要素の依存関係をチェック（ページURL判定付き）
     let dependencies = [];
     for (const pattern of dynamicElementPatterns) {
+      // ページパターンが定義されている場合は、現在のページがマッチするかチェック
+      if (pattern.pagePattern && !pattern.pagePattern.test(currentPageUrl)) {
+        continue; // ページがマッチしない場合はスキップ
+      }
+      
       if (pattern.targetPattern.test(input.name || input.id || '')) {
         dependencies = pattern.dependencies;
+        console.log(`📋 依存関係を適用: ${pattern.name} (${input.name})`);
         break;
       }
     }
@@ -832,8 +969,8 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
 
     // 入力要素のテストステップを追加
     if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
-      // 有効な値の入力
-      const validValue = generateTestValueForInput(input.type);
+      // 推奨値戦略から最適な値を選択
+      const validValue = recommendations[input.name]?.value || generateTestValueForInput(input.type);
       steps.push({
         label: `${input.name || input.id || input.type}に有効な値を入力`,
         action: 'fill',
@@ -842,7 +979,8 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
       });
 
       // 必須チェック（required属性がある場合）
-      if (input.required) {
+      // シナリオ管理からの機能テストの場合は必須チェックをスキップ
+      if (!testGoal?.includes('【機能テスト】') && input.required) {
         steps.push({
           label: `${input.name || input.id || input.type}を空にして必須チェック`,
           action: 'fill',
@@ -851,8 +989,9 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
         });
       }
 
-      // 無効な値のテスト（適切な場合）
-      if (input.type === 'email' || input.type === 'number') {
+      // 無効な値のテスト（適切な場合のみ）
+      // シナリオ管理からの機能テストの場合は無効値テストをスキップ
+      if (!testGoal?.includes('【機能テスト】') && (input.type === 'email' || input.type === 'number')) {
         const invalidValue = generateInvalidValue(input.type);
         steps.push({
           label: `${input.name || input.id || input.type}に無効な値を入力してバリデーション確認`,
@@ -872,16 +1011,16 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
     }
   });
 
-  // 送信ボタンの操作
+  // 送信ボタンの操作 - 堅牢なセレクタを使用
   const submitButton = domInfo.elements.buttons.find(btn => 
-    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.type === 'submit'
+    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.text.includes('ログイン') || btn.type === 'submit'
   );
   
   if (submitButton) {
     steps.push({
       label: `「${submitButton.text}」ボタンをクリック`,
       action: "click",
-      target: submitButton.selector
+      target: submitButton.selector // 既に堅牢なセレクタが設定済み
     });
   }
 
@@ -955,7 +1094,7 @@ function generateDataVerificationSteps(testCase, domInfo, steps) {
     if (index < 3) {
       const testValue = generateTestValue(input.type);
       steps.push({
-        label: `${input.name || input.type}にテストデータを入力`,
+        label: `${input.name || input.type}に有効なテストデータを入力`,
         action: "fill",
         target: input.recommendedSelector,
         value: testValue
@@ -1037,8 +1176,12 @@ function generateTestValue(inputType) {
       return '2025/07/25';
     case 'tel':
       return '090-1234-5678';
+    case 'text':
+      return '有効なテキスト';
+    case 'textarea':
+      return '有効なテキスト';
     default:
-      return 'テストデータ';
+      return '有効なテキスト'; // "テストデータ"から"有効なテキスト"に変更
   }
 }
 
@@ -1065,9 +1208,10 @@ function generateInvalidValue(inputType) {
  * @param {Object} domInfo - DOM情報
  * @param {string} url - 対象URL
  * @param {Object} userStoryInfo - ユーザーストーリー情報
+ * @param {string} testGoal - ユーザーストーリーの goal 文字列
  * @returns {Object} Playwright実装
  */
-function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userStoryInfo) {
+function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userStoryInfo, testGoal = null) {
   const steps = [];
   
   // 基本的なページアクセス
@@ -1077,13 +1221,13 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
     target: url
   });
 
-  // カテゴリ別の実装生成
+  // カテゴリ別の実装生成（ユーザーストーリーの具体的な値を渡す）
   switch (naturalCase.category) {
     case 'display':
       generateDisplayStepsFromDOM(steps, domInfo);
       break;
     case 'input_validation':
-      generateInputValidationStepsFromDOM(steps, domInfo);
+      generateInputValidationStepsFromDOM(steps, domInfo, testGoal);
       break;
     case 'interaction':
       generateInteractionStepsFromDOM(steps, domInfo);
@@ -1092,7 +1236,7 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
       generateNavigationStepsFromDOM(steps, domInfo);
       break;
     case 'data_verification':
-      generateDataVerificationStepsFromDOM(steps, domInfo);
+      generateDataVerificationStepsFromDOM(steps, domInfo, testGoal);
       break;
     default:
       generateGeneralStepsFromDOM(steps, domInfo);
@@ -1232,22 +1376,91 @@ function generateNavigationStepsFromDOM(steps, domInfo) {
 }
 
 /**
- * データ検証系のステップをDOM情報から生成
+ * ユーザーストーリーから具体的な値を抽出
+ * @param {string} testGoal - ユーザーストーリーまたはテスト目標
+ * @returns {Object} 抽出された値のマッピング
  */
-function generateDataVerificationStepsFromDOM(steps, domInfo) {
-  const testDataSet = {
+function extractUserStoryValues(testGoal) {
+  console.log('🔍 ユーザーストーリーから具体的な値を抽出中...');
+  const values = {};
+  
+  if (!testGoal || typeof testGoal !== 'string') {
+    return values;
+  }
+  
+  // メールアドレスの抽出
+  const emailMatch = testGoal.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+  if (emailMatch) {
+    values.email = emailMatch[1];
+    console.log(`  📧 メールアドレス: ${values.email}`);
+  }
+  
+  // パスワードの抽出
+  const passwordMatch = testGoal.match(/パスワード[：:\s]*([^\s、,。\n]+)/i) || 
+                       testGoal.match(/password[：:\s]*([^\s、,。\n]+)/i);
+  if (passwordMatch) {
+    values.password = passwordMatch[1];
+    console.log(`  🔑 パスワード: ${values.password}`);
+  }
+  
+  // 名前の抽出
+  const nameMatch = testGoal.match(/名前[：:\s]*([^\s、,。\n]+)/i) || 
+                   testGoal.match(/氏名[：:\s]*([^\s、,。\n]+)/i) ||
+                   testGoal.match(/username[：:\s]*([^\s、,。\n]+)/i);
+  if (nameMatch) {
+    values.username = nameMatch[1];
+    values.name = nameMatch[1];
+    console.log(`  👤 名前: ${values.username}`);
+  }
+  
+  // 日付の抽出
+  const dateMatch = testGoal.match(/(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/);
+  if (dateMatch) {
+    values.date = dateMatch[1];
+    console.log(`  📅 日付: ${values.date}`);
+  }
+  
+  // 電話番号の抽出
+  const phoneMatch = testGoal.match(/(\d{2,4}[\-\s]?\d{2,4}[\-\s]?\d{4})/);
+  if (phoneMatch) {
+    values.phone = phoneMatch[1];
+    values.tel = phoneMatch[1];
+    console.log(`  📞 電話番号: ${values.phone}`);
+  }
+  
+  console.log(`✅ ${Object.keys(values).length}個の具体的な値を抽出しました`);
+  return values;
+}
+
+/**
+ * データ検証系のステップをDOM情報から生成
+ * @param {Array} steps - ステップ配列
+ * @param {Object} domInfo - DOM情報
+ * @param {string} testGoal - ユーザーストーリーまたはgoal文字列
+ */
+function generateDataVerificationStepsFromDOM(steps, domInfo, testGoal = null) {
+  // ユーザーストーリーから具体的な値を抽出
+  const userStoryValues = testGoal ? extractUserStoryValues(testGoal) : {};
+  
+  // デフォルト値（フォールバック用）
+  const defaultTestDataSet = {
     date: "2025/07/25",
     term: "2",
     "head-count": "2", 
     username: "山田太郎",
     email: "test@example.com"
   };
+  
+  // ユーザーストーリーの値を優先し、不足分はデフォルト値で補完
+  const testDataSet = { ...defaultTestDataSet, ...userStoryValues };
+  
+  console.log('📋 使用するテストデータ:', testDataSet);
 
   // データ入力
   domInfo.elements.inputs.forEach((input, index) => {
     if (input.name && testDataSet[input.name]) {
       steps.push({
-        label: `${input.name}に「${testDataSet[input.name]}」を入力`,
+        label: `${input.name}に有効な値を入力`,
         action: "fill",
         target: input.recommendedSelector,
         value: testDataSet[input.name]
@@ -1256,7 +1469,7 @@ function generateDataVerificationStepsFromDOM(steps, domInfo) {
       const testValue = generateTestValueForInput(input.type);
       const fieldLabel = input.placeholder || input.id || `フィールド${index + 1}`;
       steps.push({
-        label: `${fieldLabel}に「${testValue}」を入力`,
+        label: `${fieldLabel}に有効な値を入力`,
         action: "fill",
         target: input.recommendedSelector,
         value: testValue
@@ -1267,34 +1480,86 @@ function generateDataVerificationStepsFromDOM(steps, domInfo) {
   // プルダウン選択（確認のご連絡の動的表示対応）
   const selectInputs = domInfo.elements.inputs.filter(input => input.tagName === 'SELECT');
   selectInputs.forEach((select) => {
-    if (select.name === 'contact') {
+    if (select.name === 'contact' && testDataSet.contact) {
+      // 確認のご連絡の特別処理
+      const contactText = testDataSet.contact === 'email' ? 'メールでのご連絡' : 'telでのご連絡';
       steps.push({
-        label: "確認のご連絡方法のプルダウンから「メールでのご連絡」を選択",
+        label: `確認のご連絡方法のプルダウンから「${contactText}」を選択`,
         action: "fill",
         target: select.recommendedSelector,
-        value: "email"
+        value: testDataSet.contact
       });
       
-      // メールアドレス入力欄が動的に表示されるまで待機
+      if (testDataSet.contact === 'email') {
+        steps.push({
+          label: "メールアドレス入力欄が表示されるまで待機",
+          action: "waitForSelector",
+          target: "[name='email']"
+        });
+        
+        steps.push({
+          label: "メールアドレスを入力",
+          action: "fill",
+          target: "[name='email']",
+          value: testDataSet.email
+        });
+      } else if (testDataSet.contact === 'tel') {
+        steps.push({
+          label: "電話番号入力欄が表示されるまで待機",
+          action: "waitForSelector",
+          target: "[name='tel'], [name='phone']"
+        });
+        
+        steps.push({
+          label: "電話番号を入力",
+          action: "fill",
+          target: "[name='tel'], [name='phone']",
+          value: "090-1234-5678"
+        });
+      }
+    } else {
+      const fieldLabel = select.name || `プルダウン${selectInputs.indexOf(select) + 1}`;
       steps.push({
-        label: "メールアドレス入力欄が表示されるまで待機",
-        action: "waitForSelector",
-        target: "[name='email']"
-      });
-      
-      // メールアドレスを入力
-      steps.push({
-        label: "メールアドレスを入力",
-        action: "fill",
-        target: "[name='email']",
-        value: testDataSet.email
+        label: `${fieldLabel}で選択`,
+        action: "selectOption",
+        target: select.recommendedSelector,
+        value: "最初のオプション"
       });
     }
   });
 
-  // 送信・確認
+  // チェックボックス処理（朝食バイキングなど）
+  if (testDataSet.breakfast) {
+    const breakfastCheckbox = domInfo.elements.inputs.find(input => 
+      input.name === 'breakfast' || input.id === 'breakfast'
+    );
+    if (breakfastCheckbox) {
+      steps.push({
+        label: "朝食バイキングを選択",
+        action: "click",
+        target: breakfastCheckbox.recommendedSelector
+      });
+    }
+  }
+
+  // コメント入力
+  if (testDataSet.comment) {
+    const commentField = domInfo.elements.inputs.find(input => 
+      input.name === 'comment' || input.id === 'comment'
+    );
+    if (commentField) {
+      steps.push({
+        label: "ご要望・ご連絡事項を入力",
+        action: "fill",
+        target: commentField.recommendedSelector,
+        value: testDataSet.comment
+      });
+    }
+  }
+
+  // 送信ボタンの操作
   const submitButton = domInfo.elements.buttons.find(btn => 
-    btn.text.includes('確認') || btn.text.includes('送信') || btn.text.includes('予約')
+    btn.text.includes('送信') || btn.text.includes('確認') || btn.text.includes('予約') || btn.type === 'submit'
   );
   
   if (submitButton) {
@@ -1303,25 +1568,9 @@ function generateDataVerificationStepsFromDOM(steps, domInfo) {
       action: "click",
       target: submitButton.selector
     });
-
-    // データ確認ステップ
-    Object.entries(testDataSet).forEach(([key, value]) => {
-      if (key !== 'email') { // emailは後で個別確認
-        steps.push({
-          label: `入力した${key}「${value}」が正しく表示されることを確認`,
-          action: "assertVisible",
-          target: `:has-text("${value}")`
-        });
-      }
-    });
-
-    // メールアドレスの確認
-    steps.push({
-      label: `入力したメールアドレス「${testDataSet.email}」が正しく表示されることを確認`,
-      action: "assertVisible", 
-      target: `:has-text("${testDataSet.email}")`
-    });
   }
+  
+  console.log(`✅ データ検証ステップ生成完了: ${steps.length}ステップ`);
 }
 
 /**
@@ -1365,8 +1614,12 @@ function generateTestValueForInput(inputType) {
       return 'password123';
     case 'url':
       return 'https://example.com';
+    case 'text':
+      return '有効なテキスト';
+    case 'textarea':
+      return '有効なテキスト';
     default:
-      return 'テストデータ';
+      return '有効なテキスト'; // "テストデータ"から"有効なテキスト"に変更
   }
 }
 
@@ -1550,7 +1803,7 @@ function findSubmitButton(domInfo) {
 /**
  * 分類別一括処理モード
  */
-async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo) {
+async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo, testGoal = null) {
   const batchResults = {
     batch_id: `batch_${getTimestamp()}`,
     processing_mode: 'category_batch',
@@ -1585,7 +1838,7 @@ async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo)
         const routesToGenerate = feasibilityAnalysis.suggestedCases.slice(0, 3);
         
         for (const selectedCase of routesToGenerate) {
-          const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+          const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo, testGoal || selectedCase.original_viewpoint);
           playwrightRoute.category = categoryData.category;
           playwrightRoute.feasibility_score = selectedCase.feasibilityScore;
           
@@ -1618,7 +1871,7 @@ async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo)
 /**
  * 単一分類処理モード
  */
-async function processSingleCategory(testCasesData, pageInfo, url, userStoryInfo) {
+async function processSingleCategory(testCasesData, pageInfo, url, userStoryInfo, testGoal = null) {
   const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
   
   if (feasibilityAnalysis.suggestedCases.length === 0) {
@@ -1631,7 +1884,7 @@ async function processSingleCategory(testCasesData, pageInfo, url, userStoryInfo
   const selectedCase = feasibilityAnalysis.suggestedCases[0];
   console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
   
-  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo, testGoal || selectedCase.original_viewpoint);
   playwrightRoute.category = testCasesData.metadata.category;
   playwrightRoute.feasibility_score = selectedCase.feasibilityScore;
   playwrightRoute.processing_mode = 'single_category';
@@ -1643,7 +1896,7 @@ async function processSingleCategory(testCasesData, pageInfo, url, userStoryInfo
 /**
  * レガシー互換モード
  */
-async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo) {
+async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo, testGoal = null) {
   const feasibilityAnalysis = analyzeTestCaseFeasibility(pageInfo, testCasesData.testCases);
   
   if (feasibilityAnalysis.suggestedCases.length === 0) {
@@ -1658,7 +1911,7 @@ async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo) {
   const selectedCase = feasibilityAnalysis.suggestedCases[0];
   console.log(`🎯 選択されたテストケース: ${selectedCase.category} - ${selectedCase.original_viewpoint.substring(0, 60)}...`);
   
-  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
+  const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo, testGoal || selectedCase.original_viewpoint);
   playwrightRoute.processing_mode = 'legacy';
   
   console.log('✅ DOM照合によるPlaywright実装生成が完了しました');
@@ -1733,13 +1986,13 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
     // 処理モード別に分岐
     if (testCasesData.metadata.processing_mode === 'category_batch') {
       console.log('📂 分類別一括処理モードで実行します');
-      return await processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo);
+      return await processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo, testGoal);
     } else if (testCasesData.metadata.processing_mode === 'single_category') {
       console.log(`📁 単一分類処理モード: ${testCasesData.metadata.category}`);
-      return await processSingleCategory(testCasesData, pageInfo, url, userStoryInfo);
+      return await processSingleCategory(testCasesData, pageInfo, url, userStoryInfo, testGoal);
     } else {
       console.log('🔄 レガシー互換モードで実行します');
-      const legacyResult = await processLegacyMode(testCasesData, pageInfo, url, userStoryInfo);
+      const legacyResult = await processLegacyMode(testCasesData, pageInfo, url, userStoryInfo, testGoal);
       if (legacyResult) {
         return legacyResult;
       }
@@ -1761,6 +2014,7 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
 - ユーザーの意図を正確に理解し、それに沿ったテストを生成する
 - 動的に取得されたDOM情報を最大限活用する
 - 高い成功率を重視する
+- 【機能テスト】の場合は、指定された具体的な値のみを使用し、バリデーションテストは行わない
 
 提供される情報：
 1. ページの動的DOM情報（実際に存在する要素）
@@ -1779,17 +2033,29 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
 - 例：入力「2」→ 検証「2」（単位なし）
 - :has-text()により部分一致で柔軟に検索可能`;
 
+  // 包括的な値生成戦略を構築
+  const valueStrategy = generateComprehensiveValueStrategy(testGoal, pageInfo);
+  
+  // AIプロンプト用の値説明を生成
+  const valueInstructions = generateValueInstructionsForAI(valueStrategy);
+  
   let user = `以下の情報を基に、ユーザーの意図に沿った精密なE2Eテストシナリオを生成してください。
 
 【ユーザーのテスト意図】
 ${testGoal}
+
+【入力値の使用指針】
+${valueInstructions}
 
 【ページ動的DOM情報】
 \`\`\`json
 ${JSON.stringify(pageInfo, null, 2)}
 \`\`\`
 
-【重要】上記DOM情報に含まれる要素のみを使用してください。存在しない要素は絶対に使用しないでください。
+【重要】
+1. 上記DOM情報に含まれる要素のみを使用してください。存在しない要素は絶対に使用しないでください。
+2. ユーザーストーリーから抽出された具体的な値を必ず使用してください。「テストデータ」のような汎用値は使用禁止です。
+3. 【機能テスト】の場合は、正常動作の確認のみを行い、バリデーションテスト（無効値、空値テスト）は一切生成しないでください。
 
 利用可能なアクション：
 - load: ページ読み込み
@@ -3059,6 +3325,289 @@ class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
   }
 }
 
+/**
+ * AIケース生成用の包括的な値生成戦略
+ * @param {string} goalOrStory - ユーザーストーリーまたはgoal文字列
+ * @param {Object} domInfo - DOM情報
+ * @returns {Object} 生成戦略と推奨値のマッピング
+ */
+function generateComprehensiveValueStrategy(goalOrStory, domInfo) {
+  console.log('🎯 包括的な値生成戦略を構築中...');
+  
+  // レベル1: ユーザーストーリーから抽出された具体的な値
+  const userStoryValues = extractUserStoryValues(goalOrStory);
+  
+  // レベル2: DOM情報から文脈推測
+  const contextualValues = generateContextualValues(domInfo);
+  
+  // レベル3: フィールドタイプ別適切値
+  const typeBasedValues = generateTypeBasedValues(domInfo);
+  
+  // レベル4: 汎用デフォルト値
+  const genericValues = generateGenericValues();
+  
+  const strategy = {
+    userStoryValues,
+    contextualValues,
+    typeBasedValues,
+    genericValues,
+    recommendations: buildValueRecommendations(userStoryValues, contextualValues, typeBasedValues, genericValues)
+  };
+  
+  console.log(`✅ 値生成戦略構築完了: ${Object.keys(strategy.recommendations).length}個のフィールドに対応`);
+  return strategy;
+}
+
+/**
+ * DOM情報から文脈に応じた値を推測
+ * @param {Object} domInfo - DOM情報
+ * @returns {Object} 文脈推測値
+ */
+function generateContextualValues(domInfo) {
+  const contextualValues = {};
+  
+  if (!domInfo?.elements?.inputs) return contextualValues;
+  
+  domInfo.elements.inputs.forEach(input => {
+    const fieldName = input.name || input.id || '';
+    const placeholder = input.placeholder || '';
+    const fieldContext = (fieldName + ' ' + placeholder).toLowerCase();
+    
+    // 日付関連フィールド
+    if (fieldContext.includes('date') || fieldContext.includes('日付') || fieldContext.includes('宿泊日')) {
+      contextualValues[input.name] = getReasonableDate();
+    }
+    
+    // 期間関連フィールド
+    else if (fieldContext.includes('term') || fieldContext.includes('期間') || fieldContext.includes('宿泊数')) {
+      contextualValues[input.name] = getReasonableTerm();
+    }
+    
+    // 人数関連フィールド
+    else if (fieldContext.includes('count') || fieldContext.includes('人数') || fieldContext.includes('head')) {
+      contextualValues[input.name] = getReasonableHeadCount();
+    }
+    
+    // 名前関連フィールド
+    else if (fieldContext.includes('name') || fieldContext.includes('氏名') || fieldContext.includes('username')) {
+      contextualValues[input.name] = getReasonableName();
+    }
+    
+    // メール関連フィールド
+    else if (fieldContext.includes('email') || fieldContext.includes('メール')) {
+      contextualValues[input.name] = getReasonableEmail();
+    }
+    
+    // 電話関連フィールド
+    else if (fieldContext.includes('phone') || fieldContext.includes('tel') || fieldContext.includes('電話')) {
+      contextualValues[input.name] = getReasonablePhone();
+    }
+    
+    // コメント関連フィールド
+    else if (fieldContext.includes('comment') || fieldContext.includes('要望') || fieldContext.includes('連絡')) {
+      contextualValues[input.name] = getReasonableComment();
+    }
+  });
+  
+  return contextualValues;
+}
+
+/**
+ * フィールドタイプに基づく適切な値を生成
+ * @param {Object} domInfo - DOM情報
+ * @returns {Object} タイプ別推奨値
+ */
+function generateTypeBasedValues(domInfo) {
+  const typeBasedValues = {};
+  
+  if (!domInfo?.elements?.inputs) return typeBasedValues;
+  
+  domInfo.elements.inputs.forEach(input => {
+    if (input.name && input.type) {
+      switch (input.type) {
+        case 'email':
+          typeBasedValues[input.name] = 'test.user@example.com';
+          break;
+        case 'tel':
+          typeBasedValues[input.name] = '090-1234-5678';
+          break;
+        case 'number':
+          typeBasedValues[input.name] = '2';
+          break;
+        case 'date':
+          typeBasedValues[input.name] = getReasonableDate();
+          break;
+        case 'password':
+          typeBasedValues[input.name] = 'SecurePass123';
+          break;
+        case 'url':
+          typeBasedValues[input.name] = 'https://example.com';
+          break;
+        default:
+          typeBasedValues[input.name] = '適切なテキスト';
+          break;
+      }
+    }
+  });
+  
+  return typeBasedValues;
+}
+
+/**
+ * 汎用デフォルト値を生成
+ * @returns {Object} 汎用値
+ */
+function generateGenericValues() {
+  return {
+    text: '有効なテキスト',
+    email: 'user@example.com',
+    number: '1',
+    date: getReasonableDate(),
+    phone: '090-1234-5678',
+    name: '山田太郎',
+    comment: 'テスト用コメント'
+  };
+}
+
+/**
+ * 各フィールドに対する最適な値の推奨を構築
+ * @param {Object} userStoryValues - ユーザーストーリー値
+ * @param {Object} contextualValues - 文脈推測値
+ * @param {Object} typeBasedValues - タイプ別値
+ * @param {Object} genericValues - 汎用値
+ * @returns {Object} フィールド別推奨値
+ */
+function buildValueRecommendations(userStoryValues, contextualValues, typeBasedValues, genericValues) {
+  const recommendations = {};
+  
+  // 全てのフィールドを収集
+  const allFields = new Set([
+    ...Object.keys(userStoryValues),
+    ...Object.keys(contextualValues),
+    ...Object.keys(typeBasedValues)
+  ]);
+  
+  allFields.forEach(fieldName => {
+    // 優先順位に従って値を選択
+    if (userStoryValues[fieldName]) {
+      recommendations[fieldName] = {
+        value: userStoryValues[fieldName],
+        source: 'user_story',
+        confidence: 'high'
+      };
+    } else if (contextualValues[fieldName]) {
+      recommendations[fieldName] = {
+        value: contextualValues[fieldName],
+        source: 'contextual',
+        confidence: 'medium'
+      };
+    } else if (typeBasedValues[fieldName]) {
+      recommendations[fieldName] = {
+        value: typeBasedValues[fieldName],
+        source: 'type_based',
+        confidence: 'low'
+      };
+    } else {
+      recommendations[fieldName] = {
+        value: genericValues.text,
+        source: 'generic',
+        confidence: 'minimal'
+      };
+    }
+  });
+  
+  return recommendations;
+}
+
+// 文脈に応じた合理的な値を生成するヘルパー関数群
+
+function getReasonableDate() {
+  const date = new Date();
+  date.setDate(date.getDate() + 7); // 1週間後
+  return date.toISOString().split('T')[0].replace(/-/g, '/');
+}
+
+function getReasonableTerm() {
+  return '2'; // 2泊が一般的
+}
+
+function getReasonableHeadCount() {
+  return '2'; // 2名が一般的
+}
+
+function getReasonableName() {
+  return '山田太郎'; // 日本の一般的な名前
+}
+
+function getReasonableEmail() {
+  return 'yamada.taro@example.com';
+}
+
+function getReasonablePhone() {
+  return '090-1234-5678';
+}
+
+function getReasonableComment() {
+  return '特になし';
+}
+
+/**
+ * AIプロンプト用の値説明を生成
+ * @param {Object} valueStrategy - 値生成戦略
+ * @returns {string} AIプロンプト用の値説明
+ */
+function generateValueInstructionsForAI(valueStrategy) {
+  const { userStoryValues, recommendations } = valueStrategy;
+  
+  let instructions = '';
+  
+  // ユーザーストーリーから具体的な値が抽出された場合
+  if (Object.keys(userStoryValues).length > 0) {
+    instructions += `🎯 **ユーザーストーリーから抽出された具体的な値（最優先使用）**\n`;
+    for (const [field, value] of Object.entries(userStoryValues)) {
+      instructions += `- ${field}: "${value}"\n`;
+    }
+    instructions += `\n`;
+  }
+  
+  // 推奨値の説明
+  if (Object.keys(recommendations).length > 0) {
+    instructions += `📋 **各フィールドの推奨入力値**\n`;
+    for (const [field, rec] of Object.entries(recommendations)) {
+      const confidenceEmoji = {
+        'high': '🟢',
+        'medium': '🟡', 
+        'low': '🟠',
+        'minimal': '🔴'
+      }[rec.confidence] || '⚪';
+      
+      const sourceText = {
+        'user_story': 'ユーザーストーリー',
+        'contextual': '文脈推測',
+        'type_based': 'フィールドタイプ',
+        'generic': '汎用デフォルト'
+      }[rec.source] || '不明';
+      
+      instructions += `- ${field}: "${rec.value}" ${confidenceEmoji} (${sourceText})\n`;
+    }
+    instructions += `\n`;
+  }
+  
+  instructions += `📝 **値使用の優先順位**\n`;
+  instructions += `1. 🟢 ユーザーストーリーから抽出された具体的な値を最優先で使用\n`;
+  instructions += `2. 🟡 フィールド名や文脈から推測した適切な値を使用\n`;
+  instructions += `3. 🟠 フィールドタイプに基づく標準的な値を使用\n`;
+  instructions += `4. 🔴 汎用的な有効値を最後の手段として使用\n\n`;
+  
+  instructions += `⚠️ **重要な注意事項**\n`;
+  instructions += `- 上記の推奨値を必ず使用してください\n`;
+  instructions += `- 「テストデータ」のような汎用的な値は避けてください\n`;
+  instructions += `- 実際のユーザーが入力するような現実的な値を使用してください\n`;
+  instructions += `- 日付は未来の日付を使用してください\n`;
+  
+  return instructions;
+}
+
 // メイン処理
 (async () => {
   try {
@@ -3076,6 +3625,17 @@ class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
     
     if (!url) {
       throw new Error('テスト対象URLが指定されていません');
+    }
+    
+    // 📊 テスト観点フォーマットファイルの動的読み込み（WebUIアップロード対応）
+    let testPointFormatPath;
+    const uploadedCsvPath = path.resolve(__dirname, '../test_point/uploaded_TestPoint_Format.csv');
+    if (fs.existsSync(uploadedCsvPath)) {
+      testPointFormatPath = uploadedCsvPath;
+      console.log(`🛠️ [Debug] WebUIアップロード済みテスト観点フォーマットを使用: ${testPointFormatPath}`);
+    } else {
+      testPointFormatPath = path.resolve(__dirname, '../test_point/TestPoint_Format.csv');
+      console.log(`🛠️ [Debug] デフォルトテスト観点フォーマットを使用: ${testPointFormatPath}`);
     }
     
     // config.jsonからユーザーストーリー情報を読み取り（トレーサビリティ確保）
@@ -3116,7 +3676,13 @@ class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
 
     // 3. 自然言語テストケースファイルの確認（新機能）
     let naturalTestCasesFile = cliOptions.naturalTestCases || null;
-    if (naturalTestCasesFile) {
+    
+    // 🔧 新機能: modeパラメータによる強制切り替え
+    const forceMode = cliOptions.mode || null;
+    if (forceMode === 'ai_analysis') {
+      console.log('🤖 AI分析モード強制実行: DOM照合をスキップします');
+      naturalTestCasesFile = null; // DOM照合を無効化
+    } else if (naturalTestCasesFile) {
       console.log(`🔄 DOM照合モードを使用: ${naturalTestCasesFile}`);
     }
 

@@ -1177,7 +1177,7 @@ JSON形式で出力してください：
         // 値がない場合は適切な値を設定
         const stepWithValue = {
           ...failedStep,
-          value: failedStep.target.includes('email') ? 'test@example.com' : 'テストデータ'
+          value: failedStep.target.includes('email') ? 'test@example.com' : '有効なテキスト'
         };
         fixedRoute.steps.push(stepWithValue);
       }
@@ -1197,7 +1197,7 @@ JSON形式で出力してください：
         } else if (step.target.includes('contact')) {
           step.value = 'email';
         } else {
-          step.value = 'テストデータ';
+          step.value = '有効なテキスト';
         }
       }
     });

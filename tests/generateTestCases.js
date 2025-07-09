@@ -100,7 +100,19 @@ class NaturalLanguageTestCaseGenerator {
       
       console.log('📄 JSON形式として読み込み中...');
       const parsedData = JSON.parse(data);
-      const testPoints = Array.isArray(parsedData) ? parsedData : [parsedData];
+      
+      // 新しいメタデータ形式（{metadata: {...}, points: [...]}）に対応
+      let testPoints;
+      if (parsedData.points && Array.isArray(parsedData.points)) {
+        console.log('📋 新しいメタデータ形式を検出');
+        testPoints = parsedData.points;
+      } else if (Array.isArray(parsedData)) {
+        console.log('📋 従来の配列形式を検出');
+        testPoints = parsedData;
+      } else {
+        console.log('📋 単一オブジェクト形式を検出');
+        testPoints = [parsedData];
+      }
       
       // 空の観点や不完全な観点をフィルター
       const validTestPoints = testPoints.filter(point => {
@@ -385,7 +397,7 @@ class NaturalLanguageTestCaseGenerator {
         } else {
           concreteTestData.push(
             { field: input.name, type: "empty", value: "", description: "空の入力値" },
-            { field: input.name, type: "valid", value: "テストデータ", description: "有効な入力値" }
+            { field: input.name, type: "valid", value: "有効なテキスト", description: "有効な入力値" }
           );
         }
       });
@@ -548,7 +560,7 @@ class NaturalLanguageTestCaseGenerator {
   generateDataVerificationTestCase(baseCase, viewpoint) {
     baseCase.test_scenarios = [
       "対象ページにアクセスする",
-      "テストデータを入力する",
+      "有効なテストデータを入力する",
       "データの送信または保存操作を実行する",
       "入力したデータが正しく保持されていることを確認する",
       "データが他の画面や処理で正しく使用されることを確認する"

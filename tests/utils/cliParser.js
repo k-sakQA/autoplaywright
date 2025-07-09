@@ -12,6 +12,7 @@ export function parseCLIArgs() {
     .option('-u, --url <url>', 'テスト対象のURL')
     .option('-g, --goal <text>', 'テストの目的・意図')
     .option('-o, --output <path>', '出力ディレクトリのパス')
+    .option('-m, --mode <mode>', 'テスト生成モード (ai_analysis, dom_matching, legacy)')
     .option('-v, --verbose', '詳細なログを出力')
     .parse(process.argv);
   

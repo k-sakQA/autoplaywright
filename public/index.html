@@ -588,6 +588,23 @@
             background-color: #f8f9fa;
         }
         
+        /* シナリオ管理用プログレスバーのスタイル */
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
         .tab-button.active {
             color: #007bff;
             border-bottom-color: #007bff;
@@ -862,6 +879,18 @@
             color: white;
         }
 
+        .progress-step.failed {
+            background: #e74c3c;
+            color: white;
+            animation: shake 0.5s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
         .bulk-current-action {
             color: white;
             font-weight: bold;
@@ -1102,9 +1131,10 @@
             
             <!-- タブナビゲーション -->
             <div class="tab-nav">
-                <button class="tab-button active" onclick="switchTab('test-execution')">🧪 テスト実行</button>
-                <button class="tab-button" onclick="switchTab('auto-improvement')">🤖 自動改善・学習機能</button>
-                <button class="tab-button" onclick="switchTab('new-stories')">📖 新しいストーリー</button>
+                            <button class="tab-button active" onclick="switchTab('test-execution')">🧪 テスト実行</button>
+            <button class="tab-button" onclick="switchTab('scenario-management')">📊 シナリオ管理</button>
+            <button class="tab-button" onclick="switchTab('auto-improvement')">🤖 自動改善・学習機能</button>
+            <button class="tab-button" onclick="switchTab('new-stories')">📖 新しいストーリー</button>
             </div>
             
             <!-- テスト実行タブ -->
@@ -1112,6 +1142,31 @@
                 <!-- 実行ボタンセクション -->
                 <div class="section buttons-section">
                 <h2>テスト実行</h2>
+                
+                <!-- セッション維持設定 -->
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>
+                        <input type="checkbox" id="keepBrowserSession" style="margin-right: 8px;">
+                        💾 ブラウザセッション維持 (連続テスト時にログイン状態を保持)
+                    </label>
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        チェックすると、テスト実行後もブラウザを開いたままにし、ログイン状態などを維持します。
+                        シナリオ管理や一括実行では自動的に有効になります。
+                    </small>
+                </div>
+                
+                <!-- ブラウザ終了ボタン -->
+                <div class="form-group" style="margin-bottom: 20px;">
+                                    <button type="button" id="closeBrowserBtn" class="btn btn-warning" onclick="closeBrowser()">
+                    🔄 ブラウザを終了
+                </button>
+                <button type="button" id="healthCheckBtn" class="btn btn-info ms-2" onclick="checkBrowserHealth()">
+                    🔍 ヘルスチェック
+                </button>
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        セッション維持でブラウザが開いたままの場合に、手動で終了できます。
+                    </small>
+                </div>
                 
                 <div class="button-grid">
                     <button class="btn-primary" onclick="executeCommand('generateTestPoints')">
@@ -1294,6 +1349,88 @@
                 </div>
             </div>
             
+            <!-- シナリオ管理タブ -->
+            <div id="scenario-management" class="tab-content">
+                <div class="section">
+                    <h2>📊 シナリオ管理</h2>
+                    
+                    <div class="form-group">
+                        <label for="scenarioFile">📁 テストシナリオCSV:</label>
+                        <input type="file" id="scenarioFile" accept=".csv" class="file-input">
+                        <small>複数のテストシナリオを一括管理できます</small>
+                    </div>
+                    
+                    <div id="scenarioList" style="display: none; margin-top: 15px;">
+                        <h4>📋 読み込まれたシナリオ</h4>
+                        <div id="scenarioTable"></div>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5>🔄 実行モード</h5>
+                            <label class="radio-label">
+                                <input type="radio" name="executionMode" value="selected" checked>
+                                選択したシナリオを順次実行
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="executionMode" value="failed">
+                                失敗シナリオのみ再実行
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="executionMode" value="pending">
+                                未実行シナリオのみ実行
+                            </label>
+                        </div>
+                        
+                        <div style="margin: 15px 0;">
+                            <h5>🔧 実行オプション</h5>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="autoCloseBrowserAfterScenarios" checked>
+                                シナリオ実行完了後にブラウザを自動終了
+                            </label>
+                            <small style="display: block; margin-top: 5px; color: #666;">
+                                ✅ 推奨: リソース節約とクリーンな状態維持のため
+                            </small>
+                        </div>
+                        
+                        <button type="button" id="executeScenarios" class="btn btn-primary" style="margin: 10px 5px 0 0;">
+                            🚀 選択シナリオ実行
+                        </button>
+                        <button type="button" id="exportResults" class="btn btn-secondary" style="margin: 10px 0 0 0;">
+                            📊 結果エクスポート
+                        </button>
+                    </div>
+                    
+                    <div id="scenarioExecutionProgress" style="display: none; margin-top: 15px;">
+                        <h4>🚀 実行進捗</h4>
+                        <div class="progress-bar">
+                            <div id="scenarioProgressBar" class="progress-fill"></div>
+                        </div>
+                        <p id="scenarioProgressText">準備中...</p>
+                    </div>
+                    
+                    <div class="log-area" id="logAreaScenarios">
+                        シナリオ管理ログがここに表示されます...
+                    </div>
+                    
+                    <div class="description">
+                        <h4>📊 シナリオ管理機能の特徴:</h4>
+                        <ul>
+                            <li><strong>CSVベース管理</strong>: 複数のテストシナリオをCSVファイルで一括管理</li>
+                            <li><strong>実行状況追跡</strong>: 各シナリオの実行状況と成功率を自動追跡</li>
+                            <li><strong>柔軟な実行モード</strong>: 選択実行、失敗再実行、未実行のみ実行など</li>
+                            <li><strong>完了後選択肢</strong>: 新シナリオ探索、次シナリオ実行、結果確認を選択可能</li>
+                            <li><strong>結果エクスポート</strong>: 実行結果をCSV形式で出力</li>
+                        </ul>
+                        <div class="highlight-box">
+                            <strong>💡 使い方:</strong> 
+                            1. CSVファイルをアップロード → 
+                            2. 実行するシナリオを選択 → 
+                            3. 実行モードを選択 → 
+                            4. 実行完了後は「新シナリオ探索」または「次のシナリオ実行」を選択！
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 新しいストーリータブ -->
             <div id="new-stories" class="tab-content">
                 <!-- 新ストーリー発見セクション -->
@@ -1570,6 +1707,8 @@
             </div>
         </div>
     </div>
+
+                
 
     <script>
         // タブ切り替え関数
@@ -1858,6 +1997,15 @@
                     }
                 }
                 
+                // runRoutesコマンドでセッション維持がチェックされている場合はフラグを追加
+                if (command === 'runRoutes') {
+                    const keepSessionCheckbox = document.getElementById('keepBrowserSession');
+                    if (keepSessionCheckbox && keepSessionCheckbox.checked) {
+                        formData.append('param_0', '--keep-session');
+                        addLog('💾 セッション維持モードでテスト実行します');
+                    }
+                }
+                
                 const response = await fetch('/api/execute', {
                     method: 'POST',
                     body: formData
@@ -2080,14 +2228,60 @@
                 
                 // 1. テスト観点生成
                 updateBulkProgress('step-testpoints', 'active', '📋 テスト観点を生成中...');
-                await executeCommand('generateTestPoints');
+                const testPointsResult = await executeCommandWithResult('generateTestPoints');
                 await delay(1000);
+                
+                // 生成されたファイルの確認
+                if (!testPointsResult || !testPointsResult.success) {
+                    const errorMsg = `テスト観点生成に失敗しました: ${testPointsResult?.error || '不明なエラー'}`;
+                    updateBulkProgress('step-testpoints', 'failed', `❌ ${errorMsg}`);
+                    throw new Error(errorMsg);
+                }
+                
+                // testPoints_*.jsonファイルの存在確認
+                try {
+                    const checkResponse = await fetch('/api/list-files?pattern=testPoints_*.json');
+                    const fileList = await checkResponse.json();
+                    if (!fileList.files || fileList.files.length === 0) {
+                        const errorMsg = 'テスト観点ファイル(testPoints_*.json)が生成されませんでした';
+                        updateBulkProgress('step-testpoints', 'failed', `❌ ${errorMsg}`);
+                        throw new Error(errorMsg);
+                    }
+                    console.log(`✅ テスト観点ファイル生成確認: ${fileList.files[0]}`);
+                } catch (checkError) {
+                    console.warn('⚠️ ファイル存在確認でエラー:', checkError.message);
+                    // ファイル確認エラーは警告として続行
+                }
+                
                 updateBulkProgress('step-testpoints', 'completed', '✅ テスト観点生成完了');
                 
                 // 2. テストケース生成
                 updateBulkProgress('step-testcases', 'active', '🧠 テストケースを生成中...');
-                await executeCommand('generateTestCases');
+                const testCasesResult = await executeCommandWithResult('generateTestCases');
                 await delay(1000);
+                
+                // テストケース生成結果の確認
+                if (!testCasesResult || !testCasesResult.success) {
+                    const errorMsg = `テストケース生成に失敗しました: ${testCasesResult?.error || '不明なエラー'}`;
+                    updateBulkProgress('step-testcases', 'failed', `❌ ${errorMsg}`);
+                    throw new Error(errorMsg);
+                }
+                
+                // naturalLanguageTestCases_*.jsonファイルの存在確認
+                try {
+                    const checkResponse = await fetch('/api/list-files?pattern=naturalLanguageTestCases_*.json');
+                    const fileList = await checkResponse.json();
+                    if (!fileList.files || fileList.files.length === 0) {
+                        const errorMsg = '自然言語テストケースファイル(naturalLanguageTestCases_*.json)が生成されませんでした';
+                        updateBulkProgress('step-testcases', 'failed', `❌ ${errorMsg}`);
+                        throw new Error(errorMsg);
+                    }
+                    console.log(`✅ 自然言語テストケースファイル生成確認: ${fileList.files[0]}`);
+                } catch (checkError) {
+                    console.warn('⚠️ テストケースファイル確認でエラー:', checkError.message);
+                    // ファイル確認エラーは警告として続行
+                }
+                
                 updateBulkProgress('step-testcases', 'completed', '✅ テストケース生成完了');
                 
                 // 3. Playwright用に変換
@@ -2096,9 +2290,11 @@
                 await delay(1000);
                 updateBulkProgress('step-routes', 'completed', '✅ Playwright用に変換完了');
                 
-                // 4. テスト実行
+                // 4. テスト実行（チェックボックス状態に応じてセッション維持）
                 updateBulkProgress('step-run', 'active', '▶️ テストを実行中...');
-                await executeCommand('runRoutes');
+                const keepSessionCheckbox = document.getElementById('keepBrowserSession');
+                const sessionParams = (keepSessionCheckbox && keepSessionCheckbox.checked) ? ['--keep-session'] : [];
+                await executeCommandWithResult('runRoutes', sessionParams);
                 await delay(1000);
                 updateBulkProgress('step-run', 'completed', '✅ テスト実行完了');
                 
@@ -2148,10 +2344,10 @@
                     updateBulkProgress('step-analyze', 'completed', '⏭️ 失敗なしのためスキップ');
                 }
                 
-                // 7. 再トライ（修正ルートがある場合）
+                // 7. 再トライ（修正ルートがある場合・セッション維持）
                 if (fixedRouteId) {
                     updateBulkProgress('step-retry', 'active', '🚀 修正ルートで再トライ中...');
-                    await runFixedRoute(fixedRouteId);
+                    await runFixedRouteWithSession(fixedRouteId);
                     await delay(1000);
                     updateBulkProgress('step-retry', 'completed', '✅ 再トライ完了');
                 } else {
@@ -2193,8 +2389,8 @@
             }
         }
         
-        // 結果を返すコマンド実行関数（一括実行用）
-        async function executeCommandWithResult(command) {
+        // 結果を返すコマンド実行関数（一括実行用・パラメータ対応）
+        async function executeCommandWithResult(command, params = []) {
             const url = document.getElementById('testUrl').value;
             const testGoal = document.getElementById('testGoal').value;
             const pdfFile = document.getElementById('pdfFile').files[0];
@@ -2207,6 +2403,131 @@
                 if (testGoal) formData.append('goal', testGoal);
                 if (pdfFile) formData.append('pdf', pdfFile);
                 if (csvFile) formData.append('csv', csvFile);
+                
+                // 実行環境設定を送信
+                const executionEnvironment = document.getElementById('executionEnvironment').value;
+                const domAnalysisSource = document.getElementById('domAnalysisSource') ? 
+                    document.getElementById('domAnalysisSource').value : 'pc';
+                formData.append('executionEnvironment', executionEnvironment);
+                formData.append('domAnalysisSource', domAnalysisSource);
+                
+                // パラメータを追加
+                if (params && params.length > 0) {
+                    params.forEach((param, index) => {
+                        formData.append(`param_${index}`, param);
+                    });
+                }
+                
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                // ログに結果を出力（通常のexecuteCommandと同じ処理）
+                if (result.success) {
+                    addLog(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    if (result.output) {
+                        addLog(result.output);
+                    }
+                } else {
+                    addLog(`❌ エラー: ${result.error}`);
+                    if (result.output) {
+                        addLog(result.output);
+                    }
+                }
+                
+                return result;
+            } catch (error) {
+                addLog(`❌ 通信エラー: ${error.message}`);
+                return null;
+            }
+        }
+
+        // executeCommandWithResultSpecialMode関数（シナリオ管理専用）
+        async function executeCommandWithResultSpecialMode(command, options = {}) {
+            const { url, goal, forceAIAnalysis } = options;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            const csvFile = document.getElementById('csvFile').files[0];
+            
+            try {
+                const formData = new FormData();
+                formData.append('command', command);
+                if (url) formData.append('url', url);
+                if (goal) formData.append('goal', goal);
+                if (pdfFile) formData.append('pdf', pdfFile);
+                if (csvFile) formData.append('csv', csvFile);
+                
+                // 🔧 重要: AI分析モード強制の場合、自然言語テストケースを除外
+                if (forceAIAnalysis) {
+                    formData.append('forceAIAnalysis', 'true');
+                    addLogScenarios('✅ AI分析モード強制フラグを送信（DOM照合を回避）');
+                }
+                
+                // 実行環境設定を送信
+                const executionEnvironment = document.getElementById('executionEnvironment').value;
+                const domAnalysisSource = document.getElementById('domAnalysisSource') ? 
+                    document.getElementById('domAnalysisSource').value : 'pc';
+                formData.append('executionEnvironment', executionEnvironment);
+                formData.append('domAnalysisSource', domAnalysisSource);
+                
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                // ログに結果を出力
+                if (result.success) {
+                    addLogScenarios(`✅ ${getCommandName(command)} が正常に完了しました`);
+                    if (result.output) {
+                        addLogScenarios(result.output);
+                    }
+                } else {
+                    addLogScenarios(`❌ エラー: ${result.error}`);
+                    if (result.output) {
+                        addLogScenarios(result.output);
+                    }
+                }
+                
+                return result;
+            } catch (error) {
+                addLogScenarios(`❌ 通信エラー: ${error.message}`);
+                return null;
+            }
+        }
+
+        // executeCommandWithResultAndEnv関数（環境変数対応）
+        async function executeCommandWithResultAndEnv(command, params = [], envVars = {}) {
+            const url = document.getElementById('testUrl').value;
+            const testGoal = document.getElementById('testGoal').value;
+            const pdfFile = document.getElementById('pdfFile').files[0];
+            const csvFile = document.getElementById('csvFile').files[0];
+            
+            try {
+                const formData = new FormData();
+                formData.append('command', command);
+                if (url) formData.append('url', url);
+                if (testGoal) formData.append('goal', testGoal);
+                if (pdfFile) formData.append('pdf', pdfFile);
+                if (csvFile) formData.append('csv', csvFile);
+                
+                // パラメータを追加
+                if (params && params.length > 0) {
+                    params.forEach((param, index) => {
+                        formData.append(`param_${index}`, param);
+                    });
+                }
+                
+                // 環境変数を追加
+                if (envVars && Object.keys(envVars).length > 0) {
+                    Object.entries(envVars).forEach(([key, value], index) => {
+                        formData.append(`env_${index}_key`, key);
+                        formData.append(`env_${index}_value`, value);
+                    });
+                }
                 
                 const response = await fetch('/api/execute', {
                     method: 'POST',
@@ -2302,6 +2623,12 @@
                 if (testGoal) formData.append('goal', testGoal);
                 if (pdfFile) formData.append('pdf', pdfFile);
                 if (csvFile) formData.append('csv', csvFile);
+                
+                // runRoutesコマンドの場合はセッション維持フラグを追加
+                if (command === 'runRoutes') {
+                    formData.append('param_0', '--keep-session');
+                    addLogNewStories('💾 セッション維持モードでテスト実行します');
+                }
                 
                 const response = await fetch('/api/execute', {
                     method: 'POST',
@@ -3417,6 +3744,9 @@
             // 手動セレクタ機能の初期化
             initializeManualSelectorFeature();
             
+            // シナリオファイルアップロード機能の初期化
+            initializeScenarioFeature();
+            
             // config.jsonからデフォルト設定を読み込み
             fetch('/api/config')
                 .then(response => response.json())
@@ -3540,6 +3870,518 @@
             
             return normalized;
         }
+
+        // シナリオ管理機能の初期化
+        function initializeScenarioFeature() {
+            const scenarioFileInput = document.getElementById('scenarioFile');
+            const executeButton = document.getElementById('executeScenarios');
+            const exportButton = document.getElementById('exportResults');
+            
+            // シナリオファイルのアップロード処理
+            scenarioFileInput.addEventListener('change', function(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                if (!file.name.endsWith('.csv')) {
+                    alert('❌ CSVファイルを選択してください');
+                    return;
+                }
+                
+                addLogScenarios('📁 CSVファイルを読み込み中...');
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const csvContent = e.target.result;
+                        const scenarios = parseScenarioCSV(csvContent);
+                        displayScenarios(scenarios);
+                        addLogScenarios(`✅ ${scenarios.length}件のシナリオを読み込みました`);
+                    } catch (error) {
+                        addLogScenarios(`❌ CSVパースエラー: ${error.message}`);
+                        alert(`❌ CSVファイルの読み込みに失敗しました: ${error.message}`);
+                    }
+                };
+                reader.readAsText(file, 'utf-8');
+            });
+            
+            // シナリオ実行ボタン
+            if (executeButton) {
+                executeButton.addEventListener('click', executeSelectedScenarios);
+            }
+            
+            // 結果エクスポートボタン
+            if (exportButton) {
+                exportButton.addEventListener('click', exportScenarioResults);
+            }
+        }
+
+        // CSVパーサー
+        function parseScenarioCSV(csvContent) {
+            const lines = csvContent.split('\n');
+            if (lines.length < 2) {
+                throw new Error('CSVファイルが空またはヘッダーのみです');
+            }
+            
+            const headers = lines[0].split(',').map(h => h.trim());
+            const scenarios = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const values = line.split(',').map(v => v.trim());
+                if (values.length < headers.length) continue;
+                
+                const scenario = {};
+                headers.forEach((header, index) => {
+                    scenario[header] = values[index] || '';
+                });
+                
+                scenarios.push(scenario);
+            }
+            
+            return scenarios;
+        }
+
+        // シナリオテーブル表示
+        function displayScenarios(scenarios) {
+            const tableContainer = document.getElementById('scenarioTable');
+            const listContainer = document.getElementById('scenarioList');
+            
+            if (scenarios.length === 0) {
+                tableContainer.innerHTML = '<p>シナリオが見つかりません</p>';
+                return;
+            }
+            
+            let html = `
+                <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
+                    <thead>
+                        <tr style="background: #f8f9fa;">
+                            <th style="border: 1px solid #ddd; padding: 8px;">選択</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">ID</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">優先度</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">カテゴリ</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">シナリオ名</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">URL</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">実行状況</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">成功率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            scenarios.forEach((scenario, index) => {
+                const id = scenario.ID || index;
+                const priority = scenario['優先度'] || '-';
+                const category = scenario['カテゴリ'] || '-';
+                const name = scenario['シナリオ名'] || '-';
+                const url = scenario.URL || '-';
+                const status = scenario['実行状況'] || '未実行';
+                const successRate = scenario['成功率'] || '-';
+                
+                html += `
+                    <tr data-scenario-index="${index}">
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            <input type="checkbox" class="scenario-checkbox" data-index="${index}">
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${id}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${priority}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${category}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${name}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${url}">
+                            ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${status}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">${successRate}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            tableContainer.innerHTML = html;
+            
+            // シナリオリスト表示
+            listContainer.style.display = 'block';
+            
+            // グローバル変数に保存
+            window.currentScenarios = scenarios;
+        }
+
+        // 選択されたシナリオの実行
+        async function executeSelectedScenarios() {
+            if (!window.currentScenarios) {
+                alert('❌ シナリオが読み込まれていません');
+                return;
+            }
+            
+            const checkboxes = document.querySelectorAll('.scenario-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('❌ 実行するシナリオを選択してください');
+                return;
+            }
+            
+            const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index));
+            
+            addLogScenarios(`🚀 ${selectedIndices.length}件のシナリオ実行を開始します`);
+            addLogScenarios('💾 連続実行のためブラウザセッション維持を有効にします');
+            
+            // 🔧 重要: セッション維持フラグをグローバルに設定
+            const keepSessionCheckbox = document.getElementById('keepBrowserSession');
+            const originalKeepSessionState = keepSessionCheckbox ? keepSessionCheckbox.checked : false;
+            if (keepSessionCheckbox) {
+                keepSessionCheckbox.checked = true; // シナリオ実行中は強制的にON
+            }
+            
+            // 進捗表示
+            showScenarioProgress(0, selectedIndices.length);
+            
+            let completedCount = 0;
+            
+            try {
+                for (const index of selectedIndices) {
+                    const scenario = window.currentScenarios[index];
+                    addLogScenarios(`📝 シナリオ ${scenario.ID}: ${scenario['シナリオ名']} を実行中...`);
+                    
+                    try {
+                        // シナリオの実行（実際のテスト実行）
+                        const result = await executeScenarioTest(scenario);
+                        
+                        if (result.success) {
+                            addLogScenarios(`✅ シナリオ ${scenario.ID} 実行完了`);
+                            updateScenarioStatus(index, '完了', result.successRate || '100%');
+                        } else {
+                            addLogScenarios(`❌ シナリオ ${scenario.ID} 実行失敗: ${result.error}`);
+                            updateScenarioStatus(index, '失敗', '0%');
+                        }
+                    } catch (error) {
+                        addLogScenarios(`❌ シナリオ ${scenario.ID} 実行エラー: ${error.message}`);
+                        updateScenarioStatus(index, 'エラー', '0%');
+                    }
+                    
+                    completedCount++;
+                    updateScenarioProgress(completedCount, selectedIndices.length);
+                    
+                    // 少し待機（最後のシナリオでは待機しない）
+                    if (completedCount < selectedIndices.length) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+                
+                addLogScenarios(`🎉 シナリオ実行完了! (${completedCount}/${selectedIndices.length})`);
+                hideScenarioProgress();
+                
+                // 自動ブラウザ終了オプションをチェック
+                const autoCloseBrowser = document.getElementById('autoCloseBrowserAfterScenarios').checked;
+                if (autoCloseBrowser) {
+                    addLogScenarios('🧹 ブラウザを自動終了しています...');
+                    try {
+                        await closeBrowserAutomatically();
+                        addLogScenarios('✅ ブラウザ自動終了完了');
+                    } catch (error) {
+                        addLogScenarios(`⚠️ ブラウザ自動終了に失敗: ${error.message}`);
+                    }
+                }
+                
+                // 完了後の選択肢を表示
+                showPostExecutionOptions();
+                
+            } finally {
+                // 🔧 重要: セッション維持フラグを元に戻す
+                if (keepSessionCheckbox) {
+                    keepSessionCheckbox.checked = originalKeepSessionState;
+                    if (!originalKeepSessionState) {
+                        addLogScenarios('🧹 シナリオ実行完了：セッション維持フラグを無効に戻しました');
+                    }
+                }
+            }
+        }
+
+        // 単一シナリオのテスト実行
+        async function executeScenarioTest(scenario) {
+            // シナリオの情報をフォームに設定してテスト実行
+            const urlField = document.getElementById('testUrl');
+            const goalField = document.getElementById('testGoal');
+            
+            const originalUrl = urlField.value;
+            const originalGoal = goalField.value;
+            
+            try {
+                // シナリオの値を設定（バリデーションテストではなく機能テストとして明記）
+                const fullStory = `【機能テスト】${scenario['ユーザーストーリー'] || ''}
+
+【重要】このテストは入力バリデーションテストではありません。
+指定された具体的な値を使用して正常な機能動作を確認してください。
+無効な値や異常値のテストは行わないでください。
+
+期待結果: ${scenario['期待結果'] || ''}`;
+                
+                urlField.value = scenario.URL || '';
+                goalField.value = fullStory;
+                
+                addLogScenarios(`🔧 URL: ${scenario.URL}`);
+                addLogScenarios(`📋 ストーリー: ${scenario['ユーザーストーリー']}`);
+                addLogScenarios(`🎯 期待結果: ${scenario['期待結果']}`);
+                
+                // 🔧 重要: config.jsonのtargetUrlも動的に更新
+                const configUpdateResult = await updateConfigUrl(scenario.URL);
+                if (!configUpdateResult) {
+                    addLogScenarios(`⚠️ config.json更新に失敗しましたが、続行します`);
+                }
+                
+                // テスト実行（機能テストモードで実行 + セッション維持）
+                // 注意: DOM照合モードではなく、機能テストモードで実行する
+                
+                // 🔧 重要: 【機能テスト】の場合はAI分析モードを強制するため、
+                // 自然言語テストケースファイルを除外してAI分析モードで実行
+                addLogScenarios('🤖 機能テストモード: AI分析モードで実行します（DOM照合をスキップ）');
+                
+                const result = await executeCommandWithResultSpecialMode('generateSmartRoutes', {
+                    url: scenario.URL,
+                    goal: fullStory,
+                    forceAIAnalysis: true  // AI分析モード強制フラグ
+                });
+                if (!result || !result.success) {
+                    throw new Error('ルート生成に失敗');
+                }
+
+                // ルート実行（セッション維持フラグ設定 + 自動終了オプション）
+                const autoCloseOption = document.getElementById('autoCloseBrowserAfterScenarios').checked;
+                const runParams = ['--keep-session'];
+                if (autoCloseOption) {
+                    runParams.push('--auto-close');
+                    addLogScenarios('🔄 テスト失敗時の自動ブラウザ終了を有効化');
+                }
+                
+                const routeResult = await executeCommandWithResult('runRoutes', runParams);
+                if (!routeResult || !routeResult.success) {
+                    throw new Error('ルート実行に失敗');
+                }
+                
+                // 成功率を解析（簡易版）
+                let successRate = '0%';
+                if (routeResult.output) {
+                    const successMatch = routeResult.output.match(/成功数:\s*(\d+)/);
+                    const totalMatch = routeResult.output.match(/総ステップ数:\s*(\d+)/);
+                    
+                    if (successMatch && totalMatch) {
+                        const success = parseInt(successMatch[1]);
+                        const total = parseInt(totalMatch[1]);
+                        successRate = total > 0 ? Math.round((success / total) * 100) + '%' : '0%';
+                    }
+                }
+                
+                return { success: true, successRate: successRate };
+                
+            } catch (error) {
+                return { success: false, error: error.message };
+            } finally {
+                // 元の値を復元
+                urlField.value = originalUrl;
+                goalField.value = originalGoal;
+            }
+        }
+
+        // 進捗表示関数
+        function showScenarioProgress(current, total) {
+            const progressContainer = document.getElementById('scenarioExecutionProgress');
+            const progressBar = document.getElementById('scenarioProgressBar');
+            const progressText = document.getElementById('scenarioProgressText');
+            
+            if (progressContainer && progressBar && progressText) {
+                progressContainer.style.display = 'block';
+                const percentage = total > 0 ? (current / total) * 100 : 0;
+                progressBar.style.width = percentage + '%';
+                progressText.textContent = `${current}/${total} 完了 (${Math.round(percentage)}%)`;
+            }
+        }
+
+        function updateScenarioProgress(current, total) {
+            showScenarioProgress(current, total);
+        }
+
+        function hideScenarioProgress() {
+            const progressContainer = document.getElementById('scenarioExecutionProgress');
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        // シナリオ状況更新
+        function updateScenarioStatus(index, status, successRate) {
+            const row = document.querySelector(`tr[data-scenario-index="${index}"]`);
+            if (row) {
+                const statusCell = row.cells[6]; // 実行状況列
+                const successRateCell = row.cells[7]; // 成功率列
+                
+                if (statusCell) statusCell.textContent = status;
+                if (successRateCell) successRateCell.textContent = successRate;
+                
+                // 現在のシナリオデータも更新
+                if (window.currentScenarios && window.currentScenarios[index]) {
+                    window.currentScenarios[index]['実行状況'] = status;
+                    window.currentScenarios[index]['成功率'] = successRate;
+                    window.currentScenarios[index]['最終実行日時'] = new Date().toLocaleString('ja-JP');
+                }
+            }
+        }
+
+        // 実行完了後の選択肢表示
+        function showPostExecutionOptions() {
+            const options = `
+🎉 シナリオ実行完了！次のアクションを選択してください:
+
+1. 🔍 新シナリオ探索 (AI発見)
+2. ➡️ 次シナリオ実行
+3. 📊 結果サマリー表示
+4. 🧹 ブラウザ終了
+5. ⏸️ 一時停止
+            `;
+            
+            const choice = prompt(options + '\n\n選択してください (1-5):');
+            
+            switch (choice) {
+                case '1':
+                    addLogScenarios('🔍 新シナリオ探索を開始します...');
+                    executeCommand('discoverNewStories');
+                    break;
+                case '2':
+                    addLogScenarios('➡️ 次のシナリオを実行します...');
+                    executeNextScenario();
+                    break;
+                case '3':
+                    addLogScenarios('📊 結果サマリーを表示します...');
+                    showScenarioSummary();
+                    break;
+                case '4':
+                    addLogScenarios('🧹 ブラウザを手動終了します...');
+                    closeBrowserAutomatically().catch(error => 
+                        addLogScenarios(`❌ ブラウザ終了エラー: ${error.message}`)
+                    );
+                    break;
+                case '5':
+                default:
+                    addLogScenarios('⏸️ 実行を一時停止しました');
+                    break;
+            }
+        }
+
+        // 次のシナリオ実行
+        function executeNextScenario() {
+            if (!window.currentScenarios) return;
+            
+            // 未実行のシナリオを探す
+            const unexecutedIndex = window.currentScenarios.findIndex(s => 
+                s['実行状況'] === '未実行' || !s['実行状況']
+            );
+            
+            if (unexecutedIndex !== -1) {
+                // チェックボックスを選択
+                const checkbox = document.querySelector(`input[data-index="${unexecutedIndex}"]`);
+                if (checkbox) {
+                    // 他のチェックボックスをクリア
+                    document.querySelectorAll('.scenario-checkbox').forEach(cb => cb.checked = false);
+                    checkbox.checked = true;
+                    
+                    // 実行
+                    executeSelectedScenarios();
+                }
+            } else {
+                addLogScenarios('✅ すべてのシナリオが実行済みです');
+            }
+        }
+
+        // 結果サマリー表示
+        function showScenarioSummary() {
+            if (!window.currentScenarios) return;
+            
+            const total = window.currentScenarios.length;
+            const completed = window.currentScenarios.filter(s => 
+                s['実行状況'] === '完了' || s['実行状況'] === '失敗' || s['実行状況'] === 'エラー'
+            ).length;
+            const successful = window.currentScenarios.filter(s => s['実行状況'] === '完了').length;
+            
+            const summary = `
+📊 シナリオ実行サマリー:
+- 総シナリオ数: ${total}
+- 実行済み: ${completed}
+- 成功: ${successful}
+- 成功率: ${total > 0 ? Math.round((successful / total) * 100) : 0}%
+            `;
+            
+            addLogScenarios(summary);
+            alert(summary);
+        }
+
+        // 結果エクスポート
+        function exportScenarioResults() {
+            if (!window.currentScenarios) {
+                alert('❌ エクスポートするデータがありません');
+                return;
+            }
+            
+            // CSVヘッダー
+            const headers = ['ID', '優先度', 'カテゴリ', 'シナリオ名', 'URL', 'ユーザーストーリー', '期待結果', '実行状況', '最終実行日時', '成功率'];
+            
+            // CSVデータ作成
+            let csvContent = headers.join(',') + '\n';
+            
+            window.currentScenarios.forEach(scenario => {
+                const row = [
+                    scenario.ID || '',
+                    scenario['優先度'] || '',
+                    scenario['カテゴリ'] || '',
+                    scenario['シナリオ名'] || '',
+                    scenario.URL || '',
+                    scenario['ユーザーストーリー'] || '',
+                    scenario['期待結果'] || '',
+                    scenario['実行状況'] || '',
+                    scenario['最終実行日時'] || '',
+                    scenario['成功率'] || ''
+                ].map(field => `"${field.toString().replace(/"/g, '""')}"`); // CSV エスケープ
+                
+                csvContent += row.join(',') + '\n';
+            });
+            
+            // ダウンロード
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+            
+            link.href = URL.createObjectURL(blob);
+            link.download = `scenario_results_${timestamp}.csv`;
+            link.click();
+            
+            addLogScenarios(`📊 結果をエクスポートしました: scenario_results_${timestamp}.csv`);
+        }
+
+        // シナリオログ追加
+        function addLogScenarios(message) {
+            const logArea = document.getElementById('logAreaScenarios');
+            if (logArea) {
+                const timestamp = new Date().toLocaleTimeString();
+                logArea.textContent += `[${timestamp}] ${message}\n`;
+                logArea.scrollTop = logArea.scrollHeight;
+            }
+        }
+
+        // config.jsonのtargetUrlを動的に更新（シンプル版）
+        async function updateConfigUrl(newUrl) {
+            try {
+                // URLフィールドを更新（generateSmartRoutes実行時に自動でconfig.jsonが更新される）
+                const urlField = document.getElementById('testUrl');
+                if (urlField) {
+                    urlField.value = newUrl;
+                    addLogScenarios(`🔧 テスト対象URL設定: ${newUrl}`);
+                    return true;
+                } else {
+                    addLogScenarios(`⚠️ URLフィールドが見つかりません`);
+                    return false;
+                }
+            } catch (error) {
+                addLogScenarios(`❌ URL設定エラー: ${error.message}`);
+                return false;
+            }
+        }
         
         // セレクタ検証ボタン
         validateSelectors.addEventListener('click', function() {
@@ -3589,6 +4431,178 @@
             }
         });
 
+        // 修正ルートを実行（セッション維持版）
+        async function runFixedRouteWithSession(routeId) {
+            try {
+                addLogAI(`🚀 修正ルート実行開始（セッション維持）: ${routeId}`);
+                showStatusAI(`修正ルート実行中: ${routeId}`, 'info');
+                
+                const response = await fetch('/api/execute-json', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        command: 'runFixedRoute',
+                        routeId: routeId,
+                        params: ['--keep-session']
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLogAI(`✅ 修正ルート実行完了: ${routeId}`);
+                    addLogAI(result.output);
+                    showStatusAI('修正ルート実行完了！', 'success');
+                    
+                    // 自動改善タブ用のテスト結果解析
+                    parseTestResultsAI(result.output);
+                    
+                    return { success: true, output: result.output };
+                } else {
+                    addLogAI(`❌ 修正ルート実行失敗: ${result.error}`);
+                    showStatusAI(`修正ルート実行失敗: ${result.error}`, 'error');
+                    
+                    if (result.output) {
+                        addLogAI('エラー出力:');
+                        addLogAI(result.output);
+                    }
+                    
+                    return { success: false, error: result.error };
+                }
+                
+            } catch (error) {
+                console.error('修正ルート実行エラー:', error);
+                addLogAI(`❌ 修正ルート実行エラー: ${error.message}`);
+                showStatusAI(`修正ルート実行エラー: ${error.message}`, 'error');
+                return { success: false, error: error.message };
+            }
+        }
+
+        // ブラウザを終了する関数
+        async function closeBrowser() {
+            if (!confirm('🔄 開いているブラウザセッションを終了しますか？\n\n注意: 実行中のテストがある場合は中断されます。')) {
+                return;
+            }
+            
+            return await closeBrowserAutomatically();
+        }
+
+        // 自動ブラウザ終了関数（確認なし）
+        async function closeBrowserAutomatically() {
+            try {
+                addLog('🔄 ブラウザ終了を実行中...');
+                
+                const response = await fetch('/api/close-browser', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog(`✅ ${result.message}`);
+                    if (result.details) {
+                        addLog(`📊 終了プロセス: ${result.details.terminated}個 (残存: ${result.details.remaining_processes}個)`);
+                    }
+                    showStatus('ブラウザ終了完了', 'success');
+                } else {
+                    addLog(`❌ ブラウザ終了に失敗: ${result.error}`);
+                    showStatus(`ブラウザ終了に失敗: ${result.error}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('ブラウザ終了エラー:', error);
+                addLog(`❌ ブラウザ終了中にエラーが発生: ${error.message}`);
+                showStatus(`ブラウザ終了エラー: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // ブラウザヘルスチェック機能
+        async function checkBrowserHealth() {
+            try {
+                addLog('🔍 ブラウザヘルスチェックを実行中...');
+                
+                const response = await fetch('/api/browser-health');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const health = result.health;
+                    addLog(`🔍 ヘルスチェック結果:`);
+                    addLog(`   - Chromiumプロセス数: ${health.chromium_processes}個`);
+                    addLog(`   - ステータス: ${health.status}`);
+                    
+                    if (health.processes && health.processes.length > 0) {
+                        addLog(`   - プロセス詳細:`);
+                        health.processes.forEach(proc => {
+                            addLog(`     PID ${proc.pid}: CPU ${proc.cpu}% メモリ ${proc.memory}%`);
+                        });
+                    }
+                    
+                    // ステータスに応じてアラート表示
+                    if (health.status === 'high_usage') {
+                        showStatus('⚠️ Chromiumプロセスが多数実行中です', 'warning');
+                    } else if (health.status === 'clean') {
+                        showStatus('✅ Chromiumプロセスはクリーンです', 'success');
+                    } else {
+                        showStatus('✅ ヘルスチェック完了', 'success');
+                    }
+                } else {
+                    addLog(`❌ ヘルスチェックに失敗: ${result.error}`);
+                    showStatus(`ヘルスチェックに失敗: ${result.error}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('ヘルスチェックエラー:', error);
+                addLog(`❌ ヘルスチェック中にエラーが発生: ${error.message}`);
+                showStatus(`ヘルスチェックエラー: ${error.message}`, 'error');
+            }
+        }
+
+        // 定期的なヘルスチェック（30秒ごと）
+        let healthCheckInterval = null;
+        
+        function startAutoHealthCheck() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+            }
+            
+            healthCheckInterval = setInterval(async () => {
+                // サイレントヘルスチェック（ログに出力しない）
+                try {
+                    const response = await fetch('/api/browser-health');
+                    const result = await response.json();
+                    
+                    if (result.success && result.health.status === 'high_usage') {
+                        // 高使用量の場合のみ警告表示
+                        showStatus(`⚠️ Chromiumプロセス多数実行中 (${result.health.chromium_processes}個)`, 'warning');
+                    }
+                } catch (error) {
+                    // サイレントエラー
+                }
+            }, 30000); // 30秒ごと
+        }
+        
+        function stopAutoHealthCheck() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+                healthCheckInterval = null;
+            }
+        }
+        
+        // ページ読み込み時に自動ヘルスチェックを開始
+        document.addEventListener('DOMContentLoaded', () => {
+            startAutoHealthCheck();
+        });
+        
+        // ページ離脱時に自動ヘルスチェックを停止
+        window.addEventListener('beforeunload', () => {
+            stopAutoHealthCheck();
+        });
     </script>
 </body>
 </html> 

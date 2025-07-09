@@ -1,0 +1,3 @@
+ID,優先度,カテゴリ,シナリオ名,URL,ユーザーストーリー,期待結果,実行状況,最終実行日時,成功率
+001,高,認証,基本ログイン,https://hotel-example-site.takeyaqa.dev/ja/login.html,"ユーザー名「ichiro@example.com」とパスワード「password」を入力してログインボタンをクリックする","マイページ（https://hotel-example-site.takeyaqa.dev/ja/mypage.html）に遷移し、「メールアドレス」が表示される",未実行,,
+002,高,認証,ログアウト,https://hotel-example-site.takeyaqa.dev/ja/mypage.html,"ログイン済み状態のマイページからログアウトボタンをクリックしてシステムからログアウトする","ログアウト処理が実行され、ホーム画面（https://hotel-example-site.takeyaqa.dev/ja/index.html）に遷移する",未実行,,

@@ -380,20 +380,37 @@ app.post('/api/sheets/test', (req, res) => {
   }
 });
 
-// JSONコマンド実行API（修正ルート実行用）
+// JSONコマンド実行API（修正ルート実行用・パラメータ対応）
 app.post('/api/execute-json', express.json(), async (req, res) => {
-  const { command, routeId } = req.body;
+  const { command, routeId, params } = req.body;
   
   try {
-    console.log('📋 JSON API リクエスト受信:', { command, routeId });
+    console.log('📋 JSON API リクエスト受信:', { command, routeId, params });
     
     // コマンドの実行
     let args = [];
     
     switch (command) {
         case 'runFixedRoute':
-            args = ['tests/runRoutes.js'];
-            if (routeId) args.push('--route-file', `${routeId}.json`);
+            // セッション維持フラグを検知してPlaywright形式実行に切り替え
+            const hasKeepSession = params && Array.isArray(params) && params.includes('--keep-session');
+            
+            if (hasKeepSession) {
+                console.log('📝 セッション維持が有効 → Playwright形式で実行します');
+                args = ['tests/runRoutes.js', '--batch', '--playwright-format', '--generate-code'];
+                if (routeId) args.push('--route-file', `${routeId}.json`);
+            } else {
+                args = ['tests/runRoutes.js'];
+                if (routeId) args.push('--route-file', `${routeId}.json`);
+                // セッション維持以外の追加パラメータを処理
+                if (params && Array.isArray(params)) {
+                    const filteredParams = params.filter(param => param !== '--keep-session');
+                    if (filteredParams.length > 0) {
+                        args.push(...filteredParams);
+                        console.log(`🔧 追加パラメータ: ${filteredParams.join(' ')}`);
+                    }
+                }
+            }
             break;
             
         default:
@@ -476,6 +493,88 @@ app.post('/api/execute-json', express.json(), async (req, res) => {
     res.json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+// Playwright形式シナリオ実行API
+app.post('/api/execute-playwright', express.json(), async (req, res) => {
+  try {
+    const { routeFiles, generateCode = true } = req.body;
+    
+    if (!routeFiles || !Array.isArray(routeFiles)) {
+      return res.status(400).json({ error: 'routeFiles配列が必要です' });
+    }
+
+    console.log('📝 Playwright形式シナリオ実行開始:', routeFiles.length, '件');
+    
+    const args = [
+      'tests/runRoutes.js',
+      '--batch',
+      '--playwright-format'
+    ];
+    
+    if (generateCode) {
+      args.push('--generate-code');
+    }
+    
+    // ルートファイルを追加
+    routeFiles.forEach(file => {
+      args.push('--route-file', file);
+    });
+    
+    console.log('実行コマンド:', 'node', args.join(' '));
+    
+    const result = await executeCommandWithResultAndEnv('node', args, {
+      PLAYWRIGHT_KEEP_SESSION: 'true'
+    });
+    
+    res.json({
+      success: result.exitCode === 0,
+      output: result.stdout,
+      error: result.stderr,
+      exitCode: result.exitCode,
+      message: result.exitCode === 0 ? 'Playwright形式テスト完了' : 'テスト実行エラー'
+    });
+    
+  } catch (error) {
+    console.error('❌ Playwright形式シナリオ実行エラー:', error);
+    res.status(500).json({ 
+      error: 'Playwright形式シナリオ実行に失敗しました',
+      details: error.message 
+    });
+  }
+});
+
+// Playwrightテスト実行API
+app.post('/api/run-playwright-test', express.json(), async (req, res) => {
+  try {
+    const { testFile = 'tests/generated_scenarios.spec.js', headed = false } = req.body;
+    
+    console.log('🎭 Playwrightテスト実行開始:', testFile);
+    
+    const args = ['playwright', 'test', testFile];
+    if (headed) {
+      args.push('--headed');
+    }
+    
+    console.log('実行コマンド:', 'npx', args.join(' '));
+    
+    const result = await executeCommandWithResultAndEnv('npx', args, {});
+    
+    res.json({
+      success: result.exitCode === 0,
+      output: result.stdout,
+      error: result.stderr,
+      exitCode: result.exitCode,
+      message: result.exitCode === 0 ? 'Playwrightテスト完了' : 'テスト実行エラー'
+    });
+    
+  } catch (error) {
+    console.error('❌ Playwrightテスト実行エラー:', error);
+    res.status(500).json({ 
+      error: 'Playwrightテスト実行に失敗しました',
+      details: error.message 
     });
   }
 });
@@ -593,32 +692,39 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
             
-            // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
-            const testResultsDir2 = path.join(__dirname, 'test-results');
-            try {
-                const files = fs.readdirSync(testResultsDir2);
-                
-                // 軽量版を優先的に検索
-                let naturalTestCasesFiles = files
-                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
-                    .sort()
-                    .reverse();
-                
-                // 軽量版が見つからない場合は従来のファイルを検索
-                if (naturalTestCasesFiles.length === 0) {
-                    naturalTestCasesFiles = files
-                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+            // 🔧 重要: forceAIAnalysisフラグの処理（シナリオ管理専用）
+            const forceAIAnalysis = req.body.forceAIAnalysis === 'true';
+            if (forceAIAnalysis) {
+                console.log('🤖 AI分析モード強制: 自然言語テストケースファイルをスキップします');
+                // 自然言語テストケースファイルを使用しない（AI分析モード強制）
+            } else {
+                // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
+                const testResultsDir2 = path.join(__dirname, 'test-results');
+                try {
+                    const files = fs.readdirSync(testResultsDir2);
+                    
+                    // 軽量版を優先的に検索
+                    let naturalTestCasesFiles = files
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
                         .sort()
                         .reverse();
+                    
+                    // 軽量版が見つからない場合は従来のファイルを検索
+                    if (naturalTestCasesFiles.length === 0) {
+                        naturalTestCasesFiles = files
+                            .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+                            .sort()
+                            .reverse();
+                    }
+                    
+                    if (naturalTestCasesFiles.length > 0) {
+                        const latestNaturalTestCases = path.join(testResultsDir2, naturalTestCasesFiles[0]);
+                        args.push('--natural-test-cases', latestNaturalTestCases);
+                        console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
+                    }
+                } catch (error) {
+                    console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
                 }
-                
-                if (naturalTestCasesFiles.length > 0) {
-                    const latestNaturalTestCases = path.join(testResultsDir2, naturalTestCasesFiles[0]);
-                    args.push('--natural-test-cases', latestNaturalTestCases);
-                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
-                }
-            } catch (error) {
-                console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
             }
             break;
 
@@ -628,6 +734,47 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (executionEnvironment === 'android') {
                 args.push('--android-device');
                 console.log('📱 Android実機モードでテスト実行');
+            }
+            
+            // 追加パラメータを処理（セッション維持フラグなど）
+            let hasKeepSession = false;
+            for (let i = 0; req.body[`param_${i}`]; i++) {
+                const param = req.body[`param_${i}`];
+                args.push(param);
+                console.log(`🔧 追加パラメータ: ${param}`);
+                
+                if (param === '--keep-session') {
+                    hasKeepSession = true;
+                }
+            }
+            
+            // --keep-sessionフラグでPlaywright形式自動切り替え
+            if (hasKeepSession) {
+                // 最新のルートファイルを2つ取得（複数実行のため）
+                try {
+                    const testResultsDir = path.join(__dirname, 'test-results');
+                    const routeFiles = fs.readdirSync(testResultsDir)
+                        .filter(f => f.startsWith('route_') && f.endsWith('.json'))
+                        .sort((a, b) => {
+                            const statA = fs.statSync(path.join(testResultsDir, a));
+                            const statB = fs.statSync(path.join(testResultsDir, b));
+                            return statB.mtime - statA.mtime; // 新しい順
+                        });
+                    
+                    if (routeFiles.length > 0) {
+                        console.log('📝 セッション維持が有効 → Playwright形式バッチ実行に自動切り替えします');
+                        args.push('--batch', '--playwright-format');
+                        
+                        // 最新のルートファイルを追加（最大2個）
+                        const filesToAdd = routeFiles.slice(0, 2);
+                        filesToAdd.forEach(file => {
+                            args.push('--route-file', file);
+                            console.log(`📋 ルートファイル追加: ${file}`);
+                        });
+                    }
+                } catch (error) {
+                    console.warn('⚠️ ルートファイル自動検索に失敗:', error.message);
+                }
             }
             break;
 
@@ -681,12 +828,29 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             return res.status(400).json({ success: false, error: '未知のコマンドです' });
     }
     
+    // 環境変数の処理（FormData用）
+    const customEnv = { ...process.env };
+    
+    // FormDataから環境変数を抽出
+    Object.keys(req.body).forEach(key => {
+      if (key.startsWith('env_') && key.endsWith('_key')) {
+        const index = key.match(/env_(\d+)_key/)[1];
+        const envKey = req.body[key];
+        const envValue = req.body[`env_${index}_value`];
+        
+        if (envKey && envValue) {
+          customEnv[envKey] = envValue;
+          console.log(`🔧 環境変数設定: ${envKey}=${envValue}`);
+        }
+      }
+    });
+    
     console.log(`実行コマンド: node ${args.join(' ')}`);
     
     // Node.jsプロセスを実行
     const child = spawn('node', args, {
       cwd: __dirname,
-      env: { ...process.env }
+      env: customEnv
     });
     
     let output = '';
@@ -1276,4 +1440,146 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   console.log('\n🛑 サーバーを停止しています...');
   process.exit(0);
-}); 
+});
+
+// ブラウザ終了エンドポイント
+app.post('/api/close-browser', async (req, res) => {
+    console.log('🔄 ブラウザ終了リクエストを受信');
+    const { execSync } = await import('child_process');
+    
+    try {
+        // まずChromiumプロセスの状況を確認
+        let processCount = 0;
+        try {
+            const result = execSync('pgrep -f chromium', { encoding: 'utf8' });
+            processCount = result.trim().split('\n').filter(pid => pid).length;
+            console.log(`🔍 現在のChromiumプロセス数: ${processCount}`);
+        } catch (error) {
+            console.log('🔄 Chromiumプロセスが見つかりません');
+        }
+        
+        // Chromiumプロセスを段階的に終了
+        if (processCount > 0) {
+            console.log('🔄 Chromiumプロセスを段階的に終了...');
+            
+            // 1. SIGTERM で優雅に終了を試行
+            try {
+                execSync('pkill -f chromium', { stdio: 'ignore' });
+                console.log('✅ SIGTERM送信完了');
+                
+                // 3秒待機して確認
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                let remainingCount = 0;
+                try {
+                    const remainingResult = execSync('pgrep -f chromium', { encoding: 'utf8' });
+                    remainingCount = remainingResult.trim().split('\n').filter(pid => pid).length;
+                } catch (error) {
+                    // プロセスが見つからない場合は正常終了
+                    remainingCount = 0;
+                }
+                
+                if (remainingCount > 0) {
+                    console.log(`⚠️ ${remainingCount}個のプロセスが残存 - 強制終了を実行`);
+                    execSync('pkill -9 -f chromium', { stdio: 'ignore' });
+                }
+                
+            } catch (error) {
+                // 通常終了で失敗した場合は強制終了を試行
+                console.log('🔄 通常終了失敗 - 強制終了を実行');
+                try {
+                    execSync('pkill -9 -f chromium', { stdio: 'ignore' });
+                } catch (killError) {
+                    console.log('🔄 pkillでも終了できませんでした - killallを試行');
+                    execSync('killall -9 Chromium', { stdio: 'ignore' });
+                }
+            }
+        }
+        
+        // 最終確認
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        let finalProcessCount = 0;
+        try {
+            const finalResult = execSync('pgrep -f chromium', { encoding: 'utf8' });
+            finalProcessCount = finalResult.trim().split('\n').filter(pid => pid).length;
+        } catch (error) {
+            // プロセスが見つからない場合は正常
+        }
+        
+        console.log(`✅ Chromiumプロセス終了完了 (残存: ${finalProcessCount}個)`);
+        
+        res.json({ 
+            success: true, 
+            message: 'ブラウザプロセスを終了しました',
+            details: {
+                initial_processes: processCount,
+                remaining_processes: finalProcessCount,
+                terminated: processCount - finalProcessCount
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ ブラウザ終了処理エラー:', error.message);
+        res.json({ 
+            success: false, 
+            error: `ブラウザ終了処理エラー: ${error.message}`,
+            message: 'ブラウザプロセス終了処理で問題が発生しました'
+        });
+    }
+});
+
+// ブラウザヘルスチェックエンドポイント
+app.get('/api/browser-health', async (req, res) => {
+    console.log('🔍 ブラウザヘルスチェック実行');
+    const { execSync } = await import('child_process');
+    
+    try {
+        let chromiumProcesses = [];
+        let processCount = 0;
+        
+        // Chromiumプロセスの詳細を取得
+        try {
+            const result = execSync('ps aux | grep chromium | grep -v grep', { encoding: 'utf8' });
+            const lines = result.trim().split('\n').filter(line => line);
+            processCount = lines.length;
+            
+            chromiumProcesses = lines.map(line => {
+                const parts = line.trim().split(/\s+/);
+                return {
+                    pid: parts[1],
+                    cpu: parts[2],
+                    memory: parts[3],
+                    command: parts.slice(10).join(' ')
+                };
+            });
+            
+        } catch (error) {
+            // プロセスが見つからない場合は正常
+        }
+        
+        const healthStatus = {
+            chromium_processes: processCount,
+            processes: chromiumProcesses,
+            status: processCount === 0 ? 'clean' : processCount < 5 ? 'normal' : 'high_usage',
+            timestamp: new Date().toISOString()
+        };
+        
+        console.log(`🔍 ヘルスチェック結果: ${processCount}個のChromiumプロセス (${healthStatus.status})`);
+        
+        res.json({
+            success: true,
+            health: healthStatus
+        });
+        
+    } catch (error) {
+        console.error('❌ ヘルスチェックエラー:', error.message);
+        res.status(500).json({
+            success: false,
+            error: `ヘルスチェックエラー: ${error.message}`
+        });
+    }
+});
+
+
+
+// テスト結果ファイルの静的配信 

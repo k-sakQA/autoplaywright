@@ -150,7 +150,7 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           function: mapping.functionName,
           viewpoint: mapping.viewpoint,
           testSteps: formatComprehensiveTestSteps(step, isComprehensiveStep),
-          executionResult: step.status === 'success' ? 'success' : 'failed',
+          executionResult: (step.status === 'success' || step.success === true) ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
           isFixedRoute: isFixedRoute,
@@ -184,7 +184,7 @@ function createTraceableTestReport(testPoints, route, result, userStoryInfo = nu
           function: 'その他機能',
           viewpoint: isComprehensiveStep ? `包括テスト${viewpointId}(${testPhase})` : `追加実行ステップ${viewpointId}`,
           testSteps: formatComprehensiveTestSteps(step, isComprehensiveStep),
-          executionResult: step.status === 'success' ? 'success' : 'failed',
+          executionResult: (step.status === 'success' || step.success === true) ? 'success' : 'failed',
           errorDetail: step.error || '',
           url: testUrl,
           isFixedRoute: isFixedRoute,
@@ -489,7 +489,7 @@ function addUnmappedSteps(reportData, resultSteps, userStoryId, userStory, testU
         function: 'その他機能',
         viewpoint: step.label || `追加実行ステップ${viewpointId}`,
         testSteps: formatTestSteps(step),
-        executionResult: step.status === 'success' ? 'success' : 'failed',
+        executionResult: (step.status === 'success' || step.success === true) ? 'success' : 'failed',
         errorDetail: step.error || '',
         url: testUrl
       });
@@ -804,8 +804,8 @@ async function calculateTestCoverage(testPointsData, testCasesData, routeData, r
 
     if (result.steps && Array.isArray(result.steps)) {
       totalSteps += result.steps.length;
-      const successSteps = result.steps.filter(step => step.status === 'success');
-      const failedSteps = result.steps.filter(step => step.status === 'failed');
+      const successSteps = result.steps.filter(step => step.status === 'success' || step.success === true);
+      const failedSteps = result.steps.filter(step => step.status === 'failed' || step.success === false);
       
       successfulSteps += successSteps.length;
       
@@ -1397,7 +1397,7 @@ function generateFallbackReport(route, result, userStoryInfo = null) {
         escapeCSVField('汎用機能'),
         escapeCSVField(step.label || `ステップ${viewpointId}`),
         escapeCSVField(formatTestSteps(step)),
-        escapeCSVField(step.status === 'success' ? 'success' : 'failed'),
+        escapeCSVField((step.status === 'success' || step.success === true) ? 'success' : 'failed'),
         escapeCSVField(step.error || ''),
         escapeCSVField(testUrl || ''),
         escapeCSVField(executionType),
