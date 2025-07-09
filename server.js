@@ -147,14 +147,18 @@ app.post('/api/config/ai', (req, res) => {
 app.get('/api/config/user-story', (req, res) => {
   try {
     const configPath = path.join(__dirname, 'config.json');
+    
     if (!fs.existsSync(configPath)) {
-      return res.json({ success: true, userStory: null });
+      return res.json({ 
+        success: true, 
+        userStory: { currentId: null } 
+      });
     }
     
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    res.json({
-      success: true,
-      userStory: config.userStory || null
+    res.json({ 
+      success: true, 
+      userStory: config.userStory || { currentId: null } 
     });
   } catch (error) {
     console.error('ユーザーストーリー情報取得エラー:', error);
@@ -830,7 +834,29 @@ app.get('/api/results', (req, res) => {
 app.get('/api/results/:filename', (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'test-results', filename);
+    
+    // Path validation to prevent directory traversal attacks
+    if (!filename || typeof filename !== 'string') {
+      return res.status(400).json({ error: 'ファイル名が無効です' });
+    }
+    
+    // Sanitize the filename to prevent directory traversal
+    const sanitizedFilename = path.basename(filename);
+    
+    // Additional security check: ensure filename doesn't contain path separators
+    if (sanitizedFilename !== filename || filename.includes('..')) {
+      return res.status(400).json({ error: 'ファイル名が無効です' });
+    }
+    
+    const filePath = path.join(__dirname, 'test-results', sanitizedFilename);
+    
+    // Double-check that the resolved path is still within the test-results directory
+    const testResultsDir = path.resolve(__dirname, 'test-results');
+    const resolvedPath = path.resolve(filePath);
+    
+    if (!resolvedPath.startsWith(testResultsDir)) {
+      return res.status(403).json({ error: 'ファイルへのアクセスが拒否されました' });
+    }
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'ファイルが見つかりません' });
@@ -838,6 +864,7 @@ app.get('/api/results/:filename', (req, res) => {
     
     res.download(filePath);
   } catch (error) {
+    console.error('ファイルダウンロードエラー:', error);
     res.status(500).json({ error: 'ファイルダウンロードエラー' });
   }
 });
@@ -881,7 +908,29 @@ app.get('/api/list-files', (req, res) => {
 app.get('/api/get-file', (req, res) => {
   try {
     const filePath = req.query.path;
-    const fullPath = path.join(__dirname, 'test-results', filePath);
+    
+    // Path validation to prevent directory traversal attacks
+    if (!filePath || typeof filePath !== 'string') {
+      return res.json({ success: false, error: 'ファイルパスが無効です' });
+    }
+    
+    // Sanitize the file path to prevent directory traversal
+    const sanitizedPath = path.normalize(filePath).replace(/^(\.\.[\/\\])+/, '');
+    
+    // Ensure the path doesn't contain any directory traversal sequences
+    if (sanitizedPath.includes('..') || sanitizedPath.startsWith('/') || sanitizedPath.startsWith('\\')) {
+      return res.json({ success: false, error: 'ファイルパスが無効です' });
+    }
+    
+    const fullPath = path.join(__dirname, 'test-results', sanitizedPath);
+    
+    // Double-check that the resolved path is still within the test-results directory
+    const testResultsDir = path.resolve(__dirname, 'test-results');
+    const resolvedPath = path.resolve(fullPath);
+    
+    if (!resolvedPath.startsWith(testResultsDir)) {
+      return res.json({ success: false, error: 'ファイルへのアクセスが拒否されました' });
+    }
     
     if (!fs.existsSync(fullPath)) {
       return res.json({ success: false, error: 'ファイルが見つかりません' });
@@ -895,28 +944,7 @@ app.get('/api/get-file', (req, res) => {
   }
 });
 
-// ユーザーストーリー設定取得API
-app.get('/api/config/user-story', (req, res) => {
-  try {
-    const configPath = path.join(__dirname, 'config.json');
-    
-    if (!fs.existsSync(configPath)) {
-      return res.json({ 
-        success: true, 
-        userStory: { currentId: null } 
-      });
-    }
-    
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    res.json({ 
-      success: true, 
-      userStory: config.userStory || { currentId: null } 
-    });
-  } catch (error) {
-    console.error('ユーザーストーリー設定取得エラー:', error);
-    res.json({ success: false, error: 'ユーザーストーリー設定取得エラー' });
-  }
-});
+// ユーザーストーリー設定取得API (duplicate removed - consolidated with existing endpoint above)
 
 // ユーザーストーリーIDリセットAPI (後方互換性維持)
 app.post('/api/config/user-story/reset', (req, res) => {
