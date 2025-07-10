@@ -1277,6 +1277,169 @@ function generateCoverageReport(coverage, userStoryInfo = null) {
   return csvRows.join('\n');
 }
 
+/**
+ * バッチ実行結果専用のテストレポートを生成
+ * @param {Object} batchData - バッチ実行結果データ
+ * @param {Object} userStoryInfo - ユーザーストーリー情報
+ * @returns {string} - CSVレポート
+ */
+async function generateBatchTestReport(batchData, userStoryInfo = null) {
+  console.log('📊 バッチ実行結果専用レポートを生成中...');
+  
+  const executionTime = new Date().toISOString();
+  
+  // ユーザーストーリー情報の取得
+  let userStory, userStoryId;
+  if (userStoryInfo && userStoryInfo.currentId && userStoryInfo.content) {
+    userStory = userStoryInfo.content.replace(/[\r\n]+/g, ' ').trim();
+    userStoryId = userStoryInfo.currentId;
+    console.log(`🔗 バッチレポート: ユーザーストーリーID ${userStoryId}`);
+  } else {
+    userStory = 'バッチ自動実行テスト';
+    userStoryId = 1;
+    console.log(`⚠️ バッチレポート: デフォルトユーザーストーリーID ${userStoryId}`);
+  }
+
+  // URL取得（最初のルートから）
+  let testUrl = '';
+  if (batchData.results && batchData.results.length > 0) {
+    const firstResult = batchData.results[0];
+    if (firstResult.step_results && Array.isArray(firstResult.step_results)) {
+      const loadStep = firstResult.step_results.find(step => 
+        step.action === 'load' || step.action === 'goto'
+      );
+      if (loadStep) {
+        // ステップからURLを抽出（多くの場合targetフィールドに含まれる）
+        testUrl = loadStep.target || loadStep.value || '';
+      }
+    }
+  }
+
+  /**
+   * CSV用の文字列をエスケープ（バッチ版）
+   */
+  function escapeCSVField(str) {
+    if (str == null) return '""';
+    
+    const stringValue = String(str);
+    
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    
+    return stringValue;
+  }
+
+  // CSVヘッダー
+  const headers = [
+    '実行日時',
+    'ID', 
+    'ユーザーストーリー',
+    '機能',
+    '観点',
+    'テスト手順',
+    '実行結果',
+    'エラー詳細',
+    'URL',
+    '実行種別',
+    'バッチID',
+    'カテゴリ',
+    '成功率(%)',
+    'ステップ数',
+    'アサーション数'
+  ];
+  
+  const csvRows = [headers.join(',')];
+  
+  let totalSteps = 0;
+  let successfulSteps = 0;
+  let totalAssertions = 0;
+  let successfulAssertions = 0;
+
+  // 各結果ごとにレポート行を生成
+  batchData.results.forEach((result, resultIndex) => {
+    const categoryLetter = String.fromCharCode(65 + Math.floor(resultIndex / 10)); // A, B, C...
+    const routeNumber = (resultIndex % 10) + 1;
+    
+    // テスト手順の整形
+    const testSteps = result.step_results ? result.step_results
+      .filter(step => step.action !== 'waitForTimeout') // 待機ステップは除外
+      .map(step => {
+        if (step.action === 'load') {
+          return 'ページアクセス';
+        } else if (step.action === 'fill') {
+          return `入力: ${step.label || 'フィールド'}`;
+        } else if (step.action === 'click') {
+          return `クリック: ${step.label || 'ボタン'}`;
+        } else if (step.action === 'check') {
+          return `チェック: ${step.label || 'チェックボックス'}`;
+        } else if (step.action.startsWith('assert')) {
+          return `確認: ${step.label || '結果検証'}`;
+        } else {
+          return `${step.action}: ${step.label || ''}`;
+        }
+      }).join(' → ') : 'テストルート実行';
+    
+    // ステップ統計の計算
+    const stepCount = result.step_results ? result.step_results.length : 0;
+    const successCount = result.step_results ? result.step_results.filter(step => step.status === 'success').length : 0;
+    const assertionCount = result.assertion_results ? result.assertion_results.length : 0;
+    const assertionSuccessCount = result.assertion_results ? result.assertion_results.filter(assertion => assertion.status === 'success').length : 0;
+    
+    totalSteps += stepCount;
+    successfulSteps += successCount;
+    totalAssertions += assertionCount;
+    successfulAssertions += assertionSuccessCount;
+    
+    // 実行結果の判定
+    let executionResult = result.status || 'unknown';
+    let errorDetail = '';
+    
+    if (result.status === 'success') {
+      executionResult = 'success';
+    } else if (result.status === 'partial') {
+      executionResult = 'partial_success';
+      const failedSteps = result.step_results ? result.step_results.filter(step => step.status === 'failed') : [];
+      if (failedSteps.length > 0) {
+        errorDetail = `部分実行: ${failedSteps.length}件のステップが失敗`;
+      }
+    } else if (result.status === 'error') {
+      executionResult = 'failed';
+      errorDetail = result.error || 'テスト実行エラー';
+    }
+    
+    // ID: {userStoryId}.{categoryLetter}.{routeNumber}
+    const uniqueTestCaseId = `${userStoryId}.${categoryLetter}.${routeNumber}`;
+    
+    const row = [
+      escapeCSVField(executionTime),
+      escapeCSVField(uniqueTestCaseId),
+      escapeCSVField(userStory),
+      escapeCSVField(result.category || '未分類'),
+      escapeCSVField(`${result.category || '未分類'}系テスト${routeNumber}`),
+      escapeCSVField(testSteps),
+      escapeCSVField(executionResult),
+      escapeCSVField(errorDetail),
+      escapeCSVField(testUrl),
+      escapeCSVField('バッチ自動実行'),
+      escapeCSVField(batchData.batch_id),
+      escapeCSVField(result.category || '未分類'),
+      escapeCSVField(result.success_rate ? result.success_rate.toString() : '0'),
+      escapeCSVField(stepCount.toString()),
+      escapeCSVField(assertionCount.toString())
+    ];
+    csvRows.push(row.join(','));
+  });
+
+  console.log(`📊 バッチレポート生成完了:`);
+  console.log(`   - 総ルート数: ${batchData.results.length}件`);
+  console.log(`   - 総ステップ数: ${totalSteps}件 (成功: ${successfulSteps}件)`);
+  console.log(`   - 総アサーション数: ${totalAssertions}件 (成功: ${successfulAssertions}件)`);
+  console.log(`   - 全体成功率: ${totalSteps > 0 ? ((successfulSteps / totalSteps) * 100).toFixed(1) : 0}%`);
+  
+  return csvRows.join('\n');
+}
+
 async function generateTestReport(testPointFormat, testPoints, route, result, userStoryInfo = null) {
   console.log('📊 テストレポートを生成中...');
   
@@ -1508,17 +1671,85 @@ async function main() {
   const resultFiles = files.filter(f => f.startsWith('result_')).sort().reverse();
   const routeFiles = files.filter(f => f.startsWith('route_')).sort().reverse();
   
+  // 🆕 バッチ実行結果ファイルも検索対象に追加
+  const batchResultFiles = files.filter(f => f.startsWith('batch_result_')).sort().reverse();
+  
   // 新しいワークフロー対応：自然言語テストケースを優先的に読み込み
   // 最新のテスト結果に対応する最新のテストケースファイルを使用
   const naturalLanguageFiles = files.filter(f => f.startsWith('naturalLanguageTestCases_')).sort().reverse();
   const testPointFiles = files.filter(f => f.startsWith('testPoints_')).sort().reverse();
   
-  console.log(`📊 利用可能なファイル: 結果${resultFiles.length}件, ルート${routeFiles.length}件, 自然言語${naturalLanguageFiles.length}件, テスト観点${testPointFiles.length}件`);
+  console.log(`📊 利用可能なファイル: 結果${resultFiles.length}件, バッチ結果${batchResultFiles.length}件, ルート${routeFiles.length}件, 自然言語${naturalLanguageFiles.length}件, テスト観点${testPointFiles.length}件`);
 
-  if (resultFiles.length === 0 || routeFiles.length === 0) {
+  // 🆕 優先順位: バッチ結果 > 個別結果
+  let hasBatchResults = batchResultFiles.length > 0;
+  let hasIndividualResults = resultFiles.length > 0 && routeFiles.length > 0;
+  
+  if (!hasBatchResults && !hasIndividualResults) {
     console.error('❌ 必要なファイル（結果、ルート）が見つかりません。');
     return;
   }
+
+  // 🆕 バッチ結果ファイルがある場合は優先処理
+  if (hasBatchResults) {
+    console.log('🚀 バッチ実行結果を検出: バッチ結果専用レポートを生成します');
+    
+    try {
+      const latestBatchFile = batchResultFiles[0];
+      const batchResultPath = path.join(testResultsDir, latestBatchFile);
+      const batchData = JSON.parse(await fs.promises.readFile(batchResultPath, 'utf-8'));
+      
+      console.log(`📊 バッチ結果ファイル: ${latestBatchFile}`);
+      console.log(`📊 バッチID: ${batchData.batch_id}`);
+      console.log(`📊 実行ルート数: ${batchData.total_routes}件`);
+      console.log(`📊 成功率: 成功${batchData.successful_routes}件, 部分成功${batchData.partial_routes}件, 失敗${batchData.failed_routes}件`);
+
+      // バッチ結果専用レポート生成
+      const batchReport = await generateBatchTestReport(batchData, userStoryInfo);
+      
+      if (batchReport) {
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
+        const fileName = `AutoPlaywright バッチテスト結果 - ${batchData.batch_id}_${timestamp}.csv`;
+        const outputPath = path.join(testResultsDir, fileName);
+        
+        await fs.promises.writeFile(outputPath, batchReport);
+        console.log(`✅ バッチテストレポートを生成しました: ${fileName}`);
+        console.log(`📁 保存先: ${outputPath}`);
+        
+        // レポート内容のサマリーを表示
+        const lines = batchReport.split('\n');
+        const testCaseCount = lines.length - 1; // ヘッダーを除く
+        if (testCaseCount > 0) {
+          console.log(`📋 生成されたテストケース数: ${testCaseCount}件`);
+        }
+        
+        // カバレッジ情報表示
+        console.log(`📊 カテゴリ別結果:`);
+        Object.entries(batchData.category_summary).forEach(([category, summary]) => {
+          console.log(`   - ${category}: ${summary.successful}/${summary.total} (平均成功率: ${summary.average_success_rate}%)`);
+        });
+      } else {
+        console.error('❌ バッチテストレポートの生成に失敗しました');
+      }
+      
+      // バッチ結果でレポート生成完了
+      return;
+      
+    } catch (error) {
+      console.error(`❌ バッチ結果処理中にエラーが発生: ${error.message}`);
+      console.log('⚠️ 個別結果ファイルでのレポート生成にフォールバックします');
+      // 個別結果処理に続行
+    }
+  }
+
+  // 🔧 個別結果ファイル処理（フォールバック）
+  if (!hasIndividualResults) {
+    console.error('❌ 個別結果ファイル（result_*, route_*）も見つかりません。');
+    return;
+  }
+
+  console.log('📊 個別結果ファイルを使用してレポートを生成します');
 
   // テストサイクルリセット情報を確認
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -1535,7 +1766,7 @@ async function main() {
       console.log('⚠️ config.json読み込みエラー（無視して続行）:', error.message);
     }
   }
-  
+
   // 複数のテスト結果を統合して読み込み（リセット後のファイルのみ対象）
   console.log(`📊 複数テスト結果統合モード: ${resultFiles.length}件の結果ファイルを統合`);
   let allResults = [];

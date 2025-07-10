@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = 3000;
+const port = 3001;
 
 // multerの設定（PDFとCSVアップロード用）
 const storage = multer.diskStorage({
@@ -298,6 +298,164 @@ app.post('/api/adb-setup', (req, res) => {
   } catch (error) {
     console.error('❌ ADBポートフォワード設定エラー:', error);
     res.json({ success: false, error: error.message });
+  }
+});
+
+// バッチ結果取得API
+app.get('/api/batch-result/:batchId', (req, res) => {
+  try {
+    const { batchId } = req.params;
+    console.log(`📊 バッチ結果取得リクエスト: ${batchId}`);
+    
+    // バッチ結果ファイルのパスを構築
+    const batchResultPath = path.join(__dirname, 'test-results', `batch_result_${batchId}.json`);
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(batchResultPath)) {
+      console.log(`❌ バッチ結果ファイルが見つかりません: ${batchResultPath}`);
+      return res.status(404).json({ 
+        success: false, 
+        error: `バッチ結果ファイルが見つかりません: batch_result_${batchId}.json` 
+      });
+    }
+    
+    // バッチ結果ファイルを読み込み
+    const batchData = JSON.parse(fs.readFileSync(batchResultPath, 'utf-8'));
+    console.log(`✅ バッチ結果ファイルを正常に読み込み: ${batchId}`);
+    
+    res.json(batchData);
+    
+  } catch (error) {
+    console.error('❌ バッチ結果取得エラー:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `バッチ結果取得エラー: ${error.message}` 
+    });
+  }
+});
+
+// CSVファイルダウンロードAPI
+app.get('/api/download-csv/:filename', (req, res) => {
+  try {
+    const { filename } = req.params;
+    console.log(`📥 CSVダウンロードリクエスト: ${filename}`);
+    
+    // ファイル名のサニタイズ（セキュリティ対策）- スペースを保持
+    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._\-\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF ]/g, '');
+    console.log(`🔧 サニタイズ前: "${filename}"`);
+    console.log(`🔧 サニタイズ後: "${sanitizedFilename}"`);
+    
+    // CSVファイルのパスを構築
+    const csvFilePath = path.join(__dirname, 'test-results', sanitizedFilename);
+    console.log(`🔧 ファイルパス: ${csvFilePath}`);
+    
+    // test-resultsディレクトリ内の実際のファイル一覧をチェック
+    const testResultsDir = path.join(__dirname, 'test-results');
+    if (fs.existsSync(testResultsDir)) {
+      const files = fs.readdirSync(testResultsDir)
+        .filter(f => f.includes('AutoPlaywright') && f.endsWith('.csv'));
+      console.log(`🔧 利用可能なCSVファイル一覧:`, files);
+      
+      // 部分マッチで該当ファイルを探す
+      const matchingFile = files.find(f => f.includes(sanitizedFilename.replace(/[.\-\s]/g, '')));
+      if (matchingFile) {
+        console.log(`🔧 部分マッチで見つかったファイル: ${matchingFile}`);
+        const matchedFilePath = path.join(testResultsDir, matchingFile);
+        
+        // 見つかったファイルでダウンロード処理を実行
+        const stats = fs.statSync(matchedFilePath);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(matchingFile)}`);
+        res.setHeader('Content-Length', stats.size);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        
+        console.log(`📂 ファイル送信開始: ${matchingFile} (${stats.size} bytes)`);
+        
+        const fileStream = fs.createReadStream(matchedFilePath);
+        fileStream.on('error', (error) => {
+          console.error('❌ CSVファイル読み込みエラー:', error);
+          if (!res.headersSent) {
+            res.status(500).json({ 
+              success: false, 
+              error: `ファイル読み込みエラー: ${error.message}` 
+            });
+          }
+        });
+        
+        fileStream.on('end', () => {
+          console.log(`✅ CSVファイルダウンロード完了: ${matchingFile} (${stats.size} bytes)`);
+        });
+        
+        fileStream.pipe(res);
+        return;
+      }
+    }
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(csvFilePath)) {
+      console.log(`❌ CSVファイルが見つかりません: ${csvFilePath}`);
+      return res.status(404).json({ 
+        success: false, 
+        error: `CSVファイルが見つかりません: ${sanitizedFilename}` 
+      });
+    }
+    
+    // ファイルサイズチェック（100MB制限）
+    const stats = fs.statSync(csvFilePath);
+    if (stats.size > 100 * 1024 * 1024) { // 100MB
+      console.log(`❌ CSVファイルが大きすぎます: ${stats.size} bytes`);
+      return res.status(413).json({ 
+        success: false, 
+        error: 'ファイルサイズが大きすぎます（100MB制限）' 
+      });
+    }
+    
+    // Chrome対応：適切なヘッダーを設定
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`);
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // CORS対応（必要に応じて）
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    console.log(`📂 ファイル送信開始: ${sanitizedFilename} (${stats.size} bytes)`);
+    
+    // ファイルストリームを作成してレスポンス
+    const fileStream = fs.createReadStream(csvFilePath);
+    
+    fileStream.on('error', (error) => {
+      console.error('❌ CSVファイル読み込みエラー:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          success: false, 
+          error: `ファイル読み込みエラー: ${error.message}` 
+        });
+      }
+    });
+    
+    fileStream.on('end', () => {
+      console.log(`✅ CSVファイルダウンロード完了: ${sanitizedFilename} (${stats.size} bytes)`);
+    });
+    
+    // ストリームをレスポンスにパイプ
+    fileStream.pipe(res);
+    
+  } catch (error) {
+    console.error('❌ CSVダウンロードエラー:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false, 
+        error: `CSVダウンロードエラー: ${error.message}` 
+      });
+    }
   }
 });
 
@@ -628,21 +786,29 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
             
-            // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
+            // 自然言語テストケースファイルが存在する場合は自動使用（詳細版を優先してtest_dataを確保）
             const testResultsDir2 = path.join(__dirname, 'test-results');
             try {
                 const files = fs.readdirSync(testResultsDir2);
                 
-                // 軽量版を優先的に検索
+                // 🎯 詳細版（カテゴリ別）を最優先で検索（test_dataが含まれているため）
                 let naturalTestCasesFiles = files
-                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && (f.includes('_入力.json') || f.includes('_表示.json') || f.includes('_操作.json')))
                     .sort()
                     .reverse();
                 
-                // 軽量版が見つからない場合は従来のファイルを検索
+                // 詳細版が見つからない場合はindex版を検索
                 if (naturalTestCasesFiles.length === 0) {
                     naturalTestCasesFiles = files
-                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_index.json'))
+                        .sort()
+                        .reverse();
+                }
+                
+                // それでも見つからない場合は軽量版を検索
+                if (naturalTestCasesFiles.length === 0) {
+                    naturalTestCasesFiles = files
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
                         .sort()
                         .reverse();
                 }
@@ -650,7 +816,7 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
                 if (naturalTestCasesFiles.length > 0) {
                     const latestNaturalTestCases = path.join(testResultsDir2, naturalTestCasesFiles[0]);
                     args.push('--natural-test-cases', latestNaturalTestCases);
-                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
+                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]} (test_data含有版を優先)`);
                 }
             } catch (error) {
                 console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
@@ -663,21 +829,29 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             if (pdfFile) args.push('--spec-pdf', pdfFile.path);
             if (csvFile) args.push('--test-csv', csvFile.path);
             
-            // 自然言語テストケースファイルが存在する場合は自動使用（軽量版を優先）
+            // 自然言語テストケースファイルが存在する場合は自動使用（詳細版を優先してtest_dataを確保）
             const testResultsDir3 = path.join(__dirname, 'test-results');
             try {
                 const files = fs.readdirSync(testResultsDir3);
                 
-                // 軽量版を優先的に検索
+                // 🎯 詳細版（カテゴリ別）を最優先で検索（test_dataが含まれているため）
                 let naturalTestCasesFiles = files
-                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && (f.includes('_入力.json') || f.includes('_表示.json') || f.includes('_操作.json')))
                     .sort()
                     .reverse();
                 
-                // 軽量版が見つからない場合は従来のファイルを検索
+                // 詳細版が見つからない場合はindex版を検索
                 if (naturalTestCasesFiles.length === 0) {
                     naturalTestCasesFiles = files
-                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.endsWith('.json') && !f.includes('_full.json'))
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_index.json'))
+                        .sort()
+                        .reverse();
+                }
+                
+                // それでも見つからない場合は軽量版を検索
+                if (naturalTestCasesFiles.length === 0) {
+                    naturalTestCasesFiles = files
+                        .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_compact.json'))
                         .sort()
                         .reverse();
                 }
@@ -685,10 +859,40 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
                 if (naturalTestCasesFiles.length > 0) {
                     const latestNaturalTestCases = path.join(testResultsDir3, naturalTestCasesFiles[0]);
                     args.push('--natural-test-cases', latestNaturalTestCases);
-                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]}`);
+                    console.log(`🧠 最新の自然言語テストケースファイルを使用: ${naturalTestCasesFiles[0]} (test_data含有版を優先)`);
                 }
             } catch (error) {
                 console.warn('⚠️ 自然言語テストケースファイルの自動検索に失敗:', error.message);
+            }
+            break;
+            
+        case 'generateSmartScenariosAll':
+            args = ['tests/generateSmartScenarios.js'];
+            if (url) args.push('--url', url);
+            if (goal) args.push('--goal', goal);
+            if (pdfFile) args.push('--spec-pdf', pdfFile.path);
+            if (csvFile) args.push('--test-csv', csvFile.path);
+            
+            // インデックスファイルを自動検索して全カテゴリ一括生成
+            const testResultsDir4 = path.join(__dirname, 'test-results');
+            try {
+                const files = fs.readdirSync(testResultsDir4);
+                
+                // 🎯 インデックスファイルを最優先で検索（全カテゴリ一括生成用）
+                let indexFiles = files
+                    .filter(f => f.startsWith('naturalLanguageTestCases_') && f.includes('_index.json'))
+                    .sort()
+                    .reverse();
+                
+                if (indexFiles.length > 0) {
+                    const latestIndexFile = path.join(testResultsDir4, indexFiles[0]);
+                    args.push('--natural-test-cases', latestIndexFile);
+                    console.log(`🚀 全カテゴリ一括生成: インデックスファイルを使用: ${indexFiles[0]}`);
+                } else {
+                    console.warn('⚠️ インデックスファイルが見つかりません。先にテストケース生成を実行してください。');
+                }
+            } catch (error) {
+                console.warn('⚠️ インデックスファイルの自動検索に失敗:', error.message);
             }
             break;
 
@@ -700,6 +904,32 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
             break;
         case 'runRoutesJson':
             args = ['tests/runScenarios.js'];
+            break;
+            
+        case 'runBatchSequential':
+            args = ['tests/runScenarios.js'];
+            
+            // 最新のバッチメタデータファイルを自動検索
+            const testResultsDir5 = path.join(__dirname, 'test-results');
+            try {
+                const files = fs.readdirSync(testResultsDir5);
+                
+                // バッチメタデータファイルを検索
+                let batchMetadataFiles = files
+                    .filter(f => f.startsWith('batch_metadata_') && f.endsWith('.json'))
+                    .sort()
+                    .reverse();
+                
+                if (batchMetadataFiles.length > 0) {
+                    const latestBatchMetadata = path.join(testResultsDir5, batchMetadataFiles[0]);
+                    args.push('--batch-metadata', latestBatchMetadata);
+                    console.log(`🚀 バッチ順次実行: メタデータファイルを使用: ${batchMetadataFiles[0]}`);
+                } else {
+                    console.warn('⚠️ バッチメタデータファイルが見つかりません。先に「全カテゴリ一括変換」を実行してください。');
+                }
+            } catch (error) {
+                console.warn('⚠️ バッチメタデータファイルの自動検索に失敗:', error.message);
+            }
             break;
 
         case 'generateTestReport':

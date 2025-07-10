@@ -766,8 +766,30 @@ function generateInputValidationSteps(testCase, domInfo, steps) {
 /**
  * 入力検証系のステップをDOM情報から生成（依存関係対応版）
  */
-function generateInputValidationStepsFromDOM(steps, domInfo) {
+function generateInputValidationStepsFromDOM(steps, domInfo, naturalCase = null) {
   console.log('🔍 DOM情報から入力検証ステップを生成中...');
+  
+  // 🔄 自然言語テストケースの内容をチェック
+  const includesValidationTests = naturalCase && (
+    naturalCase.original_viewpoint?.includes('バリデーション') ||
+    naturalCase.original_viewpoint?.includes('無効な値') ||
+    naturalCase.original_viewpoint?.includes('空白') ||
+    naturalCase.original_viewpoint?.includes('必須チェック') ||
+    naturalCase.title?.includes('バリデーション') ||
+    naturalCase.title?.includes('無効な値') ||
+    naturalCase.title?.includes('空白') ||
+    naturalCase.title?.includes('必須チェック') ||
+    naturalCase.test_scenarios?.some(scenario => 
+      scenario.includes('バリデーション') || 
+      scenario.includes('無効な値') || 
+      scenario.includes('空白') ||
+      scenario.includes('必須チェック')
+    )
+  );
+  
+  if (naturalCase && !includesValidationTests) {
+    console.log('📝 自然言語テストケースにバリデーション要求が含まれていないため、基本入力テストのみ生成します');
+  }
   
   // 動的要素の依存関係パターン
   const dynamicElementPatterns = [
@@ -832,33 +854,110 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
 
     // 入力要素のテストステップを追加
     if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
-      // 有効な値の入力
-      const validValue = generateTestValueForInput(input.type);
-      steps.push({
-        label: `${input.name || input.id || input.type}に有効な値を入力`,
-        action: 'fill',
-        target: inputSelector,
-        value: validValue
-      });
-
-      // 必須チェック（required属性がある場合）
-      if (input.required) {
-        steps.push({
-          label: `${input.name || input.id || input.type}を空にして必須チェック`,
-          action: 'fill',
-          target: inputSelector,
-          value: ''
-        });
+      // 🎯 シナリオIDベースの具体値マッピング（改善版）
+      let testValue = 'テストデータ';
+      let scenarioId = null;
+      
+      if (naturalCase) {
+        scenarioId = naturalCase.id; // シナリオIDを保持
+        console.log(`🔍 シナリオ "${scenarioId}" でフィールド "${input.name}" のテストデータを探索中...`);
+        
+        if (naturalCase.test_data) {
+          // 🎯 シナリオIDベースの直接マッピングテーブル（確実で予測可能）
+          const createDirectMapping = (testData) => {
+            const mapping = {};
+            testData.forEach(data => {
+              const dataType = data.type.toLowerCase();
+              
+              // 確実なフィールドマッピング
+              if (dataType.includes('宿泊日') || dataType.includes('日付')) {
+                mapping['date'] = data;
+              } else if (dataType.includes('宿泊数') || dataType.includes('泊数') || dataType.includes('日数')) {
+                mapping['term'] = data;
+              } else if (dataType.includes('人数') || dataType.includes('ゲスト')) {
+                mapping['head-count'] = data;
+                mapping['guest'] = data;
+                mapping['count'] = data;
+              } else if (dataType.includes('氏名') || dataType.includes('名前')) {
+                mapping['username'] = data;
+                mapping['name'] = data;
+              } else if (dataType.includes('メールアドレス') || dataType.includes('email')) {
+                mapping['email'] = data;
+              } else if (dataType.includes('確認のご連絡') || dataType.includes('連絡方法')) {
+                mapping['contact'] = data;
+              } else if (dataType.includes('追加プラン') || dataType.includes('朝食') || dataType.includes('プラン')) {
+                mapping['breakfast'] = data;
+                mapping['plan'] = data;
+                mapping['plan-id-hidden'] = data;
+                mapping['plan-name-hidden'] = data;
+              } else if (dataType.includes('ご要望') || dataType.includes('ご連絡事項') || dataType.includes('コメント') || dataType.includes('特記')) {
+                mapping['comment'] = data;
+              } else if (dataType.includes('電話') || dataType.includes('tel')) {
+                mapping['tel'] = data;
+                mapping['phone'] = data;
+              }
+            });
+            return mapping;
+          };
+          
+          const directMapping = createDirectMapping(naturalCase.test_data);
+          const matchingData = directMapping[input.name];
+          
+          if (matchingData) {
+            testValue = matchingData.value;
+            console.log(`✅ 直接マッピング成功: "${input.name}" → "${matchingData.type}" = "${testValue}" (シナリオ: ${scenarioId})`);
+          } else {
+            console.log(`⚠️ 直接マッピング失敗: "${input.name}" - 利用可能なマッピング: ${Object.keys(directMapping).join(', ')} (シナリオ: ${scenarioId})`);
+          }
+        }
       }
 
-      // 無効な値のテスト（適切な場合）
-      if (input.type === 'email' || input.type === 'number') {
-        const invalidValue = generateInvalidValue(input.type);
+      // 🔧 入力要素タイプ別のアクション分岐（チェックボックス修正）
+      const inputType = input.type?.toLowerCase() || 'text';
+      
+      if (inputType === 'checkbox') {
+        // チェックボックスの場合はcheckアクションを使用
         steps.push({
-          label: `${input.name || input.id || input.type}に無効な値を入力してバリデーション確認`,
+          label: `${input.name}をチェック`,
+          action: 'check',
+          target: `[name="${input.name}"]`,
+          scenario_id: scenarioId,
+          field_mapping: {
+            field_name: input.name,
+            field_type: input.type,
+            test_data_type: 'checkbox'
+          }
+        });
+      } else if (inputType === 'radio') {
+        // ラジオボタンの場合もcheckアクションを使用
+        steps.push({
+          label: `${input.name}を選択`,
+          action: 'check',
+          target: `[name="${input.name}"]`,
+          value: testValue,
+          scenario_id: scenarioId,
+          field_mapping: {
+            field_name: input.name,
+            field_type: input.type,
+            test_data_type: naturalCase?.test_data?.find(d => d.value === testValue)?.type || null
+          }
+        });
+      } else if (inputType === 'hidden') {
+        // hiddenフィールドはスキップ
+        console.log(`⏭️ ステップをスキップ: ${input.name}に有効な値を入力`);
+      } else {
+        // text, email, tel, number, date等の通常入力フィールド
+        steps.push({
+          label: `${input.name}に有効な値を入力`,
           action: 'fill',
-          target: inputSelector,
-          value: invalidValue
+          target: `[name="${input.name}"]`,
+          value: testValue,
+          scenario_id: scenarioId, // 🎯 シナリオIDを追加
+          field_mapping: {
+            field_name: input.name,
+            field_type: input.type,
+            test_data_type: naturalCase?.test_data?.find(d => d.value === testValue)?.type || null
+          }
         });
       }
     } else if (input.tagName === 'SELECT') {
@@ -885,7 +984,7 @@ function generateInputValidationStepsFromDOM(steps, domInfo) {
     });
   }
 
-  console.log(`✅ 入力検証ステップ生成完了: ${steps.length}ステップ`);
+  console.log(`✅ 入力検証ステップ生成完了: ${steps.length}ステップ (バリデーション: ${includesValidationTests ? '有効' : '無効'})`);
   return steps;
 }
 
@@ -1060,6 +1159,141 @@ function generateInvalidValue(inputType) {
 }
 
 /**
+ * expected_resultsをPlaywrightアサーションに変換
+ * @param {Array} expectedResults - 期待結果の配列
+ * @param {Object} domInfo - DOM情報
+ * @param {string} category - テストカテゴリ
+ * @returns {Array} アサーションステップの配列
+ */
+function convertExpectedResultsToAssertions(expectedResults, domInfo, category) {
+  const assertionSteps = [];
+  
+  if (!expectedResults || !Array.isArray(expectedResults)) {
+    return assertionSteps;
+  }
+
+  expectedResults.forEach((expectedResult, index) => {
+    const result = expectedResult.toLowerCase();
+    
+    // 表示確認系のアサーション
+    if (result.includes('表示') || result.includes('配置') || result.includes('表示される')) {
+      if (result.includes('ページ') || result.includes('画面')) {
+        assertionSteps.push({
+          label: `期待結果確認: ${expectedResult}`,
+          action: "assertVisible",
+          target: "body",
+          expected_result: expectedResult,
+          assertion_type: "page_display"
+        });
+      } else if (result.includes('要素') || result.includes('ui')) {
+        // DOM情報から主要要素の表示確認
+        domInfo.elements.inputs.slice(0, 3).forEach(input => {
+          if (input.name) {
+            assertionSteps.push({
+              label: `期待結果確認: ${input.name}入力欄の表示`,
+              action: "assertVisible",
+              target: input.recommendedSelector,
+              expected_result: expectedResult,
+              assertion_type: "element_display"
+            });
+          }
+        });
+      }
+    }
+    
+    // 入力値確認系のアサーション
+    if (result.includes('入力') && (result.includes('反映') || result.includes('表示'))) {
+      if (result.includes('宿泊日') || result.includes('日付')) {
+        assertionSteps.push({
+          label: `期待結果確認: 宿泊日の値が正しく反映されている`,
+          action: "assertText",
+          target: "[name='date'], .date-display, .宿泊日",
+          value: "2025/07/17",
+          expected_result: expectedResult,
+          assertion_type: "value_verification"
+        });
+      }
+      if (result.includes('氏名') || result.includes('名前')) {
+        assertionSteps.push({
+          label: `期待結果確認: 氏名が正しく反映されている`,
+          action: "assertText", 
+          target: "[name='username'], .username-display, .氏名",
+          value: "hoge fuga",
+          expected_result: expectedResult,
+          assertion_type: "value_verification"
+        });
+      }
+      if (result.includes('メール')) {
+        assertionSteps.push({
+          label: `期待結果確認: メールアドレスが正しく反映されている`,
+          action: "assertText",
+          target: "[name='email'], .email-display, .メールアドレス",
+          value: "hogefuga@example.com",
+          expected_result: expectedResult,
+          assertion_type: "value_verification"
+        });
+      }
+    }
+    
+    // 画面遷移確認系のアサーション
+    if (result.includes('遷移') || result.includes('画面')) {
+      if (result.includes('確認') || result.includes('宿泊予約確認')) {
+        assertionSteps.push({
+          label: `期待結果確認: ${expectedResult}`,
+          action: "assertURL",
+          target: "*confirm*",
+          expected_result: expectedResult,
+          assertion_type: "navigation_verification"
+        });
+        
+        assertionSteps.push({
+          label: `期待結果確認: 確認画面のタイトル表示`,
+          action: "assertVisible",
+          target: "h1, h2, .title, .page-title",
+          expected_result: expectedResult,
+          assertion_type: "page_title_verification"
+        });
+      }
+    }
+    
+    // エラー処理確認系のアサーション
+    if (result.includes('エラー') || result.includes('バリデーション')) {
+      assertionSteps.push({
+        label: `期待結果確認: ${expectedResult}`,
+        action: "assertValidationError",
+        target: ".error, .validation-error, [class*='error']",
+        expected_result: expectedResult,
+        assertion_type: "error_verification"
+      });
+    }
+    
+    // 機能確認系のアサーション
+    if (result.includes('機能') || result.includes('動作')) {
+      assertionSteps.push({
+        label: `期待結果確認: ${expectedResult}`,
+        action: "assertResponse",
+        target: "body",
+        expected_result: expectedResult,
+        assertion_type: "functionality_verification"
+      });
+    }
+    
+    // 汎用的なアサーション（具体的なマッチがない場合）
+    if (assertionSteps.length === 0 || assertionSteps.filter(step => step.expected_result === expectedResult).length === 0) {
+      assertionSteps.push({
+        label: `期待結果確認: ${expectedResult}`,
+        action: "assertVisible",
+        target: "body",
+        expected_result: expectedResult,
+        assertion_type: "general_verification"
+      });
+    }
+  });
+
+  return assertionSteps;
+}
+
+/**
  * 自然言語テストケースからPlaywright実装を生成
  * @param {Object} naturalCase - 自然言語テストケース
  * @param {Object} domInfo - DOM情報
@@ -1083,7 +1317,7 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
       generateDisplayStepsFromDOM(steps, domInfo);
       break;
     case 'input_validation':
-      generateInputValidationStepsFromDOM(steps, domInfo);
+      generateInputValidationStepsFromDOM(steps, domInfo, naturalCase);
       break;
     case 'interaction':
       generateInteractionStepsFromDOM(steps, domInfo);
@@ -1099,6 +1333,31 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
       break;
   }
 
+  // 🚀 NEW: expected_resultsをアサーションに変換して追加
+  if (naturalCase.expected_results && naturalCase.expected_results.length > 0) {
+    console.log(`🎯 expected_results変換: ${naturalCase.expected_results.length}件の期待結果をアサーションに変換`);
+    
+    const assertionSteps = convertExpectedResultsToAssertions(
+      naturalCase.expected_results, 
+      domInfo, 
+      naturalCase.category
+    );
+    
+    if (assertionSteps.length > 0) {
+      // アサーションステップの前に少し待機
+      steps.push({
+        label: "アサーション実行前の待機",
+        action: "waitForTimeout",
+        target: "1000"
+      });
+      
+      // アサーションステップを追加
+      steps.push(...assertionSteps);
+      
+      console.log(`✅ ${assertionSteps.length}件のアサーションステップを追加しました`);
+    }
+  }
+
   return {
     route_id: `route_${getTimestamp()}`,
     generated_from_natural_case: naturalCase.id,
@@ -1107,12 +1366,15 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
     priority: naturalCase.priority,
     user_story_id: userStoryInfo ? userStoryInfo.currentId : null,
     steps: steps,
+    expected_results: naturalCase.expected_results || [],
+    assertion_count: steps.filter(step => step.assertion_type).length,
     generated_at: new Date().toISOString(),
     metadata: {
       source: 'generateSmartScenarios.js DOM照合',
-      version: '2.0.0',
+      version: '2.1.0',
       type: 'playwright_implementation',
-      generation_method: 'dom_matching'
+      generation_method: 'dom_matching_with_assertions',
+      has_assertions: steps.some(step => step.assertion_type)
     }
   };
 }
@@ -1726,6 +1988,13 @@ async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null
   // 自然言語テストケースが指定されている場合はDOM照合モードで実行
   if (naturalTestCasesFile) {
     console.log('🔄 DOM照合モードで実行します');
+    
+    // 🚀 NEW: インデックスファイルを直接指定された場合の一括生成
+    if (naturalTestCasesFile.includes('_index.json')) {
+      console.log('📋 インデックスファイルを検出: 全カテゴリルート一括生成モード');
+      const batchMetadata = await generateAllCategoryRoutes(naturalTestCasesFile, pageInfo, url, userStoryInfo);
+      return batchMetadata;
+    }
     
     // 1. 自然言語テストケースを読み込み
     const testCasesData = loadNaturalLanguageTestCases(naturalTestCasesFile);
@@ -3125,10 +3394,16 @@ class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
     const routeJson = await generateSmartTestRoute(url, testGoal, pageInfo, testPoints, pdfFileInfo, userStoryInfo, naturalTestCasesFile);
     if (!routeJson) throw new Error('ルート生成に失敗しました');
 
-    // 5. 保存
-    const outPath = path.join(resultsDir, `route_${getTimestamp()}.json`);
-    fs.writeFileSync(outPath, JSON.stringify(routeJson, null, 2), 'utf-8');
-    console.log(`💾 Smart Route JSON saved to ${outPath}`);
+    // 5. 保存（バッチ処理の場合はスキップ）
+    if (routeJson.batch_id) {
+      // バッチメタデータの場合は既に保存済みなのでスキップ
+      console.log(`💾 Batch metadata saved with ${routeJson.total_routes} routes`);
+    } else {
+      // 通常のルートファイルの場合は保存
+      const outPath = path.join(resultsDir, `route_${getTimestamp()}.json`);
+      fs.writeFileSync(outPath, JSON.stringify(routeJson, null, 2), 'utf-8');
+      console.log(`💾 Smart Route JSON saved to ${outPath}`);
+    }
     
     // DOM照合モードの場合、使用された自然言語テストケース情報をログ出力
     if (naturalTestCasesFile && routeJson.generated_from_natural_case) {
@@ -3155,4 +3430,123 @@ function getTimestamp() {
   const mi = pad(d.getMinutes());
   const ss = pad(d.getSeconds());
   return `${yy}${mm}${dd}${hh}${mi}${ss}`;
+}
+
+/**
+ * インデックスファイルから全カテゴリのルートを一括生成
+ * @param {string} indexFilePath - インデックスファイルのパス
+ * @param {Object} pageInfo - DOM情報
+ * @param {string} url - 対象URL
+ * @param {Object} userStoryInfo - ユーザーストーリー情報
+ * @returns {Object} 生成されたルートファイル情報
+ */
+async function generateAllCategoryRoutes(indexFilePath, pageInfo, url, userStoryInfo) {
+  console.log(`🚀 全カテゴリルート一括生成開始: ${indexFilePath}`);
+  
+  // インデックスファイルを読み込み
+  const indexData = JSON.parse(fs.readFileSync(indexFilePath, 'utf8'));
+  
+  if (indexData.metadata.version_type !== 'category_index') {
+    throw new Error('インデックスファイルではありません');
+  }
+  
+  const baseDir = path.dirname(indexFilePath);
+  const generatedRoutes = [];
+  const timestamp = getTimestamp();
+  
+  console.log(`📊 処理対象: ${indexData.categories.length}カテゴリ`);
+  
+  for (const categoryInfo of indexData.categories) {
+    const categoryFilePath = path.join(baseDir, categoryInfo.file);
+    
+    if (!fs.existsSync(categoryFilePath)) {
+      console.warn(`⚠️ カテゴリファイルが見つかりません: ${categoryFilePath}`);
+      continue;
+    }
+    
+    console.log(`\n🔄 処理中: ${categoryInfo.category} (${categoryInfo.count}件)`);
+    
+    try {
+      // カテゴリファイルを読み込み
+      const categoryData = JSON.parse(fs.readFileSync(categoryFilePath, 'utf8'));
+      
+      // 各テストケースからルートを生成
+      for (let i = 0; i < categoryData.testCases.length; i++) {
+        const testCase = categoryData.testCases[i];
+        
+        // 一意のタイムスタンプを生成（重複回避）
+        await new Promise(resolve => setTimeout(resolve, 10)); // 10ms待機
+        const routeData = generatePlaywrightRouteFromNaturalCase(testCase, pageInfo, url, userStoryInfo);
+        
+        // カテゴリ情報を追加
+        routeData.category = categoryInfo.category;
+        routeData.source_file = categoryInfo.file;
+        routeData.batch_generation = true;
+        routeData.batch_timestamp = timestamp;
+        routeData.test_case_index = i;
+        
+        // ルートファイルを保存（一意のファイル名で重複を完全回避）
+        const uniqueRouteId = `${routeData.route_id}_${categoryInfo.category}_${i}`;
+        const routeFileName = `${uniqueRouteId}.json`;
+        const routeFilePath = path.join(baseDir, routeFileName);
+        fs.writeFileSync(routeFilePath, JSON.stringify(routeData, null, 2), 'utf8');
+        
+        generatedRoutes.push({
+          route_id: routeData.route_id,
+          category: categoryInfo.category,
+          test_case_id: testCase.id,
+          file_path: routeFilePath,
+          file_name: routeFileName,
+          assertion_count: routeData.assertion_count,
+          step_count: routeData.steps.length
+        });
+        
+        console.log(`   ✅ ${routeData.route_id} (${routeData.steps.length}ステップ, ${routeData.assertion_count}アサーション)`);
+      }
+      
+    } catch (error) {
+      console.error(`   ❌ ${categoryInfo.category}の処理に失敗:`, error.message);
+    }
+  }
+  
+  // 実行順序を決定（表示 → 入力 → その他）
+  const executionOrder = ['表示', '入力', '画面遷移', '操作', 'データ確認', 'エラーハンドリング'];
+  generatedRoutes.sort((a, b) => {
+    const aIndex = executionOrder.indexOf(a.category);
+    const bIndex = executionOrder.indexOf(b.category);
+    if (aIndex !== -1 && bIndex !== -1) {
+      return aIndex - bIndex;
+    }
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    return a.category.localeCompare(b.category);
+  });
+  
+  // バッチ実行用のメタデータファイルを生成
+  const batchMetadata = {
+    batch_id: `batch_${timestamp}`,
+    generated_at: new Date().toISOString(),
+    source_index: path.basename(indexFilePath),
+    total_routes: generatedRoutes.length,
+    categories: [...new Set(generatedRoutes.map(r => r.category))],
+    execution_order: executionOrder,
+    routes: generatedRoutes,
+    recommended_execution: {
+      sequential: true,
+      order: "category_priority",
+      description: "表示テスト → 入力テスト → その他の順番で実行することを推奨"
+    }
+  };
+  
+  const batchMetadataPath = path.join(baseDir, `batch_metadata_${timestamp}.json`);
+  fs.writeFileSync(batchMetadataPath, JSON.stringify(batchMetadata, null, 2), 'utf8');
+  
+  console.log(`\n🎉 全カテゴリルート一括生成完了!`);
+  console.log(`📊 生成サマリー:`);
+  console.log(`   - 総ルート数: ${generatedRoutes.length}`);
+  console.log(`   - 総カテゴリ数: ${batchMetadata.categories.length}`);
+  console.log(`   - 推奨実行順序: ${executionOrder.join(' → ')}`);
+  console.log(`📋 バッチメタデータ: ${batchMetadataPath}`);
+  
+  return batchMetadata;
 }

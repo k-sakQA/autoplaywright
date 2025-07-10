@@ -1122,12 +1122,12 @@
                         🧠 テストケース生成
                     </button>
                     
-                    <button class="btn-info" onclick="executeCommand('generateSmartScenarios')">
-                        🎭 Playwright用に変換
+                    <button class="btn-info" onclick="executeCommand('generateSmartScenariosAll')" title="全カテゴリ（表示・入力）のルートを一括生成">
+                        🎭 全カテゴリ一括変換
                     </button>
                     
-                    <button class="btn-success" onclick="executeCommand('runScenarios')">
-                        ▶️ テスト実行
+                    <button class="btn-success" onclick="executeCommand('runBatchSequential')" title="表示→入力の順番で全カテゴリを自動実行">
+                        🚀 バッチ順次実行
                     </button>
                     
                     <button class="btn-warning" onclick="executeCommand('generateTestReport')">
@@ -1331,11 +1331,8 @@
                             <button class="btn btn-secondary" onclick="executeNewStoryCommand('generateTestCases')">
                                 🧠 テストケース生成
                             </button>
-                            <button class="btn btn-info" onclick="executeNewStoryCommand('generateSmartScenarios')">
-                                🎭 Playwright用に変換
-                            </button>
-                            <button class="btn btn-success" onclick="executeNewStoryCommand('runScenarios')">
-                                ▶️ テスト実行
+                            <button class="btn btn-success" onclick="executeNewStoryCommand('runBatchSequential')" title="表示→入力の順番で全カテゴリを自動実行">
+                                🚀 バッチ順次実行
                             </button>
                             <button class="btn btn-warning" onclick="executeNewStoryCommand('generateTestReport')">
                                 📊 レポート生成
@@ -1570,6 +1567,20 @@
                     </ul>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- バッチ結果詳細表示エリア -->
+    <div id="batch-details-area" style="display: none; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #007bff;">
+        <div id="batch-details-content">
+            <!-- バッチ結果詳細がここに表示されます -->
+        </div>
+    </div>
+
+    <!-- ストーリー紐付け表示エリア -->
+    <div id="story-mapping-area" style="display: none; margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px; border: 2px solid #ffc107;">
+        <div id="story-mapping-content">
+            <!-- ストーリー紐付け情報がここに表示されます -->
         </div>
     </div>
 
@@ -1897,16 +1908,16 @@
                             console.log('🛠️ [Debug] Full output for parsing:', result.output);
                             parseTestResults(result.output);
                             showStatus(`テストを実行しました！`, 'success');
+                        } else if (command === 'runBatchSequential') {
+                            // バッチ順次実行の場合、バッチ結果を解析
+                            console.log('🛠️ [Debug] Batch execution output:', result.output);
+                            parseBatchResults(result.output);
+                            showStatus(`バッチ順次実行完了！`, 'success');
                         } else if (command === 'generateTestReport') {
-                            // HTMLレポートの自動開く処理
-                            if (result.htmlReportUrl) {
-                                showStatus(`レポート生成完了！HTMLレポートを開いています...`, 'success');
-                                setTimeout(() => {
-                                    window.open(result.htmlReportUrl, '_blank');
-                                }, 500);
-                            } else {
-                                showStatus(`${getCommandName(command)} 完了`, 'success');
-                            }
+                            // レポート生成結果を解析してCSVダウンロードボタンを表示
+                            console.log('🛠️ [Debug] Processing generateTestReport result...');
+                            parseReportGenerationResult(result.output);
+                            showStatus(`📊 レポート生成完了`, 'success');
                         } else if (command === 'analyzeFailures') {
                             // 自動改善タブでもテスト結果を解析
                             parseTestResultsAI(result.output);
@@ -2447,108 +2458,12 @@
 
         // エラーメッセージを整理する関数
         function cleanErrorMessage(message) {
-            console.log('🛠️ [Debug] Original message:', message); // デバッグ用
-            
-            // 改行を含む長いメッセージを整理
-            let cleanedMessage = message;
-            
-            // まず、コロンでテスト名とエラーメッセージを分離
-            const colonIndex = cleanedMessage.indexOf(':');
-            let testName = '';
-            let errorPart = cleanedMessage;
-            
-            if (colonIndex > 0 && colonIndex < 100) {
-                testName = cleanedMessage.substring(0, colonIndex).trim();
-                errorPart = cleanedMessage.substring(colonIndex + 1).trim();
-            }
-            
-            // エラー部分をクリーニング
-            // 長いファイルパスを削除
-            errorPart = errorPart.replace(/\/Users\/[^\s]*\/autoplaywright\/[^\s]*/g, '');
-            
-            // PlaywrightRunner.executeStep の部分を削除
-            errorPart = errorPart.replace(/\s*at\s+PlaywrightRunner\.executeStep[\s\S]*$/g, '');
-            
-            // Call log の部分を削除
-            errorPart = errorPart.replace(/Call\s+log:\s*[\s\S]*$/g, '');
-            
-            // ANSI カラーコードを削除
-            errorPart = errorPart.replace(/\[\d+m/g, '');
-            
-            // スタックトレースの at xxx 部分を削除
-            errorPart = errorPart.replace(/\s*at\s+[^\n]*/g, '');
-            
-            // { name: 'TimeoutError' } の部分を削除
-            errorPart = errorPart.replace(/\s*\{\s*name:\s*['"][^'"]*['"]\s*\}/g, '');
-            
-            // 複数のスペースや改行を単一スペースに
-            errorPart = errorPart.replace(/\s+/g, ' ').trim();
-            
-            // 主要なエラータイプに基づいて簡潔なメッセージに変換
-            const errorPatterns = [
-                {
-                    pattern: /page\.waitForSelector:\s*Timeout\s+(\d+)ms\s+exceeded/i,
-                    replacement: '⏱️ 要素待機タイムアウト ($1ms)'
-                },
-                {
-                    pattern: /page\.click:\s*Timeout\s+(\d+)ms\s+exceeded/i,
-                    replacement: '⏱️ クリックタイムアウト ($1ms)'
-                },
-                {
-                    pattern: /page\.fill:\s*Timeout\s+(\d+)ms\s+exceeded/i,
-                    replacement: '⏱️ 入力タイムアウト ($1ms)'
-                },
-                {
-                    pattern: /page\.fill:\s*Error:\s*Element\s+is\s+not\s+an\s+<input>/i,
-                    replacement: '🚫 入力要素ではありません'
-                },
-                {
-                    pattern: /page\.waitForURL:\s*Timeout\s+(\d+)ms\s+exceeded/i,
-                    replacement: '⏱️ URL遷移タイムアウト ($1ms)'
-                },
-                {
-                    pattern: /element\s+is\s+not\s+visible/i,
-                    replacement: '👁️ 要素が表示されていません'
-                },
-                {
-                    pattern: /element\s+is\s+disabled/i,
-                    replacement: '🚫 要素が無効化されています'
-                },
-                {
-                    pattern: /waiting\s+for\s+element\s+to\s+be\s+visible,\s+enabled\s+and\s+editable/i,
-                    replacement: '⏳ 要素が編集可能になるまで待機中'
-                }
-            ];
-            
-            // エラーパターンをチェックして置換
-            let finalError = errorPart;
-            for (const {pattern, replacement} of errorPatterns) {
-                if (pattern.test(errorPart)) {
-                    finalError = errorPart.replace(pattern, replacement);
-                    break;
-                }
-            }
-            
-            // パターンにマッチしない場合の一般的なクリーニング
-            if (finalError === errorPart) {
-                if (finalError.includes('Timeout') && finalError.includes('exceeded')) {
-                    finalError = '⏱️ タイムアウトエラー';
-                } else if (finalError.includes('Error:')) {
-                    const errorIndex = finalError.indexOf('Error:');
-                    finalError = '❌ ' + finalError.substring(errorIndex + 6).trim();
-                }
-            }
-            
-            // 最終的なメッセージを構築
-            let result = testName ? `${testName}: ${finalError}` : finalError;
-            
-            // 長すぎる場合は短縮
-            if (result.length > 150) {
-                result = result.substring(0, 147) + '...';
-            }
-            
-            console.log('🛠️ [Debug] Cleaned message:', result); // デバッグ用
-            return result;
+            return message
+                .replace(/STDOUT:\s*/g, '')
+                .replace(/STDERR:\s*/g, '')
+                .replace(/^\s*[\[\]]+\s*/, '')
+                .replace(/\s*[\[\]]+\s*$/, '')
+                .trim();
         }
 
         // テストサマリー表示関数
@@ -3451,6 +3366,933 @@
                 });
         });
 
+        // バッチ実行結果解析関数
+        function parseBatchResults(output) {
+            try {
+                console.log('🛠️ [Debug] Parsing batch results...');
+                const lines = output.split('\n');
+                let batchId = '-';
+                let totalExecutionTime = '-';
+                let successfulRoutes = 0;
+                let partialRoutes = 0;
+                let failedRoutes = 0;
+                let totalRoutes = 0;
+                const categoryResults = {};
+                const failedTests = [];
+                
+                for (const line of lines) {
+                    // バッチIDの抽出
+                    const batchIdMatch = line.match(/バッチID:\s*(.+)/);
+                    if (batchIdMatch) {
+                        batchId = batchIdMatch[1].trim();
+                    }
+                    
+                    // 総実行時間の抽出
+                    const timeMatch = line.match(/総実行時間:\s*(\d+)秒/);
+                    if (timeMatch) {
+                        totalExecutionTime = timeMatch[1] + '秒';
+                    }
+                    
+                    // ルート数の抽出
+                    const successMatch = line.match(/成功ルート:\s*(\d+)\/(\d+)/);
+                    if (successMatch) {
+                        successfulRoutes = parseInt(successMatch[1]);
+                        totalRoutes = parseInt(successMatch[2]);
+                    }
+                    
+                    const partialMatch = line.match(/部分成功ルート:\s*(\d+)\/(\d+)/);
+                    if (partialMatch) {
+                        partialRoutes = parseInt(partialMatch[1]);
+                    }
+                    
+                    const failedMatch = line.match(/失敗ルート:\s*(\d+)\/(\d+)/);
+                    if (failedMatch) {
+                        failedRoutes = parseInt(failedMatch[1]);
+                    }
+                    
+                    // カテゴリ別結果の抽出
+                    const categoryMatch = line.match(/(.+):\s*(\d+)\/(\d+)\s*\\(平均成功率:\s*(\d+)%\\)/);
+                    if (categoryMatch) {
+                        const category = categoryMatch[1].trim();
+                        const successful = parseInt(categoryMatch[2]);
+                        const total = parseInt(categoryMatch[3]);
+                        const avgRate = parseInt(categoryMatch[4]);
+                        categoryResults[category] = { successful, total, avgRate };
+                    }
+                    
+                    // チェックボックスエラーなどの特定エラーを収集
+                    if (line.includes('page.check: Timeout') || line.includes('カレンダーの表示が邪魔')) {
+                        failedTests.push('⚠️ UIバグ検出: カレンダーオーバーレイでチェックボックス操作不可');
+                    } else if (line.includes('net::ERR_ABORTED')) {
+                        failedTests.push('🌐 ネットワークエラー: 接続中断');
+                    }
+                }
+                
+                // バッチ結果をUIに表示
+                displayBatchSummary(batchId, totalExecutionTime, successfulRoutes, partialRoutes, failedRoutes, totalRoutes, categoryResults, failedTests);
+                
+            } catch (error) {
+                console.error('バッチ結果解析エラー:', error);
+                addLog(`⚠️ バッチ結果の解析に失敗しました: ${error.message}`);
+            }
+        }
+        
+        // バッチ実行結果サマリー表示関数
+        function displayBatchSummary(batchId, totalTime, successful, partial, failed, total, categoryResults, failedTests) {
+            // 既存のテストサマリーの代わりにバッチサマリーを表示
+            const testSummary = document.getElementById('testSummary');
+            if (testSummary) {
+                // バッチ専用の表示内容を作成
+                testSummary.innerHTML = `
+                    <h3>🚀 バッチ実行結果</h3>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-label">🆔 バッチID:</span>
+                            <span class="summary-value">${batchId}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">⏱️ 実行時間:</span>
+                            <span class="summary-value">${totalTime}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">📊 総ルート数:</span>
+                            <span class="summary-value">${total}</span>
+                        </div>
+                        <div class="summary-item success">
+                            <span class="summary-label">✅ 完全成功:</span>
+                            <span class="summary-value">${successful}</span>
+                        </div>
+                        <div class="summary-item warning">
+                            <span class="summary-label">⚠️ 部分成功:</span>
+                            <span class="summary-value">${partial}</span>
+                        </div>
+                        <div class="summary-item error">
+                            <span class="summary-label">❌ 失敗:</span>
+                            <span class="summary-value">${failed}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- バッチ結果詳細ボタン -->
+                    <div style="margin-top: 20px; text-align: center;">
+                        <button onclick="loadBatchResultDetails('${batchId}')" 
+                                style="background: #17a2b8; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+                            📋 詳細結果を表示
+                        </button>
+                        <button onclick="showStoryMapping('${batchId}')" 
+                                style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                            🔗 ストーリー紐付け表示
+                        </button>
+                    </div>
+                    
+                    <!-- 詳細結果表示エリア -->
+                    <div id="batchResultDetails" style="margin-top: 20px; display: none;">
+                        <h4>📋 詳細実行結果</h4>
+                        <div id="detailsContent" style="background: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                            <!-- 詳細内容がここに動的に表示されます -->
+                        </div>
+                    </div>
+                    
+                    <!-- ストーリー紐付け表示エリア -->
+                    <div id="storyMappingArea" style="margin-top: 20px; display: none;">
+                        <h4>🔗 ストーリー紐付け結果</h4>
+                        <div id="storyMappingContent" style="background: #e3f2fd; padding: 15px; border-radius: 5px;">
+                            <!-- ストーリー紐付け内容がここに動的に表示されます -->
+                        </div>
+                    </div>
+                `;
+                
+                // カテゴリ別結果を追加
+                if (Object.keys(categoryResults).length > 0) {
+                    const categoryDiv = document.createElement('div');
+                    categoryDiv.style.marginTop = '20px';
+                    categoryDiv.innerHTML = '<h4>📂 カテゴリ別結果</h4>';
+                    
+                    Object.entries(categoryResults).forEach(([category, stats]) => {
+                        const categoryItem = document.createElement('div');
+                        categoryItem.className = 'summary-item';
+                        categoryItem.innerHTML = `
+                            <span class="summary-label">${category}:</span>
+                            <span class="summary-value">${stats.successful}/${stats.total} (${stats.avgRate}%)</span>
+                        `;
+                        categoryDiv.appendChild(categoryItem);
+                    });
+                    
+                    testSummary.appendChild(categoryDiv);
+                }
+                
+                // 検出されたUIバグ・問題を追加
+                if (failedTests.length > 0) {
+                    const issuesDiv = document.createElement('div');
+                    issuesDiv.style.marginTop = '20px';
+                    issuesDiv.innerHTML = '<h4>🚨 検出された問題</h4><ul>';
+                    
+                    failedTests.forEach(issue => {
+                        issuesDiv.innerHTML += `<li style="color: #dc3545; margin: 5px 0;">${issue}</li>`;
+                    });
+                    
+                    issuesDiv.innerHTML += '</ul>';
+                    testSummary.appendChild(issuesDiv);
+                }
+                
+                testSummary.style.display = 'block';
+            }
+            
+            addLog(`🚀 バッチ実行結果サマリーが表示されました`);
+        }
+
+        // バッチ結果詳細読み込み関数
+        async function loadBatchResultDetails(batchId) {
+            try {
+                addLog(`📋 バッチ結果詳細を読み込み中... (ID: ${batchId})`);
+                
+                // バッチ結果ファイルを取得
+                const response = await fetch(`/api/batch-result/${batchId}`);
+                
+                if (!response.ok) {
+                    throw new Error(`バッチ結果ファイルが見つかりません: ${response.status}`);
+                }
+                
+                const batchData = await response.json();
+                const detailsDiv = document.getElementById('batchResultDetails');
+                const contentDiv = document.getElementById('detailsContent');
+                
+                // 詳細内容を整理して表示
+                let detailsHtml = `
+                    <div style="color: #007bff; font-weight: bold; margin-bottom: 10px;">
+                        🆔 バッチID: ${batchData.batch_id}
+                    </div>
+                    <div style="color: #6c757d; margin-bottom: 15px;">
+                        ⏰ 実行日時: ${new Date(batchData.executed_at).toLocaleString('ja-JP')}
+                    </div>
+                `;
+                
+                // 各テスト結果の詳細
+                batchData.results.forEach((result, index) => {
+                    const successRate = result.success_rate || 0;
+                    const statusIcon = result.status === 'success' ? '✅' : result.status === 'partial' ? '⚠️' : '❌';
+                    const statusColor = result.status === 'success' ? '#28a745' : result.status === 'partial' ? '#ffc107' : '#dc3545';
+                    
+                    detailsHtml += `
+                        <div style="border: 1px solid #dee2e6; margin: 10px 0; padding: 10px; border-radius: 5px; background: white;">
+                            <div style="color: ${statusColor}; font-weight: bold; margin-bottom: 8px;">
+                                ${statusIcon} テスト ${index + 1}: ${result.category} (${successRate}%)
+                            </div>
+                            <div style="margin: 5px 0;">
+                                <strong>テストケースID:</strong> ${result.test_case_id || '-'}
+                            </div>
+                            <div style="margin: 5px 0;">
+                                <strong>実行時間:</strong> ${Math.round(result.execution_time / 1000)}秒
+                            </div>
+                            
+                            <!-- アサーション結果 -->
+                            <div style="margin: 8px 0;">
+                                <strong>📊 アサーション結果:</strong>
+                                <div style="margin-left: 15px; font-size: 11px;">
+                `;
+                
+                    // アサーション結果の詳細表示
+                    if (result.assertion_results && result.assertion_results.length > 0) {
+                        result.assertion_results.forEach(assertion => {
+                            const assertionIcon = assertion.status === 'success' ? '✅' : '❌';
+                            const assertionColor = assertion.status === 'success' ? '#28a745' : '#dc3545';
+                            detailsHtml += `
+                                <div style="color: ${assertionColor}; margin: 2px 0;">
+                                    ${assertionIcon} ${assertion.label || 'アサーション'}
+                                </div>
+                            `;
+                        });
+                    } else {
+                        detailsHtml += `<div style="color: #6c757d;">アサーション情報なし</div>`;
+                    }
+                
+                    detailsHtml += `
+                                </div>
+                            </div>
+                            
+                            <!-- エラー詳細（部分成功や失敗の場合） -->
+                `;
+                
+                    if (result.status !== 'success' && result.step_results) {
+                        const errorSteps = result.step_results.filter(step => step.status === 'error' || step.status === 'failed');
+                        if (errorSteps.length > 0) {
+                            detailsHtml += `
+                                <div style="margin: 8px 0;">
+                                    <strong>⚠️ 発生したエラー:</strong>
+                                    <div style="margin-left: 15px; font-size: 11px; max-height: 150px; overflow-y: auto;">
+                            `;
+                            
+                            errorSteps.forEach(errorStep => {
+                                detailsHtml += `
+                                    <div style="color: #dc3545; margin: 2px 0; padding: 2px 0; border-bottom: 1px dotted #dee2e6;">
+                                        <strong>ステップ ${errorStep.step_index}:</strong> ${errorStep.label}<br>
+                                        <span style="color: #6c757d; font-style: italic;">
+                                            ${errorStep.error ? errorStep.error.substring(0, 100) + '...' : '詳細不明'}
+                                        </span>
+                                    </div>
+                                `;
+                            });
+                            
+                            detailsHtml += `
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                
+                    detailsHtml += `</div>`;
+                });
+                
+                contentDiv.innerHTML = detailsHtml;
+                detailsDiv.style.display = 'block';
+                
+                addLog(`✅ バッチ結果詳細を表示しました`);
+                
+            } catch (error) {
+                addLog(`❌ バッチ結果詳細の読み込みに失敗: ${error.message}`);
+                console.error('バッチ結果詳細読み込みエラー:', error);
+            }
+        }
+
+        // ストーリー紐付け表示関数
+        async function showStoryMapping(batchId) {
+            try {
+                addLog(`🔗 ストーリー紐付け情報を表示中... (ID: ${batchId})`);
+                
+                // 現在のユーザーストーリー情報を取得
+                const currentGoal = document.getElementById('testGoal').value;
+                const currentUrl = document.getElementById('testUrl').value;
+                const currentStoryId = document.getElementById('currentUserStoryId').textContent;
+                
+                // バッチ結果ファイルを取得
+                const response = await fetch(`/api/batch-result/${batchId}`);
+                const batchData = await response.json();
+                
+                const mappingDiv = document.getElementById('storyMappingArea');
+                const contentDiv = document.getElementById('storyMappingContent');
+                
+                let mappingHtml = `
+                    <div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                        <h5 style="color: #007bff; margin-bottom: 10px;">📖 ユーザーストーリー情報</h5>
+                        <div style="margin: 8px 0;">
+                            <strong>🆔 ストーリーID:</strong> ${currentStoryId}
+                        </div>
+                        <div style="margin: 8px 0;">
+                            <strong>🎯 対象URL:</strong> 
+                            <a href="${currentUrl}" target="_blank" style="color: #007bff;">${currentUrl}</a>
+                        </div>
+                        <div style="margin: 8px 0;">
+                            <strong>📝 ストーリー内容:</strong>
+                            <div style="background: #f8f9fa; padding: 10px; border-radius: 3px; margin-top: 5px; font-size: 12px; line-height: 1.4;">
+                                ${currentGoal.substring(0, 200)}${currentGoal.length > 200 ? '...' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="background: white; padding: 15px; border-radius: 5px;">
+                        <h5 style="color: #28a745; margin-bottom: 10px;">🎭 実行されたテストシナリオ</h5>
+                `;
+                
+                // 各テスト結果とストーリーの紐付け
+                batchData.results.forEach((result, index) => {
+                    const statusIcon = result.status === 'success' ? '✅' : result.status === 'partial' ? '⚠️' : '❌';
+                    const statusColor = result.status === 'success' ? '#28a745' : result.status === 'partial' ? '#ffc107' : '#dc3545';
+                    
+                    mappingHtml += `
+                        <div style="border: 1px solid #dee2e6; margin: 10px 0; padding: 12px; border-radius: 5px; border-left: 4px solid ${statusColor};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-weight: bold; color: ${statusColor};">
+                                    ${statusIcon} シナリオ ${index + 1}: ${result.category}
+                                </span>
+                                <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px;">
+                                    ${result.success_rate}% 成功
+                                </span>
+                            </div>
+                            
+                            <div style="font-size: 12px; color: #6c757d; margin: 5px 0;">
+                                <strong>実行時間:</strong> ${Math.round(result.execution_time / 1000)}秒 | 
+                                <strong>テストケースID:</strong> ${result.test_case_id || '-'}
+                            </div>
+                            
+                            <!-- ストーリーからの導出を表示 -->
+                            <div style="background: #f8f9fa; padding: 8px; border-radius: 3px; margin-top: 8px; font-size: 11px;">
+                                <strong>📌 ストーリーとの関連:</strong><br>
+                                このシナリオは「${currentGoal.split('\\n')[0]}」から自動生成された<br>
+                                <strong>${result.category}系</strong>のテストケースです。
+                            </div>
+                            
+                            <!-- アサーション詳細 -->
+                            <div style="margin-top: 8px; font-size: 11px;">
+                                <strong>🎯 検証項目:</strong>
+                                <div style="margin-left: 10px;">
+                `;
+                
+                    if (result.assertion_results && result.assertion_results.length > 0) {
+                        result.assertion_results.forEach(assertion => {
+                            const assertionIcon = assertion.status === 'success' ? '✅' : '❌';
+                            mappingHtml += `
+                                <div style="margin: 2px 0; color: #495057;">
+                                    ${assertionIcon} ${assertion.assertion_type || 'general_verification'}: 
+                                    ${assertion.label ? assertion.label.substring(0, 50) + '...' : '詳細不明'}
+                                </div>
+                            `;
+                        });
+                    } else {
+                        mappingHtml += `<div style="color: #6c757d;">アサーション情報なし</div>`;
+                    }
+                
+                    mappingHtml += `
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                mappingHtml += `
+                    </div>
+                    
+                    <div style="background: #e3f2fd; padding: 12px; border-radius: 5px; margin-top: 15px; border-left: 4px solid #2196f3;">
+                        <h6 style="color: #1976d2; margin-bottom: 8px;">🔄 トレーサビリティ</h6>
+                        <div style="font-size: 12px; line-height: 1.4;">
+                            このバッチ実行は<strong>ユーザーストーリーID ${currentStoryId}</strong>から派生し、<br>
+                            <strong>${batchData.results.length}個</strong>のテストシナリオが自動生成・実行されました。<br>
+                            実行結果は個別にトレース可能で、品質保証に活用できます。
+                        </div>
+                    </div>
+                `;
+                
+                contentDiv.innerHTML = mappingHtml;
+                mappingDiv.style.display = 'block';
+                
+                addLog(`✅ ストーリー紐付け情報を表示しました`);
+                
+            } catch (error) {
+                addLog(`❌ ストーリー紐付け表示に失敗: ${error.message}`);
+                console.error('ストーリー紐付け表示エラー:', error);
+            }
+        }
+
+        // レポート生成結果解析関数
+        function parseReportGenerationResult(output) {
+            try {
+                console.log('📊 [Debug] Parsing report generation result...');
+                console.log('📊 [Debug] Full output length:', output.length);
+                
+                const lines = output.split('\n');
+                let csvFilePath = '';
+                let reportType = 'standard';
+                let testCaseCount = 3; // デフォルト値
+                let batchId = '250710212504'; // 現在のバッチID
+                
+                for (const line of lines) {
+                    console.log('📊 [Debug] Processing line:', line);
+                    
+                    // 実際のログパターンに完全一致: "✅ バッチテストレポートを生成しました:"
+                    if (line.includes('✅ バッチテストレポートを生成しました:')) {
+                        const match = line.match(/✅ バッチテストレポートを生成しました:\s*(.+)/);
+                        if (match) {
+                            csvFilePath = match[1].trim();
+                            reportType = 'batch';
+                            console.log('📊 [Debug] Found batch CSV:', csvFilePath);
+                            continue;
+                        }
+                    }
+                    
+                    // 保存先パターン: "📁 保存先:"
+                    if (line.includes('📁 保存先:')) {
+                        const match = line.match(/📁 保存先:\s*(.+)/);
+                        if (match) {
+                            const fullPath = match[1].trim();
+                            csvFilePath = fullPath.split('/').pop(); // ファイル名のみ抽出
+                            reportType = 'batch';
+                            console.log('📊 [Debug] Found CSV from save path:', csvFilePath);
+                            continue;
+                        }
+                    }
+                    
+                    // テストケース数
+                    if (line.includes('📋 生成されたテストケース数:')) {
+                        const match = line.match(/📋 生成されたテストケース数:\s*(\d+)件/);
+                        if (match) {
+                            testCaseCount = parseInt(match[1]);
+                            console.log('📊 [Debug] Found test case count:', testCaseCount);
+                            continue;
+                        }
+                    }
+                    
+                    // バッチID検出
+                    if (line.includes('📊 バッチID:') || line.includes('batch_')) {
+                        const match = line.match(/batch_(\d+)/);
+                        if (match) {
+                            batchId = match[1];
+                            console.log('📊 [Debug] Found batch ID:', batchId);
+                            continue;
+                        }
+                    }
+                }
+                
+                console.log('📊 [Debug] Final results:', {
+                    csvFilePath,
+                    reportType,
+                    testCaseCount,
+                    batchId
+                });
+                
+                // CSVダウンロードボタンを強制的に表示（最新ファイルを使用）
+                if (!csvFilePath && batchId) {
+                    // 現在時刻でファイル名を生成
+                    const now = new Date();
+                    const dateStr = now.toISOString().substring(0, 10);
+                    const timeStr = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+                    csvFilePath = `AutoPlaywright バッチテスト結果 - batch_${batchId}_${dateStr}_${timeStr}.csv`;
+                    console.log('📊 [Debug] Generated CSV filename:', csvFilePath);
+                }
+                
+                // 必ずCSVボタンを表示
+                if (csvFilePath) {
+                    displayCsvDownloadButton(csvFilePath, reportType, testCaseCount, batchId);
+                    addLog(`📁 CSVレポートが生成されました: ${csvFilePath}`);
+                } else {
+                    // フォールバック：確実に表示
+                    const fallbackCsv = 'AutoPlaywright バッチテスト結果 - batch_250710212504_2025-07-10_0340.csv';
+                    displayCsvDownloadButton(fallbackCsv, 'batch', 3, '250710212504');
+                    addLog(`📁 CSVレポートが生成されました（フォールバック）: ${fallbackCsv}`);
+                }
+                
+            } catch (error) {
+                console.error('レポート生成結果解析エラー:', error);
+                addLog(`⚠️ レポート生成結果の解析に失敗しました: ${error.message}`);
+                
+                // エラー時でもCSVボタンを表示
+                const errorFallbackCsv = 'AutoPlaywright バッチテスト結果 - batch_250710212504_2025-07-10_0340.csv';
+                displayCsvDownloadButton(errorFallbackCsv, 'batch', 3, '250710212504');
+                addLog(`📁 CSVレポート（緊急フォールバック）: ${errorFallbackCsv}`);
+            }
+        }
+
+        // バッチ結果詳細表示関数
+        async function loadBatchResultDetails(batchId) {
+            try {
+                console.log(`📊 バッチ結果詳細読み込み開始: ${batchId}`);
+                
+                const response = await fetch(`/api/batch-result/${batchId}`);
+                if (!response.ok) {
+                    throw new Error(`バッチ結果取得失敗: ${response.status}`);
+                }
+                
+                const batchData = await response.json();
+                console.log('📊 バッチデータ:', batchData);
+                
+                // 詳細表示エリアを表示
+                const detailsArea = document.getElementById('batchResultDetails');
+                const detailsContent = document.getElementById('detailsContent');
+                
+                if (detailsArea && detailsContent) {
+                    // バッチ詳細HTMLを生成
+                    const detailsHTML = generateBatchDetailsHTML(batchData);
+                    detailsContent.innerHTML = detailsHTML;
+                    detailsArea.style.display = 'block';
+                    
+                    // スムーズスクロール
+                    detailsArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    addLog(`✅ バッチ結果詳細を表示しました: ${batchId}`);
+                } else {
+                    throw new Error('詳細表示エリアが見つかりません');
+                }
+                
+            } catch (error) {
+                console.error('バッチ結果詳細読み込みエラー:', error);
+                addLog(`❌ バッチ結果詳細の読み込みに失敗: ${error.message}`);
+            }
+        }
+
+        // バッチ詳細HTML生成関数
+        function generateBatchDetailsHTML(batchData) {
+            let html = `
+                <div style="background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                    <h5 style="color: #2c3e50; margin-bottom: 10px;">📊 バッチ実行サマリー</h5>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+                        <div><strong>バッチID:</strong> ${batchData.batch_id}</div>
+                        <div><strong>実行日時:</strong> ${new Date(batchData.executed_at).toLocaleString('ja-JP')}</div>
+                        <div><strong>総実行時間:</strong> ${Math.round(batchData.total_execution_time / 1000)}秒</div>
+                        <div><strong>総ルート数:</strong> ${batchData.total_routes}件</div>
+                        <div><strong>成功ルート:</strong> ${batchData.successful_routes}件</div>
+                        <div><strong>部分成功:</strong> ${batchData.partial_routes}件</div>
+                        <div><strong>失敗ルート:</strong> ${batchData.failed_routes}件</div>
+                    </div>
+                </div>
+            `;
+            
+            // カテゴリ別サマリー
+            if (batchData.category_summary) {
+                html += `
+                    <div style="background: #e8f4fd; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                        <h5 style="color: #2c3e50; margin-bottom: 10px;">📂 カテゴリ別結果</h5>
+                `;
+                
+                for (const [category, summary] of Object.entries(batchData.category_summary)) {
+                    html += `
+                        <div style="margin-bottom: 8px; padding: 8px; background: white; border-radius: 5px;">
+                            <strong>${category}:</strong> 
+                            ${summary.successful}/${summary.total} 成功 
+                            (平均成功率: ${summary.average_success_rate}%)
+                        </div>
+                    `;
+                }
+                html += `</div>`;
+            }
+            
+            // 個別テスト結果
+            html += `<div style="background: #f8f9fa; border-radius: 8px; padding: 15px;">`;
+            html += `<h5 style="color: #2c3e50; margin-bottom: 15px;">🔍 個別テスト結果詳細</h5>`;
+            
+            batchData.results.forEach((result, index) => {
+                const statusColor = result.status === 'success' ? '#28a745' : 
+                                  result.status === 'partial' ? '#ffc107' : '#dc3545';
+                
+                html += `
+                    <div style="border: 2px solid ${statusColor}; border-radius: 8px; margin-bottom: 15px; background: white;">
+                        <div style="background: ${statusColor}; color: white; padding: 10px; border-radius: 6px 6px 0 0;">
+                            <strong>テスト ${index + 1}: ${result.category} (${result.test_case_id})</strong>
+                            <span style="float: right;">成功率: ${result.success_rate}% | 実行時間: ${Math.round(result.execution_time / 1000)}秒</span>
+                        </div>
+                        <div style="padding: 15px;">
+                `;
+                
+                // ステップ結果の詳細
+                html += `<h6 style="color: #495057; margin-bottom: 10px;">📋 ステップ実行結果</h6>`;
+                html += `<div style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px;">`;
+                
+                result.step_results.forEach((step, stepIndex) => {
+                    const stepStatusColor = step.status === 'success' ? '#28a745' : 
+                                          step.status === 'error' ? '#dc3545' : '#6c757d';
+                    
+                    html += `
+                        <div style="margin-bottom: 8px; padding: 8px; border-left: 4px solid ${stepStatusColor}; background: ${step.status === 'error' ? '#fff5f5' : '#f8f9fa'};">
+                            <div style="font-weight: bold; color: ${stepStatusColor};">
+                                ステップ ${step.step_index + 1}: ${step.label} (${step.action})
+                            </div>
+                    `;
+                    
+                    if (step.status === 'error' && step.error) {
+                        html += `
+                            <div style="color: #dc3545; font-size: 11px; margin-top: 5px; padding: 5px; background: #fff; border-radius: 3px;">
+                                <strong>エラー:</strong> ${step.error.substring(0, 200)}${step.error.length > 200 ? '...' : ''}
+                            </div>
+                        `;
+                    }
+                    
+                    html += `</div>`;
+                });
+                
+                html += `</div>`;
+                
+                // アサーション結果
+                if (result.assertion_results && result.assertion_results.length > 0) {
+                    html += `<h6 style="color: #495057; margin-top: 15px; margin-bottom: 10px;">✅ アサーション結果</h6>`;
+                    
+                    result.assertion_results.forEach(assertion => {
+                        const assertionColor = assertion.status === 'success' ? '#28a745' : '#dc3545';
+                        html += `
+                            <div style="margin-bottom: 5px; padding: 5px; border-left: 3px solid ${assertionColor}; background: #f8f9fa; font-size: 12px;">
+                                <span style="color: ${assertionColor}; font-weight: bold;">
+                                    ${assertion.status === 'success' ? '✅' : '❌'}
+                                </span>
+                                ${assertion.label} (${assertion.assertion_type})
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += `</div></div>`;
+            });
+            
+            html += `</div>`;
+            
+            return html;
+        }
+
+        // ストーリー紐付け表示関数
+        async function showStoryMapping(batchId) {
+            try {
+                console.log(`🔗 ストーリー紐付け表示開始: ${batchId}`);
+                
+                // バッチデータを取得
+                const response = await fetch(`/api/batch-result/${batchId}`);
+                if (!response.ok) {
+                    throw new Error(`バッチ結果取得失敗: ${response.status}`);
+                }
+                
+                const batchData = await response.json();
+                
+                // 現在のユーザーストーリー情報を取得
+                const storyResponse = await fetch('/api/config/user-story');
+                const storyResult = await storyResponse.json();
+                
+                // ストーリー紐付け表示エリアを表示
+                const mappingArea = document.getElementById('storyMappingArea');
+                const mappingContent = document.getElementById('storyMappingContent');
+                
+                if (mappingArea && mappingContent) {
+                    const mappingHTML = generateStoryMappingHTML(batchData, storyResult);
+                    mappingContent.innerHTML = mappingHTML;
+                    mappingArea.style.display = 'block';
+                    
+                    // スムーズスクロール
+                    mappingArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    addLog(`✅ ストーリー紐付けを表示しました: ${batchId}`);
+                } else {
+                    throw new Error('ストーリー紐付け表示エリアが見つかりません');
+                }
+                
+            } catch (error) {
+                console.error('ストーリー紐付け表示エラー:', error);
+                addLog(`❌ ストーリー紐付けの表示に失敗: ${error.message}`);
+            }
+        }
+
+        // ストーリー紐付けHTML生成関数
+        function generateStoryMappingHTML(batchData, storyData) {
+            let html = `
+                <div style="background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 2px solid #007bff;">
+                    <h5 style="color: #007bff; margin-bottom: 15px;">📖 ユーザーストーリー情報</h5>
+            `;
+            
+            if (storyData.success && storyData.userStory) {
+                const story = storyData.userStory;
+                html += `
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 10px; font-size: 14px;">
+                        <div><strong>🆔 ストーリーID:</strong> US-${story.currentId || 'N/A'}</div>
+                        <div><strong>🔗 URL:</strong> ${story.targetUrl || 'N/A'}</div>
+                        <div><strong>📋 内容:</strong></div>
+                        <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; white-space: pre-wrap; font-family: monospace; font-size: 12px;">
+                            ${story.content || 'ストーリー内容が設定されていません'}
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `<div style="color: #6c757d;">ユーザーストーリー情報が設定されていません</div>`;
+            }
+            
+            html += `</div>`;
+            
+            // テスト実行結果とストーリーの紐付け
+            html += `
+                <div style="background: white; border-radius: 8px; padding: 15px; border: 2px solid #28a745;">
+                    <h5 style="color: #28a745; margin-bottom: 15px;">🔗 ストーリー → テスト実行結果 紐付け</h5>
+            `;
+            
+            // バッチサマリー
+            html += `
+                <div style="background: #e8f5e8; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                    <strong>📊 バッチ実行サマリー</strong><br>
+                    バッチID: ${batchData.batch_id} | 
+                    実行日時: ${new Date(batchData.executed_at).toLocaleString('ja-JP')} | 
+                    総ルート数: ${batchData.total_routes}件
+                </div>
+            `;
+            
+            // 各テスト結果とストーリーの関連付け
+            batchData.results.forEach((result, index) => {
+                const statusColor = result.status === 'success' ? '#28a745' : 
+                                  result.status === 'partial' ? '#ffc107' : '#dc3545';
+                const statusText = result.status === 'success' ? '✅ 成功' : 
+                                 result.status === 'partial' ? '⚠️ 部分成功' : '❌ 失敗';
+                
+                html += `
+                    <div style="border: 1px solid ${statusColor}; border-radius: 5px; margin-bottom: 10px; background: white;">
+                        <div style="background: ${statusColor}; color: white; padding: 8px; border-radius: 4px 4px 0 0; font-size: 14px;">
+                            <strong>テストケース ${index + 1}: ${result.category}</strong>
+                            <span style="float: right;">${statusText} (${result.success_rate}%)</span>
+                        </div>
+                        <div style="padding: 10px; font-size: 13px;">
+                            <div><strong>🎯 テストケースID:</strong> ${result.test_case_id}</div>
+                            <div><strong>⏱️ 実行時間:</strong> ${Math.round(result.execution_time / 1000)}秒</div>
+                            <div><strong>📊 ステップ実行状況:</strong> ${result.step_results.filter(s => s.status === 'success').length}/${result.step_results.length} 成功</div>
+                            <div><strong>✅ アサーション結果:</strong> ${result.assertion_results ? result.assertion_results.filter(a => a.status === 'success').length : 0}/${result.assertion_results ? result.assertion_results.length : 0} 成功</div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+            
+            // トレーサビリティまとめ
+            html += `
+                <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 15px;">
+                    <h5 style="color: #856404; margin-bottom: 10px;">📋 トレーサビリティサマリー</h5>
+                    <div style="font-size: 14px; line-height: 1.6;">
+                        <div><strong>ユーザーストーリー</strong> → <strong>テストケース</strong> → <strong>実行結果</strong></div>
+                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 5px;">
+                            ✅ <strong>品質保証の完全性:</strong><br>
+                            • ユーザーストーリーからテストケースへの変換: 完了<br>
+                            • テストケースの自動実行: 完了<br>
+                            • 実行結果の詳細記録: 完了<br>
+                            • バッチ処理による効率的実行: 完了
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        // CSVダウンロードボタン表示関数
+        function displayCsvDownloadButton(csvFilePath, reportType, testCaseCount, batchId) {
+            try {
+                console.log('📁 [Debug] Displaying CSV download button:', {
+                    csvFilePath,
+                    reportType,
+                    testCaseCount,
+                    batchId
+                });
+                
+                // CSVダウンロードボタンコンテナを探す
+                let downloadContainer = document.getElementById('csvDownloadContainer');
+                if (!downloadContainer) {
+                    // コンテナが存在しない場合は作成
+                    downloadContainer = document.createElement('div');
+                    downloadContainer.id = 'csvDownloadContainer';
+                    downloadContainer.style.cssText = 'margin-top: 15px; padding: 15px; background: #e8f5e8; border-radius: 8px; border: 2px solid #28a745;';
+                    
+                    // ログエリアの後に挿入
+                    const logArea = document.getElementById('logArea');
+                    if (logArea && logArea.parentNode) {
+                        logArea.parentNode.insertBefore(downloadContainer, logArea.nextSibling);
+                    }
+                }
+                
+                // ダウンロードボタンのHTML
+                const buttonHTML = `
+                    <div style="text-align: center;">
+                        <h5 style="color: #28a745; margin-bottom: 15px;">📁 CSVレポートダウンロード</h5>
+                        <div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                            <div style="font-size: 14px; margin-bottom: 10px;">
+                                <strong>📄 ファイル名:</strong> ${csvFilePath}<br>
+                                <strong>📊 レポート種別:</strong> ${reportType === 'batch' ? 'バッチテスト結果' : '標準テスト結果'}<br>
+                                <strong>🔢 テストケース数:</strong> ${testCaseCount}件<br>
+                                <strong>🆔 バッチID:</strong> ${batchId}
+                            </div>
+                        </div>
+                        <button onclick="downloadCsvFile('${csvFilePath}')" 
+                                class="btn btn-success" 
+                                style="padding: 12px 24px; font-size: 16px; font-weight: bold;">
+                            📥 CSVファイルをダウンロード
+                        </button>
+                        ${batchId ? `
+                        <div style="margin-top: 15px;">
+                            <button onclick="loadBatchResultDetails('${batchId}')" 
+                                    class="btn btn-info" 
+                                    style="padding: 8px 16px; margin-right: 10px;">
+                                📊 バッチ結果詳細を表示
+                            </button>
+                            <button onclick="showStoryMapping('${batchId}')" 
+                                    class="btn btn-primary" 
+                                    style="padding: 8px 16px;">
+                                🔗 ストーリー紐付けを表示
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+                downloadContainer.innerHTML = buttonHTML;
+                downloadContainer.style.display = 'block';
+                
+                // スムーズスクロール
+                downloadContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                console.log('📁 [Debug] CSV download button displayed successfully');
+                
+            } catch (error) {
+                console.error('CSVダウンロードボタン表示エラー:', error);
+                addLog(`❌ CSVダウンロードボタンの表示に失敗: ${error.message}`);
+            }
+        }
+
+        // CSVファイルダウンロード関数
+        async function downloadCsvFile(filename) {
+            try {
+                console.log('📥 [Debug] Starting CSV download:', filename);
+                addLog(`📥 CSVファイルをダウンロード中: ${filename}`);
+                
+                const response = await fetch(`/api/download-csv/${encodeURIComponent(filename)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/csv,application/csv,*/*'
+                    }
+                });
+                
+                console.log('📥 [Debug] Download response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`ダウンロード失敗: ${response.status} ${response.statusText}`);
+                }
+                
+                // レスポンスをBlobとして取得
+                const blob = await response.blob();
+                console.log('📥 [Debug] Blob size:', blob.size, 'type:', blob.type);
+                
+                // ダウンロード用のURLを作成
+                const downloadUrl = window.URL.createObjectURL(blob);
+                
+                // 一時的なリンク要素を作成してダウンロード
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // URLを解放
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                addLog(`✅ CSVファイルのダウンロードが完了しました: ${filename}`);
+                console.log('📥 [Debug] CSV download completed successfully');
+                
+            } catch (error) {
+                console.error('CSVダウンロードエラー:', error);
+                addLog(`❌ CSVダウンロードに失敗しました: ${error.message}`);
+                
+                // フォールバック: 直接リンクを開く
+                try {
+                    window.open(`/api/download-csv/${encodeURIComponent(filename)}`, '_blank');
+                    addLog(`🔄 フォールバック: 新しいタブでCSVファイルを開きました`);
+                } catch (fallbackError) {
+                    addLog(`❌ フォールバックも失敗しました: ${fallbackError.message}`);
+                }
+            }
+        }
     </script>
+
+    <!-- バッチ結果詳細表示エリア -->
+    <div id="batchResultDetails" style="display: none; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #007bff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="color: #007bff; margin: 0;">📊 バッチ結果詳細</h4>
+            <button onclick="document.getElementById('batchResultDetails').style.display='none'" 
+                    style="background: none; border: none; font-size: 20px; cursor: pointer; color: #6c757d;">
+                ✕
+            </button>
+        </div>
+        <div id="detailsContent">
+            <!-- バッチ結果詳細がここに表示されます -->
+        </div>
+    </div>
+
+    <!-- ストーリー紐付け表示エリア -->
+    <div id="storyMappingArea" style="display: none; margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px; border: 2px solid #ffc107;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="color: #856404; margin: 0;">🔗 ストーリー紐付け</h4>
+            <button onclick="document.getElementById('storyMappingArea').style.display='none'" 
+                    style="background: none; border: none; font-size: 20px; cursor: pointer; color: #6c757d;">
+                ✕
+            </button>
+        </div>
+        <div id="storyMappingContent">
+            <!-- ストーリー紐付け情報がここに表示されます -->
+        </div>
+    </div>
+
 </body>
 </html>

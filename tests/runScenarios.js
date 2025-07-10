@@ -521,8 +521,24 @@ export class PlaywrightRunner {
       ? step.target 
       : this.getFullUrl(step.target);
 
-    // レポーターにステップ開始を通知
-    const stepLog = this.reporter.onStepBegin(step, stepIndex);
+    // 🎯 シナリオIDを抽出してログに含める
+    const scenarioId = step.scenario_id || null;
+    const fieldMapping = step.field_mapping || null;
+    
+    // レポーターにステップ開始を通知（シナリオID情報も含める）
+    const stepLog = this.reporter.onStepBegin({
+      ...step,
+      scenario_id: scenarioId,
+      field_mapping: fieldMapping
+    }, stepIndex);
+    
+    // シナリオIDがある場合は詳細ログを出力
+    if (scenarioId) {
+      console.log(`🎯 シナリオ: ${scenarioId} | フィールド: ${step.target} | 値: ${step.value}`);
+      if (fieldMapping) {
+        console.log(`   📊 マッピング: ${fieldMapping.field_name} (${fieldMapping.field_type}) → ${fieldMapping.test_data_type}`);
+      }
+    }
 
     try {
       // Android実機での特別な処理
@@ -2770,6 +2786,21 @@ async function executeCategoryBatchRoutes(batchRoute) {
     let specificRouteFile = null;
     let skipDuplicateCheck = false;
 
+    // --batch-metadata オプションの早期チェック
+    const batchMetadataIndex = args.indexOf('--batch-metadata');
+    if (batchMetadataIndex !== -1 && args[batchMetadataIndex + 1]) {
+      const batchMetadataPath = args[batchMetadataIndex + 1];
+      
+      const options = {
+        browser: args.includes('--browser') ? args[args.indexOf('--browser') + 1] : 'chromium',
+        headless: !args.includes('--headed'),
+        timeout: args.includes('--timeout') ? parseInt(args[args.indexOf('--timeout') + 1]) : 30000
+      };
+      
+      console.log('🚀 バッチ実行モードを検出しました');
+      return await runBatchSequential(batchMetadataPath, options);
+    }
+
     // --route-file 引数の処理
     const routeFileIndex = args.indexOf('--route-file');
     if (routeFileIndex !== -1 && args[routeFileIndex + 1]) {
@@ -3147,7 +3178,14 @@ async function executeCategoryBatchRoutes(batchRoute) {
     console.error('🚨 予期せぬエラーが発生:', err);
     process.exit(1);
   } finally {
-    await runner?.cleanup();
+    // cleanupをtry-catchで囲んで安全にする
+    try {
+      if (typeof runner !== 'undefined' && runner?.cleanup) {
+        await runner.cleanup();
+      }
+    } catch (cleanupError) {
+      console.warn('⚠️ クリーンアップエラー:', cleanupError.message);
+    }
   }
 })();
 
@@ -3371,5 +3409,222 @@ function findFixedRoutes(originalRouteId) {
   } catch (error) {
     console.error(`修正ルート検索エラー: ${error.message}`);
     return [];
+  }
+}
+
+/**
+ * バッチメタデータファイルを使用して順次実行
+ * @param {string} batchMetadataPath - バッチメタデータファイルのパス
+ * @param {Object} options - 実行オプション
+ */
+async function runBatchSequential(batchMetadataPath, options = {}) {
+  console.log(`🚀 バッチ順次実行開始: ${batchMetadataPath}`);
+  
+  if (!fs.existsSync(batchMetadataPath)) {
+    throw new Error(`バッチメタデータファイルが見つかりません: ${batchMetadataPath}`);
+  }
+  
+  const batchMetadata = JSON.parse(fs.readFileSync(batchMetadataPath, 'utf8'));
+  const baseDir = path.dirname(batchMetadataPath);
+  
+  console.log(`📊 バッチ実行サマリー:`);
+  console.log(`   - バッチID: ${batchMetadata.batch_id}`);
+  console.log(`   - 総ルート数: ${batchMetadata.total_routes}`);
+  console.log(`   - カテゴリ数: ${batchMetadata.categories.length}`);
+  console.log(`   - 推奨実行順序: ${batchMetadata.execution_order.join(' → ')}`);
+  
+  const results = [];
+  const startTime = Date.now();
+  
+  // 順次実行
+  for (let i = 0; i < batchMetadata.routes.length; i++) {
+    const routeInfo = batchMetadata.routes[i];
+    // 正しいファイル名を使用（file_nameフィールドまたはfile_pathから取得）
+    const routeFileName = routeInfo.file_name || path.basename(routeInfo.file_path);
+    const routeFilePath = path.join(baseDir, routeFileName);
+    
+    console.log(`\n🔄 実行中 (${i + 1}/${batchMetadata.routes.length}): ${routeInfo.category} - ${routeInfo.route_id}`);
+    console.log(`   - ファイル: ${routeFileName}`);
+    console.log(`   - ステップ数: ${routeInfo.step_count}`);
+    console.log(`   - アサーション数: ${routeInfo.assertion_count}`);
+    
+    if (!fs.existsSync(routeFilePath)) {
+      console.warn(`⚠️ ルートファイルが見つかりません: ${routeFilePath}`);
+      results.push({
+        route_id: routeInfo.route_id,
+        category: routeInfo.category,
+        status: 'file_not_found',
+        error: 'ルートファイルが見つかりません'
+      });
+      continue;
+    }
+    
+    try {
+      const routeData = JSON.parse(fs.readFileSync(routeFilePath, 'utf8'));
+      
+      // PlaywrightRunnerを使用してルートを実行
+      const runner = new PlaywrightRunner({
+        browser: options.browser || 'chromium',
+        headless: options.headless !== false,
+        timeout: options.timeout || 30000
+      });
+      
+      const stepStartTime = Date.now();
+      const stepResults = [];
+      
+      await runner.initialize();
+      
+      // 各ステップを実行
+      for (let stepIndex = 0; stepIndex < routeData.steps.length; stepIndex++) {
+        const step = routeData.steps[stepIndex];
+        
+        try {
+          const stepResult = await runner.executeStep(step, stepIndex);
+          stepResults.push({
+            step_index: stepIndex,
+            label: step.label,
+            action: step.action,
+            status: stepResult ? 'success' : 'failed',
+            assertion_type: step.assertion_type || null
+          });
+        } catch (error) {
+          stepResults.push({
+            step_index: stepIndex,
+            label: step.label,
+            action: step.action,
+            status: 'error',
+            error: error.message,
+            assertion_type: step.assertion_type || null
+          });
+        }
+      }
+      
+      await runner.cleanup();
+      
+      const stepEndTime = Date.now();
+      const executionTime = stepEndTime - stepStartTime;
+      
+      const successCount = stepResults.filter(r => r.status === 'success').length;
+      const successRate = Math.round((successCount / stepResults.length) * 100);
+      
+      const result = {
+        route_id: routeInfo.route_id,
+        category: routeInfo.category,
+        test_case_id: routeInfo.test_case_id,
+        status: successRate === 100 ? 'success' : 'partial',
+        success_rate: successRate,
+        execution_time: executionTime,
+        step_results: stepResults,
+        assertion_results: stepResults.filter(r => r.assertion_type),
+        executed_at: new Date().toISOString()
+      };
+      
+      results.push(result);
+      
+      console.log(`   ✅ 実行完了: ${successRate}% (${successCount}/${stepResults.length})`);
+      
+      if (result.assertion_results.length > 0) {
+        const assertionSuccessCount = result.assertion_results.filter(r => r.status === 'success').length;
+        console.log(`   🎯 アサーション: ${assertionSuccessCount}/${result.assertion_results.length}件成功`);
+      }
+      
+    } catch (error) {
+      console.error(`   ❌ 実行エラー: ${error.message}`);
+      results.push({
+        route_id: routeInfo.route_id,
+        category: routeInfo.category,
+        status: 'error',
+        error: error.message,
+        executed_at: new Date().toISOString()
+      });
+    }
+    
+    // 次のテストまで少し待機（リソース解放のため）
+    if (i < batchMetadata.routes.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  
+  const endTime = Date.now();
+  const totalExecutionTime = endTime - startTime;
+  
+  // 結果サマリーを生成
+  const summary = {
+    batch_id: batchMetadata.batch_id,
+    executed_at: new Date().toISOString(),
+    total_execution_time: totalExecutionTime,
+    total_routes: results.length,
+    successful_routes: results.filter(r => r.status === 'success').length,
+    partial_routes: results.filter(r => r.status === 'partial').length,
+    failed_routes: results.filter(r => r.status === 'error' || r.status === 'file_not_found').length,
+    category_summary: {},
+    results: results
+  };
+  
+  // カテゴリ別サマリー
+  batchMetadata.categories.forEach(category => {
+    const categoryResults = results.filter(r => r.category === category);
+    summary.category_summary[category] = {
+      total: categoryResults.length,
+      successful: categoryResults.filter(r => r.status === 'success').length,
+      average_success_rate: categoryResults.length > 0 
+        ? Math.round(categoryResults.reduce((sum, r) => sum + (r.success_rate || 0), 0) / categoryResults.length)
+        : 0
+    };
+  });
+  
+  // 結果を保存
+  const resultPath = path.join(baseDir, `batch_result_${batchMetadata.batch_id.replace('batch_', '')}.json`);
+  fs.writeFileSync(resultPath, JSON.stringify(summary, null, 2), 'utf8');
+  
+  console.log(`\n🎉 バッチ順次実行完了!`);
+  console.log(`📊 実行サマリー:`);
+  console.log(`   - 総実行時間: ${Math.round(totalExecutionTime / 1000)}秒`);
+  console.log(`   - 成功ルート: ${summary.successful_routes}/${summary.total_routes}`);
+  console.log(`   - 部分成功ルート: ${summary.partial_routes}/${summary.total_routes}`);
+  console.log(`   - 失敗ルート: ${summary.failed_routes}/${summary.total_routes}`);
+  console.log(`📋 結果ファイル: ${resultPath}`);
+  
+  // カテゴリ別結果表示
+  console.log(`\n📂 カテゴリ別結果:`);
+  Object.entries(summary.category_summary).forEach(([category, stats]) => {
+    console.log(`   ${category}: ${stats.successful}/${stats.total} (平均成功率: ${stats.average_success_rate}%)`);
+  });
+  
+  return summary;
+}
+
+// CLIから直接実行された場合の処理を追加
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = process.argv.slice(2);
+  
+  // --batch-metadata オプションの早期チェック
+  const batchMetadataIndex = args.indexOf('--batch-metadata');
+  if (batchMetadataIndex !== -1 && args[batchMetadataIndex + 1]) {
+    const batchMetadataPath = args[batchMetadataIndex + 1];
+    
+    const options = {
+      browser: args.includes('--browser') ? args[args.indexOf('--browser') + 1] : 'chromium',
+      headless: !args.includes('--headed'),
+      timeout: args.includes('--timeout') ? parseInt(args[args.indexOf('--timeout') + 1]) : 30000
+    };
+    
+    console.log('🚀 バッチ実行モードを検出しました');
+    runBatchSequential(batchMetadataPath, options)
+      .then(summary => {
+        console.log('\n✅ バッチ実行が正常に完了しました');
+        process.exit(0);
+      })
+      .catch(error => {
+        console.error('\n❌ バッチ実行でエラーが発生しました:', error.message);
+        process.exit(1);
+      });
+  } else {
+    // --route-file 引数の処理
+    const routeFileIndex = args.indexOf('--route-file');
+    if (routeFileIndex !== -1 && args[routeFileIndex + 1]) {
+      const specificRouteFile = args[routeFileIndex + 1];
+      console.log(`🎯 指定されたルートファイルを使用: ${specificRouteFile}`);
+    }
   }
 }

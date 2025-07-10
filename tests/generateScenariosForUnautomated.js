@@ -107,7 +107,7 @@ function getUnautomatedCasesInfo(coverageData) {
  */
 async function runGenerateSmartScenarios(testCasesFile) {
     const generateSmartScenariosPath = path.join(__dirname, 'generateSmartScenarios.js');
-    
+  
   // コマンドを構築
   const command = `node "${generateSmartScenariosPath}" --test-cases "${testCasesFile}" --goal "未自動化テストケースのPlaywright自動化"`;
   
