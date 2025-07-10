@@ -1081,7 +1081,7 @@
                     🚀 自動で一括実行する
                 </button>
                 <div class="bulk-execution-description">
-                    観点生成 → シナリオ生成 → テスト実行 → レポート生成 → 失敗分析 → 再トライ → 新ストーリー発見を自動実行
+                    観点生成 → シナリオ生成 → 全カテゴリ一括変換 → バッチ順次実行 → レポート生成 → 失敗分析 → 再トライ → 新ストーリー発見を自動実行
                 </div>
                 
                 <!-- 一括実行ステータス -->
@@ -1089,8 +1089,8 @@
                     <div class="bulk-progress">
                         <div class="progress-step" id="step-testpoints">📋 観点生成</div>
                         <div class="progress-step" id="step-testcases">🧠 テストケース生成</div>
-                        <div class="progress-step" id="step-routes">🎭 Playwright変換</div>
-                        <div class="progress-step" id="step-run">▶️ テスト実行</div>
+                        <div class="progress-step" id="step-routes">🎭 全カテゴリ一括変換</div>
+                        <div class="progress-step" id="step-run">▶️ バッチ順次実行</div>
                         <div class="progress-step" id="step-report">📊 レポート生成</div>
                         <div class="progress-step" id="step-analyze">🔧 失敗分析</div>
                         <div class="progress-step" id="step-retry">🚀 再トライ</div>
@@ -2114,21 +2114,21 @@
                 await delay(1000);
                 updateBulkProgress('step-testcases', 'completed', '✅ テストケース生成完了');
                 
-                // 3. Playwright用に変換
-                updateBulkProgress('step-routes', 'active', '🎭 Playwright用に変換中...');
-                await executeCommand('generateSmartScenarios');
+                // 3. 全カテゴリ一括変換（Playwright用に変換）
+                updateBulkProgress('step-routes', 'active', '🎭 全カテゴリ一括変換中...');
+                await executeCommand('generateSmartScenariosAll');
                 await delay(1000);
-                updateBulkProgress('step-routes', 'completed', '✅ Playwright用に変換完了');
+                updateBulkProgress('step-routes', 'completed', '✅ 全カテゴリ一括変換完了');
                 
-                // 4. テスト実行
-                updateBulkProgress('step-run', 'active', '▶️ テストを実行中...');
-                await executeCommand('runScenarios');
+                // 4. バッチ順次実行（テスト実行）
+                updateBulkProgress('step-run', 'active', '▶️ バッチ順次実行中...');
+                await executeCommand('runBatchSequential');
                 await delay(1000);
-                updateBulkProgress('step-run', 'completed', '✅ テスト実行完了');
+                updateBulkProgress('step-run', 'completed', '✅ バッチ順次実行完了');
                 
-                // 失敗数をチェック
-                const failureCountElement = document.getElementById('failureCount');
-                if (failureCountElement && failureCountElement.textContent !== '-' && parseInt(failureCountElement.textContent) > 0) {
+                // 失敗数をチェック（バッチ結果から）
+                const batchResults = await checkBatchResults();
+                if (batchResults && batchResults.hasFailures) {
                     hasFailures = true;
                 }
                 
@@ -3479,8 +3479,12 @@
                             📋 詳細結果を表示
                         </button>
                         <button onclick="showStoryMapping('${batchId}')" 
-                                style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                                style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 10px;">
                             🔗 ストーリー紐付け表示
+                        </button>
+                        <button onclick="generateHTMLReport('${batchId}')" 
+                                style="background: #ffc107; color: black; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                            📄 HTMLレポート生成
                         </button>
                     </div>
                     
@@ -4175,11 +4179,19 @@
                                 <strong>🆔 バッチID:</strong> ${batchId}
                             </div>
                         </div>
-                        <button onclick="downloadCsvFile('${csvFilePath}')" 
-                                class="btn btn-success" 
-                                style="padding: 12px 24px; font-size: 16px; font-weight: bold;">
-                            📥 CSVファイルをダウンロード
-                        </button>
+                        <div style="display: flex; flex-direction: column; gap: 15px; align-items: center;">
+                            <button onclick="downloadCsvFile('${csvFilePath}')" 
+                                    class="btn btn-success" 
+                                    style="padding: 15px 30px; font-size: 18px; font-weight: bold; min-width: 280px;">
+                                📥 CSVファイルをダウンロード
+                            </button>
+                            ${batchId ? `
+                            <button onclick="generateHTMLReport('${batchId}')" 
+                                    style="background: #ffc107; color: black; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 18px; font-weight: bold; min-width: 280px;">
+                                📄 詳細レポートHTMLを表示
+                            </button>
+                            ` : ''}
+                        </div>
                         ${batchId ? `
                         <div style="margin-top: 15px;">
                             <button onclick="loadBatchResultDetails('${batchId}')" 
@@ -4262,6 +4274,186 @@
                 } catch (fallbackError) {
                     addLog(`❌ フォールバックも失敗しました: ${fallbackError.message}`);
                 }
+            }
+        }
+
+        // バッチ結果をチェックして失敗があるかどうかを判定する関数
+        async function checkBatchResults() {
+            try {
+                const response = await fetch('/api/get-latest-batch-result');
+                const result = await response.json();
+                
+                if (result.success && result.batchResult) {
+                    const batchData = result.batchResult;
+                    let hasFailures = false;
+                    let totalSteps = 0;
+                    let failedSteps = 0;
+                    
+                    // 各ルートの結果をチェック
+                    if (batchData.results && Array.isArray(batchData.results)) {
+                        batchData.results.forEach(route => {
+                            if (route.step_results && Array.isArray(route.step_results)) {
+                                totalSteps += route.step_results.length;
+                                const failed = route.step_results.filter(step => step.status === 'failed').length;
+                                failedSteps += failed;
+                                if (failed > 0) {
+                                    hasFailures = true;
+                                }
+                            }
+                        });
+                    }
+                    
+                    return {
+                        hasFailures,
+                        totalSteps,
+                        failedSteps,
+                        successRate: totalSteps > 0 ? Math.round(((totalSteps - failedSteps) / totalSteps) * 100) : 0,
+                        batchId: batchData.batch_id
+                    };
+                }
+                
+                return null;
+            } catch (error) {
+                console.error('バッチ結果チェックエラー:', error);
+                return null;
+            }
+        }
+
+        // HTMLレポート生成関数
+        async function generateHTMLReport(batchId) {
+            try {
+                addLog(`📄 HTMLレポート生成中... (ID: ${batchId})`);
+                
+                // HTMLレポート生成API呼び出し
+                const response = await fetch('/api/generate-html-report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        batchId: batchId,
+                        reportType: 'detailed'
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTMLレポート生成失敗: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addLog(`✅ HTMLレポート生成完了: ${result.htmlFileName}`);
+                    
+                    // HTMLレポートダウンロード・表示ボタンを表示
+                    showHTMLReportOptions(result.htmlFileName, batchId);
+                    
+                } else {
+                    throw new Error(result.error || 'HTMLレポート生成に失敗しました');
+                }
+                
+            } catch (error) {
+                addLog(`❌ HTMLレポート生成エラー: ${error.message}`);
+                console.error('HTMLレポート生成エラー:', error);
+            }
+        }
+
+        // HTMLレポートオプション表示関数
+        function showHTMLReportOptions(htmlFileName, batchId) {
+            const optionsHtml = `
+                <div id="htmlReportOptions" style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px; border: 2px solid #ffc107;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="color: #856404; margin: 0;">📄 HTMLレポート生成完了</h4>
+                        <button onclick="document.getElementById('htmlReportOptions').remove()" 
+                                style="background: none; border: none; font-size: 20px; cursor: pointer; color: #6c757d;">
+                            ✕
+                        </button>
+                    </div>
+                    <div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                        <div style="font-size: 14px; margin-bottom: 10px;">
+                            <strong>📄 ファイル名:</strong> ${htmlFileName}<br>
+                            <strong>🆔 バッチID:</strong> ${batchId}<br>
+                            <strong>📊 レポート種別:</strong> 詳細HTMLレポート
+                        </div>
+                    </div>
+                    <div style="text-align: center;">
+                        <button onclick="downloadHTMLFile('${htmlFileName}')" 
+                                style="background: #28a745; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; margin-right: 15px; font-weight: bold;">
+                            📥 HTMLファイルをダウンロード
+                        </button>
+                        <button onclick="viewHTMLInNewTab('${htmlFileName}')" 
+                                style="background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                            👁️ 別タブで表示
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // 既存のHTMLレポートオプションがあれば削除
+            const existingOptions = document.getElementById('htmlReportOptions');
+            if (existingOptions) {
+                existingOptions.remove();
+            }
+            
+            // バッチ結果詳細の後に挿入
+            const batchDetails = document.getElementById('batchResultDetails');
+            if (batchDetails) {
+                batchDetails.insertAdjacentHTML('afterend', optionsHtml);
+            } else {
+                // バッチ結果詳細が表示されていない場合は、テストサマリーの後に挿入
+                const testSummary = document.getElementById('testSummary');
+                if (testSummary) {
+                    testSummary.insertAdjacentHTML('afterend', optionsHtml);
+                }
+            }
+            
+            // スムーズスクロール
+            setTimeout(() => {
+                document.getElementById('htmlReportOptions').scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center' 
+                });
+            }, 100);
+        }
+
+        // HTMLファイルダウンロード関数
+        async function downloadHTMLFile(htmlFileName) {
+            try {
+                addLog(`📥 HTMLファイルダウンロード中: ${htmlFileName}`);
+                
+                // ダウンロード用のリンクを作成
+                const downloadUrl = `/api/download-html/${encodeURIComponent(htmlFileName)}`;
+                
+                // ダウンロードリンクを作成してクリック
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = htmlFileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                addLog(`✅ HTMLファイルダウンロード開始: ${htmlFileName}`);
+                
+            } catch (error) {
+                addLog(`❌ HTMLファイルダウンロードエラー: ${error.message}`);
+                console.error('HTMLファイルダウンロードエラー:', error);
+            }
+        }
+
+        // HTML別タブ表示関数
+        function viewHTMLInNewTab(htmlFileName) {
+            try {
+                addLog(`👁️ HTMLレポートを別タブで表示: ${htmlFileName}`);
+                
+                // 別タブでHTMLファイルを開く
+                const viewUrl = `/api/view-html/${encodeURIComponent(htmlFileName)}`;
+                window.open(viewUrl, '_blank');
+                
+                addLog(`✅ HTMLレポート別タブ表示完了: ${htmlFileName}`);
+                
+            } catch (error) {
+                addLog(`❌ HTML別タブ表示エラー: ${error.message}`);
+                console.error('HTML別タブ表示エラー:', error);
             }
         }
     </script>

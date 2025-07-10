@@ -95,65 +95,106 @@ class FailureAnalyzer {
   getLatestTestResult() {
     const testResultsDir = path.join(process.cwd(), 'test-results');
     
-    // 🔧 デバッグ情報: ディレクトリとワーキングディレクトリを表示
-    console.log(`🔍 デバッグ情報:`);
-    console.log(`   作業ディレクトリ: ${process.cwd()}`);
-    console.log(`   テスト結果ディレクトリ: ${testResultsDir}`);
-    console.log(`   ディレクトリ存在確認: ${fs.existsSync(testResultsDir)}`);
-    
-    // 🔧 特定のファイルが指定されている場合は、そのファイルを読み込み
-    if (this.testResultFile) {
-      const specifiedFilePath = path.isAbsolute(this.testResultFile) 
-        ? this.testResultFile 
-        : path.join(testResultsDir, this.testResultFile);
-        
-      console.log(`   指定ファイルパス: ${specifiedFilePath}`);
-      console.log(`   指定ファイル存在確認: ${fs.existsSync(specifiedFilePath)}`);
-        
-      if (fs.existsSync(specifiedFilePath)) {
-        console.log(`📋 指定されたテスト結果ファイルを読み込み: ${this.testResultFile}`);
-        return JSON.parse(fs.readFileSync(specifiedFilePath, 'utf-8'));
-      } else {
-        throw new Error(`指定されたテスト結果ファイルが見つかりません: ${specifiedFilePath}`);
-      }
-    }
-    
-    // ディレクトリが存在しない場合のエラーハンドリング
     if (!fs.existsSync(testResultsDir)) {
       throw new Error(`テスト結果ディレクトリが見つかりません: ${testResultsDir}`);
     }
-    
-    // デフォルト：最新のファイルを取得
+
     const allFiles = fs.readdirSync(testResultsDir);
     console.log(`   全ファイル数: ${allFiles.length}`);
-    console.log(`   全ファイル: ${allFiles.slice(0, 5).join(', ')}${allFiles.length > 5 ? '...' : ''}`);
+    console.log(`   全ファイル: ${allFiles.join(', ')}`);
     
-    const files = allFiles
-      .filter(file => file.startsWith('result_') && file.endsWith('.json'))
+    // バッチ結果ファイルを検索
+    const batchFiles = allFiles
+      .filter(file => file.startsWith('batch_result_') && file.endsWith('.json'))
       .sort()
       .reverse();
 
-    console.log(`   result_*.jsonファイル数: ${files.length}`);
-    console.log(`   result_*.jsonファイル: ${files.join(', ')}`);
+    console.log(`   batch_result_*.jsonファイル数: ${batchFiles.length}`);
+    console.log(`   結果ファイル: ${batchFiles.join(', ')}`);
 
-    if (files.length === 0) {
-      throw new Error(`テスト結果ファイル(result_*.json)が見つかりません。ディレクトリ: ${testResultsDir}`);
+    if (batchFiles.length === 0) {
+      throw new Error(`バッチ結果ファイル(batch_result_*.json)が見つかりません。ディレクトリ: ${testResultsDir}`);
     }
 
-    const latestFile = files[0];
+    const latestFile = batchFiles[0];
     const filePath = path.join(testResultsDir, latestFile);
     console.log(`   最新ファイル: ${latestFile}`);
     console.log(`   最新ファイルパス: ${filePath}`);
     console.log(`   最新ファイル存在確認: ${fs.existsSync(filePath)}`);
     
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const testResult = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    
+    console.log(`📊 バッチ結果ファイルを検出: ${latestFile}`);
+    return this.normalizeBatchResult(testResult);
+  }
+
+  /**
+   * バッチ結果を通常の結果形式に正規化
+   */
+  normalizeBatchResult(batchResult) {
+    // 全てのルートの失敗ステップを統合
+    let allSteps = [];
+    let failedSteps = [];
+    
+    batchResult.results?.forEach((routeResult, routeIndex) => {
+      if (routeResult.step_results) {
+        routeResult.step_results.forEach((step, stepIndex) => {
+          const normalizedStep = {
+            step_index: allSteps.length,
+            route_index: routeIndex,
+            route_id: routeResult.route_id,
+            category: routeResult.category,
+            test_case_id: routeResult.test_case_id,
+            label: step.label,
+            action: step.action,
+            status: step.status,
+            assertion_type: step.assertion_type,
+            target: step.target || null,
+            value: step.value || null,
+            error: step.error || null,
+            execution_time: step.execution_time || 0
+          };
+          
+          allSteps.push(normalizedStep);
+          
+          if (step.status === 'failed') {
+            failedSteps.push(normalizedStep);
+          }
+        });
+      }
+    });
+
+    console.log(`📊 バッチ結果正規化完了:`);
+    console.log(`   総ステップ数: ${allSteps.length}`);
+    console.log(`   失敗ステップ数: ${failedSteps.length}`);
+    console.log(`   ルート数: ${batchResult.results?.length || 0}`);
+
+    return {
+      batch_id: batchResult.batch_id,
+      executed_at: batchResult.executed_at,
+      total_execution_time: batchResult.total_execution_time,
+      summary: batchResult.category_summary,
+      steps: allSteps,
+      failed_steps: failedSteps,
+      isBatchResult: true
+    };
   }
 
   /**
    * 失敗したステップを抽出
    */
   extractFailedSteps(testResult) {
-    return testResult.steps.filter(step => step.status === 'failed');
+    // バッチ結果の場合は既に正規化済み
+    if (testResult.isBatchResult && testResult.failed_steps) {
+      return testResult.failed_steps;
+    }
+    
+    // 通常の結果ファイルの場合
+    if (testResult.steps) {
+      return testResult.steps.filter(step => step.status === 'failed');
+    }
+    
+    return [];
   }
 
   /**
@@ -1339,7 +1380,18 @@ class FailureAnalyzer {
     } catch (error) {
       console.error('❌ AI分析エラー:', error.message);
       console.log('💡 従来の分析方法にフォールバックします...');
-      return await this.analyze(); // 従来の分析にフォールバック
+      
+      // AI分析を無効化して従来の分析を実行（無限再帰を防ぐ）
+      const originalEnableAI = this.enableAI;
+      this.enableAI = false;
+      
+      try {
+        const result = await this.analyze();
+        return result;
+      } finally {
+        // 元の設定を復元
+        this.enableAI = originalEnableAI;
+      }
     }
   }
 
@@ -1566,6 +1618,22 @@ class FailureAnalyzer {
 
       // 元のルートファイルを取得
       let scenarioFile, routePath;
+      
+      // route_idが未定義の場合はエラーを回避
+      if (!testResult.route_id) {
+        console.log('⚠️ route_idが未定義のため、ルートファイル検索をスキップします');
+        console.log('🔧 バッチ結果のみで分析を継続します');
+        
+        // 汎用修正のみ適用して終了
+        try {
+          const fixedScenario = await this.applyDirectFixes(failedSteps, { steps: [] });
+          console.log(`✅ 汎用修正完了: ${fixedScenario.fix_summary.fixed_steps}件のステップを修正`);
+          console.log('📝 ルートファイルが不明のため、修正ルートの保存はスキップされました');
+        } catch (error) {
+          console.log(`⚠️ 汎用修正でエラーが発生: ${error.message}`);
+        }
+        return;
+      }
       
       // 修正されたルートファイルの場合は元のルートIDを使用
       if (testResult.route_id.startsWith('fixed_')) {
@@ -1885,6 +1953,13 @@ class FailureAnalyzer {
     };
 
     const target = step.target;
+
+    // targetがnullまたは未定義の場合はスキップ
+    if (!target) {
+      console.log(`⚠️ ターゲットが未定義のため分析をスキップ: ${step.label}`);
+      analysis.category = 'no_target';
+      return analysis;
+    }
 
     // name属性の場合
     const nameMatch = target.match(/\[name="([^"]+)"\]/);

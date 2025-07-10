@@ -42,18 +42,81 @@ class StoryDiscoverer {
    */
   getLatestTestResult() {
     const testResultsDir = path.join(process.cwd(), 'test-results');
-    const files = fs.readdirSync(testResultsDir)
-      .filter(file => file.startsWith('result_') && file.endsWith('.json'))
+    
+    if (!fs.existsSync(testResultsDir)) {
+      throw new Error(`テスト結果ディレクトリが見つかりません: ${testResultsDir}`);
+    }
+    
+    // バッチ結果ファイルを検索
+    const batchFiles = fs.readdirSync(testResultsDir)
+      .filter(file => file.startsWith('batch_result_') && file.endsWith('.json'))
       .sort()
       .reverse();
 
-    if (files.length === 0) {
-      throw new Error('テスト結果ファイルが見つかりません');
+    if (batchFiles.length === 0) {
+      throw new Error('バッチ結果ファイル（batch_result_*.json）が見つかりません');
     }
 
-    const latestFile = files[0];
+    // 最新のバッチ結果ファイルを使用
+    const latestFile = batchFiles[0];
     const filePath = path.join(testResultsDir, latestFile);
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const batchResult = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    
+    console.log(`📊 バッチ結果ファイルを検出: ${latestFile}`);
+    
+    // バッチ結果を正規化
+    return this.normalizeBatchResult(batchResult);
+  }
+
+  /**
+   * バッチ結果を標準形式に正規化
+   */
+  normalizeBatchResult(batchResult) {
+    const normalizedResult = {
+      test_id: batchResult.batch_id,
+      executed_at: batchResult.executed_at,
+      total_execution_time: batchResult.total_execution_time,
+      total_steps: 0,
+      success_count: 0,
+      failed_count: 0,
+      steps: []
+    };
+
+    // 各ルートの結果をマージ
+    if (batchResult.results && Array.isArray(batchResult.results)) {
+      batchResult.results.forEach((route, routeIndex) => {
+        if (route.step_results && Array.isArray(route.step_results)) {
+          route.step_results.forEach((step, stepIndex) => {
+            const normalizedStep = {
+              id: `${route.route_id || routeIndex}_${stepIndex}`,
+              label: step.label || `ステップ ${stepIndex + 1}`,
+              action: step.action || 'unknown',
+              target: step.target || null,
+              value: step.value || null,
+              status: step.status,
+              execution_time: step.execution_time || 0,
+              error: step.error || null,
+              route_id: route.route_id,
+              category: route.category || 'unknown',
+              test_case_id: route.test_case_id
+            };
+            
+            normalizedResult.steps.push(normalizedStep);
+            normalizedResult.total_steps++;
+            
+            if (step.status === 'success') {
+              normalizedResult.success_count++;
+            } else if (step.status === 'failed') {
+              normalizedResult.failed_count++;
+            }
+          });
+        }
+      });
+    }
+
+    console.log(`📊 バッチ結果正規化完了: 総ステップ数: ${normalizedResult.total_steps}, 成功: ${normalizedResult.success_count}, 失敗: ${normalizedResult.failed_count}`);
+    
+    return normalizedResult;
   }
 
   /**
@@ -253,7 +316,7 @@ ${testResult.steps.filter(s => s.status === 'failed').map(s => `- ${s.label}: ${
 
     const discoveryReport = {
       timestamp: new Date().toISOString(),
-      basedOnTestResult: testResult.route_id,
+      basedOnTestResult: testResult.test_id,
       originalUserStory: this.config.userStory?.content || 'Unknown',
       discoveredStories: stories,
       summary: {
@@ -304,7 +367,7 @@ ${testResult.steps.filter(s => s.status === 'failed').map(s => `- ${s.label}: ${
 
       // 最新のテスト結果を取得
       const testResult = this.getLatestTestResult();
-      console.log(`📊 ベースとなるテスト結果: ${testResult.route_id}`);
+      console.log(`📊 ベースとなるテスト結果: ${testResult.test_id}`);
 
       // 成功したパスを分析
       const pathAnalysis = this.analyzeSuccessfulPaths(testResult);

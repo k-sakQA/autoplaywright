@@ -459,6 +459,55 @@ app.get('/api/download-csv/:filename', (req, res) => {
   }
 });
 
+// 最新バッチ結果取得API
+app.get('/api/get-latest-batch-result', (req, res) => {
+  try {
+    console.log('📊 最新バッチ結果取得リクエスト');
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    if (!fs.existsSync(testResultsDir)) {
+      return res.json({
+        success: false,
+        error: 'test-resultsディレクトリが見つかりません'
+      });
+    }
+    
+    // batch_result_*.jsonファイルを検索
+    const files = fs.readdirSync(testResultsDir)
+      .filter(f => f.startsWith('batch_result_') && f.endsWith('.json'))
+      .sort()
+      .reverse(); // 新しい順
+    
+    if (files.length === 0) {
+      return res.json({
+        success: false,
+        error: 'バッチ結果ファイルが見つかりません'
+      });
+    }
+    
+    const latestFile = files[0];
+    const filePath = path.join(testResultsDir, latestFile);
+    
+    console.log(`📊 最新バッチ結果ファイル: ${latestFile}`);
+    
+    // ファイルを読み込み
+    const batchData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    
+    res.json({
+      success: true,
+      batchResult: batchData,
+      filename: latestFile
+    });
+    
+  } catch (error) {
+    console.error('❌ 最新バッチ結果取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: `最新バッチ結果取得エラー: ${error.message}`
+    });
+  }
+});
+
 // Google Sheets接続テストAPI
 app.post('/api/sheets/test', (req, res) => {
   const { shareEmail, driveFolder } = req.body;
@@ -1578,4 +1627,511 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   console.log('\n🛑 サーバーを停止しています...');
   process.exit(0);
-}); 
+});
+
+// HTMLレポート生成API
+app.post('/api/generate-html-report', (req, res) => {
+  try {
+    const { batchId, reportType = 'detailed' } = req.body;
+    
+    console.log(`📊 HTMLレポート生成リクエスト: ${batchId} (${reportType})`);
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    
+    // バッチ結果ファイルを検索
+    const batchFile = `batch_result_${batchId}.json`;
+    const batchFilePath = path.join(testResultsDir, batchFile);
+    
+    if (!fs.existsSync(batchFilePath)) {
+      return res.status(404).json({
+        success: false,
+        error: `バッチ結果ファイルが見つかりません: ${batchFile}`
+      });
+    }
+    
+    // バッチ結果を読み込み
+    const batchData = JSON.parse(fs.readFileSync(batchFilePath, 'utf-8'));
+    
+    // HTMLレポートを生成
+    const htmlContent = generateDetailedHTMLReport(batchData, reportType);
+    
+    // HTMLファイルとして保存
+    const htmlFileName = `AutoPlaywright_HTMLレポート_${batchId}_${new Date().toISOString().slice(0, 16).replace(/:/g, '-')}.html`;
+    const htmlFilePath = path.join(testResultsDir, htmlFileName);
+    
+    fs.writeFileSync(htmlFilePath, htmlContent, 'utf-8');
+    
+    console.log(`✅ HTMLレポート生成完了: ${htmlFileName}`);
+    
+    res.json({
+      success: true,
+      htmlFileName: htmlFileName,
+      htmlFilePath: htmlFilePath,
+      reportType: reportType,
+      batchId: batchId
+    });
+    
+  } catch (error) {
+    console.error('❌ HTMLレポート生成エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: `HTMLレポート生成エラー: ${error.message}`
+    });
+  }
+});
+
+// HTMLファイルダウンロードAPI
+app.get('/api/download-html/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const sanitizedFilename = path.basename(filename); // パストラバーサル攻撃を防ぐ
+    
+    console.log(`📥 HTMLダウンロードリクエスト: ${sanitizedFilename}`);
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    const htmlFilePath = path.join(testResultsDir, sanitizedFilename);
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(htmlFilePath)) {
+      console.log(`❌ HTMLファイルが見つかりません: ${htmlFilePath}`);
+      return res.status(404).json({ 
+        success: false, 
+        error: `HTMLファイルが見つかりません: ${sanitizedFilename}` 
+      });
+    }
+    
+    // ファイルサイズチェック
+    const stats = fs.statSync(htmlFilePath);
+    
+    // HTMLファイル用のヘッダーを設定
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`);
+    res.setHeader('Content-Length', stats.size);
+    
+    console.log(`📂 HTMLファイル送信開始: ${sanitizedFilename} (${stats.size} bytes)`);
+    
+    // ファイルストリームを作成してレスポンス
+    const fileStream = fs.createReadStream(htmlFilePath);
+    fileStream.pipe(res);
+    
+    fileStream.on('end', () => {
+      console.log(`✅ HTMLファイルダウンロード完了: ${sanitizedFilename}`);
+    });
+    
+  } catch (error) {
+    console.error('❌ HTMLダウンロードエラー:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `HTMLダウンロードエラー: ${error.message}` 
+    });
+  }
+});
+
+// HTMLレポート別タブ表示API
+app.get('/api/view-html/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const sanitizedFilename = path.basename(filename);
+    
+    console.log(`👁️ HTML別タブ表示リクエスト: ${sanitizedFilename}`);
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    const htmlFilePath = path.join(testResultsDir, sanitizedFilename);
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(htmlFilePath)) {
+      return res.status(404).send('<h1>❌ HTMLファイルが見つかりません</h1>');
+    }
+    
+    // HTMLファイルの内容を読み込んで直接レスポンス
+    const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(htmlContent);
+    
+    console.log(`✅ HTML別タブ表示完了: ${sanitizedFilename}`);
+    
+  } catch (error) {
+    console.error('❌ HTML別タブ表示エラー:', error);
+    res.status(500).send(`<h1>❌ HTML表示エラー: ${error.message}</h1>`);
+  }
+});
+
+// HTMLレポート生成関数
+function generateDetailedHTMLReport(batchData, reportType) {
+  const currentTime = new Date().toLocaleString('ja-JP');
+  
+  let html = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPlaywright バッチ実行詳細レポート - ${batchData.batch_id}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #007bff;
+        }
+        .header h1 {
+            color: #007bff;
+            margin-bottom: 10px;
+            font-size: 2.2em;
+        }
+        .header .subtitle {
+            color: #6c757d;
+            font-size: 1.1em;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .summary-card {
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border-left: 5px solid #007bff;
+        }
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 0.9em;
+        }
+        .summary-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .test-result {
+            margin: 20px 0;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .test-header {
+            padding: 15px;
+            color: white;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .test-header.success { background: #28a745; }
+        .test-header.partial { background: #ffc107; }
+        .test-header.failed { background: #dc3545; }
+        .test-content {
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .step-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+        .step-item {
+            margin: 8px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #dee2e6;
+            background: white;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .step-item.success { border-left-color: #28a745; }
+        .step-item.failed { border-left-color: #dc3545; background: #fff5f5; }
+        .step-item.error { border-left-color: #dc3545; background: #fff5f5; }
+        .error-details {
+            margin-top: 8px;
+            padding: 8px;
+            background: #fff;
+            border-radius: 3px;
+            color: #dc3545;
+            font-size: 0.85em;
+            border: 1px solid #f5c6cb;
+        }
+        .assertion-results {
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        .assertion-item {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .assertion-item.success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 3px solid #28a745;
+        }
+        .assertion-item.failed {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 3px solid #dc3545;
+        }
+        .category-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .category-card {
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #dee2e6;
+        }
+        .category-card h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s ease;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #dee2e6;
+            text-align: center;
+            color: #6c757d;
+        }
+        .collapsible {
+            cursor: pointer;
+            padding: 10px;
+            background: #e9ecef;
+            border: none;
+            text-align: left;
+            outline: none;
+            font-size: 15px;
+            border-radius: 5px;
+            margin: 5px 0;
+            width: 100%;
+        }
+        .collapsible:hover {
+            background: #dee2e6;
+        }
+        .collapsible-content {
+            display: none;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 0 0 5px 5px;
+        }
+        @media print {
+            body { background: white; }
+            .container { box-shadow: none; }
+        }
+    </style>
+    <script>
+        function toggleCollapsible(element) {
+            const content = element.nextElementSibling;
+            if (content.style.display === 'block') {
+                content.style.display = 'none';
+                element.textContent = element.textContent.replace('▼', '▶');
+            } else {
+                content.style.display = 'block';
+                element.textContent = element.textContent.replace('▶', '▼');
+            }
+        }
+        
+        function expandAll() {
+            const contents = document.querySelectorAll('.collapsible-content');
+            const buttons = document.querySelectorAll('.collapsible');
+            contents.forEach(content => content.style.display = 'block');
+            buttons.forEach(button => button.textContent = button.textContent.replace('▶', '▼'));
+        }
+        
+        function collapseAll() {
+            const contents = document.querySelectorAll('.collapsible-content');
+            const buttons = document.querySelectorAll('.collapsible');
+            contents.forEach(content => content.style.display = 'none');
+            buttons.forEach(button => button.textContent = button.textContent.replace('▼', '▶'));
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 AutoPlaywright バッチ実行詳細レポート</h1>
+            <div class="subtitle">
+                バッチID: ${batchData.batch_id} | 生成日時: ${currentTime}
+            </div>
+        </div>
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>📊 総ルート数</h3>
+                <div class="value">${batchData.total_routes || batchData.results?.length || 0}</div>
+            </div>
+            <div class="summary-card">
+                <h3>⏱️ 実行時間</h3>
+                <div class="value">${Math.round((batchData.total_execution_time || 0) / 1000)}秒</div>
+            </div>
+            <div class="summary-card">
+                <h3>🎯 平均成功率</h3>
+                <div class="value">${calculateAverageSuccessRate(batchData)}%</div>
+            </div>
+            <div class="summary-card">
+                <h3>📅 実行日時</h3>
+                <div class="value" style="font-size: 1.2em;">${new Date(batchData.executed_at).toLocaleString('ja-JP')}</div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="expandAll()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-right: 10px; cursor: pointer;">
+                ▼ すべて展開
+            </button>
+            <button onclick="collapseAll()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">
+                ▶ すべて折りたたみ
+            </button>
+        </div>
+
+        ${generateTestResultsHTML(batchData)}
+
+        <div class="footer">
+            <p>📋 このレポートは AutoPlaywright によって自動生成されました</p>
+            <p>🔗 プロジェクト: <a href="https://github.com/your-repo/autoplaywright" target="_blank">AutoPlaywright</a></p>
+        </div>
+    </div>
+</body>
+</html>
+  `;
+
+  return html;
+}
+
+// テスト結果HTML生成
+function generateTestResultsHTML(batchData) {
+  if (!batchData.results || batchData.results.length === 0) {
+    return '<div class="test-result"><div class="test-content">テスト結果がありません</div></div>';
+  }
+
+  let html = '';
+
+  batchData.results.forEach((result, index) => {
+    const statusClass = result.status === 'success' ? 'success' : 
+                       result.status === 'partial' ? 'partial' : 'failed';
+    const statusIcon = result.status === 'success' ? '✅' : 
+                      result.status === 'partial' ? '⚠️' : '❌';
+
+    html += `
+      <div class="test-result">
+        <div class="test-header ${statusClass}">
+          <span>${statusIcon} テスト ${index + 1}: ${result.category} (${result.test_case_id || 'N/A'})</span>
+          <span>成功率: ${result.success_rate || 0}% | 実行時間: ${Math.round((result.execution_time || 0) / 1000)}秒</span>
+        </div>
+        <div class="test-content">
+          
+          <button class="collapsible" onclick="toggleCollapsible(this)">
+            ▶ ステップ実行結果 (${result.step_results?.length || 0}件)
+          </button>
+          <div class="collapsible-content">
+            <div class="step-list">
+    `;
+
+    // ステップ結果の表示
+    if (result.step_results && result.step_results.length > 0) {
+      result.step_results.forEach((step, stepIndex) => {
+        const stepStatusClass = step.status === 'success' ? 'success' : 
+                               step.status === 'failed' ? 'failed' : 'error';
+        const stepIcon = step.status === 'success' ? '✅' : '❌';
+
+        html += `
+          <div class="step-item ${stepStatusClass}">
+            <strong>${stepIcon} ステップ ${stepIndex + 1}:</strong> ${step.label || 'ラベルなし'} (${step.action || 'unknown'})
+        `;
+
+        if (step.status !== 'success' && step.error) {
+          html += `
+            <div class="error-details">
+              <strong>エラー詳細:</strong><br>
+              ${step.error.length > 300 ? step.error.substring(0, 300) + '...' : step.error}
+            </div>
+          `;
+        }
+
+        html += '</div>';
+      });
+    } else {
+      html += '<div class="step-item">ステップ結果がありません</div>';
+    }
+
+    html += `
+            </div>
+          </div>
+
+          <button class="collapsible" onclick="toggleCollapsible(this)">
+            ▶ アサーション結果 (${result.assertion_results?.length || 0}件)
+          </button>
+          <div class="collapsible-content">
+            <div class="assertion-results">
+    `;
+
+    // アサーション結果の表示
+    if (result.assertion_results && result.assertion_results.length > 0) {
+      result.assertion_results.forEach(assertion => {
+        const assertionClass = assertion.status === 'success' ? 'success' : 'failed';
+        const assertionIcon = assertion.status === 'success' ? '✅' : '❌';
+
+        html += `
+          <div class="assertion-item ${assertionClass}">
+            ${assertionIcon} ${assertion.label || 'アサーション'} (${assertion.assertion_type || 'general'})
+          </div>
+        `;
+      });
+    } else {
+      html += '<div class="assertion-item">アサーション結果がありません</div>';
+    }
+
+    html += `
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  return html;
+}
+
+// 平均成功率計算
+function calculateAverageSuccessRate(batchData) {
+  if (!batchData.results || batchData.results.length === 0) return 0;
+  
+  const totalRate = batchData.results.reduce((sum, result) => sum + (result.success_rate || 0), 0);
+  return Math.round(totalRate / batchData.results.length);
+}
+
+// Google Sheets接続テストAPI
