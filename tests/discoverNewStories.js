@@ -214,6 +214,9 @@ class StoryDiscoverer {
 ## 現在のユーザーストーリー
 ${currentUserStory}
 
+## テスト対象URL
+${this.config.targetUrl}
+
 ## テスト実行結果
 - 総ステップ数: ${testResult.total_steps}
 - 成功数: ${testResult.success_count}
@@ -243,7 +246,7 @@ ${testResult.steps.filter(s => s.status === 'failed').map(s => `- ${s.label}: ${
 **ストーリー**: [ユーザーストーリー]
 **シナリオ**: [テストシナリオ説明]
 **観点**: [主要なテスト観点]
-**推奨URL**: [テスト対象URL]
+**推奨URL**: ${this.config.targetUrl}
 **優先度**: [高/中/低]
 ---
 `;
@@ -292,12 +295,18 @@ ${testResult.steps.filter(s => s.status === 'failed').map(s => `- ${s.label}: ${
       });
 
       if (story.ストーリー || story.story) {
+        // 推奨URLがプレースホルダーの場合、実際のURLに置き換え
+        let recommendedUrl = story.推奨url || story.recommended_url;
+        if (!recommendedUrl || recommendedUrl.includes('[') || recommendedUrl.includes('テスト対象URL')) {
+          recommendedUrl = this.config.targetUrl;
+        }
+
         stories.push({
           story: story.ストーリー || story.story,
           route: story.ルート || story.route,
           priority: story.優先度 || story.priority || '中',
           testPoints: story.テスト観点 || story.test_points,
-          recommendedUrl: story.推奨url || story.recommended_url,
+          recommendedUrl: recommendedUrl,
           generatedAt: new Date().toISOString()
         });
       }

@@ -1081,7 +1081,7 @@
                     🚀 自動で一括実行する
                 </button>
                 <div class="bulk-execution-description">
-                    観点生成 → シナリオ生成 → 全カテゴリ一括変換 → バッチ順次実行 → レポート生成 → 失敗分析 → 再トライ → 新ストーリー発見を自動実行
+                    観点生成 → シナリオ生成 → Playwright用に変換 → テスト実行 → レポート生成 → 失敗分析 → 再トライ → 新ストーリー発見を自動実行
                 </div>
                 
                 <!-- 一括実行ステータス -->
@@ -1089,8 +1089,8 @@
                     <div class="bulk-progress">
                         <div class="progress-step" id="step-testpoints">📋 観点生成</div>
                         <div class="progress-step" id="step-testcases">🧠 テストケース生成</div>
-                        <div class="progress-step" id="step-routes">🎭 全カテゴリ一括変換</div>
-                        <div class="progress-step" id="step-run">▶️ バッチ順次実行</div>
+                        <div class="progress-step" id="step-routes">🎭 Playwright用に変換</div>
+                        <div class="progress-step" id="step-run">▶️ テスト実行</div>
                         <div class="progress-step" id="step-report">📊 レポート生成</div>
                         <div class="progress-step" id="step-analyze">🔧 失敗分析</div>
                         <div class="progress-step" id="step-retry">🚀 再トライ</div>
@@ -1123,11 +1123,11 @@
                     </button>
                     
                     <button class="btn-info" onclick="executeCommand('generateSmartScenariosAll')" title="全カテゴリ（表示・入力）のルートを一括生成">
-                        🎭 全カテゴリ一括変換
+                        🎭 Playwright用に変換
                     </button>
                     
                     <button class="btn-success" onclick="executeCommand('runBatchSequential')" title="表示→入力の順番で全カテゴリを自動実行">
-                        🚀 バッチ順次実行
+                        🚀 テスト実行
                     </button>
                     
                     <button class="btn-warning" onclick="executeCommand('generateTestReport')">
@@ -1332,7 +1332,7 @@
                                 🧠 テストケース生成
                             </button>
                             <button class="btn btn-success" onclick="executeNewStoryCommand('runBatchSequential')" title="表示→入力の順番で全カテゴリを自動実行">
-                                🚀 バッチ順次実行
+                                🚀 テスト実行
                             </button>
                             <button class="btn btn-warning" onclick="executeNewStoryCommand('generateTestReport')">
                                 📊 レポート生成
@@ -1909,10 +1909,10 @@
                             parseTestResults(result.output);
                             showStatus(`テストを実行しました！`, 'success');
                         } else if (command === 'runBatchSequential') {
-                            // バッチ順次実行の場合、バッチ結果を解析
+                            // テスト実行の場合、バッチ結果を解析
                             console.log('🛠️ [Debug] Batch execution output:', result.output);
                             parseBatchResults(result.output);
-                            showStatus(`バッチ順次実行完了！`, 'success');
+                            showStatus(`テスト実行完了！`, 'success');
                         } else if (command === 'generateTestReport') {
                             // レポート生成結果を解析してCSVダウンロードボタンを表示
                             console.log('🛠️ [Debug] Processing generateTestReport result...');
@@ -2114,17 +2114,17 @@
                 await delay(1000);
                 updateBulkProgress('step-testcases', 'completed', '✅ テストケース生成完了');
                 
-                // 3. 全カテゴリ一括変換（Playwright用に変換）
-                updateBulkProgress('step-routes', 'active', '🎭 全カテゴリ一括変換中...');
+                // 3. Playwright用に変換
+                updateBulkProgress('step-routes', 'active', '🎭 Playwright用に変換中...');
                 await executeCommand('generateSmartScenariosAll');
                 await delay(1000);
-                updateBulkProgress('step-routes', 'completed', '✅ 全カテゴリ一括変換完了');
+                updateBulkProgress('step-routes', 'completed', '✅ Playwright用に変換完了');
                 
-                // 4. バッチ順次実行（テスト実行）
-                updateBulkProgress('step-run', 'active', '▶️ バッチ順次実行中...');
+                // 4. テスト実行
+                updateBulkProgress('step-run', 'active', '▶️ テスト実行中...');
                 await executeCommand('runBatchSequential');
                 await delay(1000);
-                updateBulkProgress('step-run', 'completed', '✅ バッチ順次実行完了');
+                updateBulkProgress('step-run', 'completed', '✅ テスト実行完了');
                 
                 // 失敗数をチェック（バッチ結果から）
                 const batchResults = await checkBatchResults();
@@ -2294,10 +2294,25 @@
 
         // 新ストーリー用コマンド実行関数
         async function executeNewStoryCommand(command) {
-            const url = document.getElementById('testUrl').value;
+            let url = document.getElementById('testUrl').value;
             const testGoal = document.getElementById('testGoal').value;
             const pdfFile = document.getElementById('pdfFile').files[0];
             const csvFile = document.getElementById('csvFile').files[0];
+            
+            // URLがプレースホルダーの場合、config.jsonの設定値を使用
+            if (!url || url.includes('[テスト対象URL]') || url.includes('[') || url.trim() === '') {
+                try {
+                    const configResponse = await fetch('/api/config');
+                    const config = await configResponse.json();
+                    if (config.targetUrl) {
+                        url = config.targetUrl;
+                        document.getElementById('testUrl').value = url;
+                        addLogNewStories(`🔧 URLをconfig.jsonの設定値に置き換えました: ${url}`);
+                    }
+                } catch (error) {
+                    console.error('Config読み込みエラー:', error);
+                }
+            }
             
             // URL入力チェック
             if (!url && command !== 'runScenarios' && command !== 'generateTestReport') {
