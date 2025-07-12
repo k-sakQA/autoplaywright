@@ -2784,7 +2784,7 @@ async function executeCategoryBatchRoutes(batchRoute) {
     // コマンドライン引数の解析
     const args = process.argv.slice(2);
     let specificRouteFile = null;
-    let skipDuplicateCheck = false;
+    // 重複チェック変数は削除（リグレッションテスト対応）
 
     // --batch-metadata オプションの早期チェック
     const batchMetadataIndex = args.indexOf('--batch-metadata');
@@ -2817,11 +2817,7 @@ async function executeCategoryBatchRoutes(batchRoute) {
       }
     }
 
-    // --skip-duplicate-check 引数の処理
-    if (args.includes('--skip-duplicate-check')) {
-      skipDuplicateCheck = true;
-      console.log('⚠️ 重複実行チェックをスキップします');
-    }
+    // 重複チェック機能は削除（リグレッションテスト対応）
 
     // 1. ルートファイルの取得
     const testResultsDir = path.resolve(__dirname, '../test-results');
@@ -2862,73 +2858,8 @@ async function executeCategoryBatchRoutes(batchRoute) {
 
     console.log(`🛠️ [Debug] Using route file: ${routePath}`);
 
-    // 2. 重複実行チェック
-    if (!skipDuplicateCheck) {
-      const duplicateInfo = checkForDuplicateExecution(testResultsDir, latestFile);
-      if (duplicateInfo.isDuplicate) {
-        console.log(`⚠️ 重複実行を検出しました:`);
-        console.log(`  - 同じルートファイル: ${duplicateInfo.routeFile}`);
-        console.log(`  - 前回実行時刻: ${duplicateInfo.lastRun}`);
-        console.log(`  - 前回結果: ${duplicateInfo.successCount}成功/${duplicateInfo.failedCount}失敗`);
-
-        // 失敗がある場合は改善提案
-        if (duplicateInfo.failedCount > 0) {
-          console.log(`  - 提案: 前回のテストで${duplicateInfo.failedCount}件の失敗があったため、失敗ステップのみ再実行を提案します`);
-          
-          console.log(`\n💡 重複回避の推奨方法:`);
-          console.log(`  1. 🔧 失敗テスト分析・修正 (analyzeFailures) を実行`);
-          console.log(`  2. 📝 修正されたルートファイルで再テスト`);
-          console.log(`  3. ✅ 重複除去により正確なカバレッジを計算`);
-          
-          // 自動分析・修正オプション
-          const shouldAutoFix = process.env.AUTO_FIX_FAILURES === 'true' || 
-                               process.argv.includes('--auto-fix');
-          
-          if (shouldAutoFix) {
-            console.log(`\n🔧 自動修正モードが有効です。失敗ステップを分析・修正します...`);
-            
-            try {
-              // 失敗分析を実行
-              const { execSync } = await import('child_process');
-              console.log(`🔍 失敗テスト分析を実行中...`);
-              
-              execSync('node tests/analyzeFailures.js', { 
-                stdio: 'inherit',
-                cwd: process.cwd()
-              });
-              
-              // 修正されたルートファイルを検索
-              const fixedRoutes = findFixedRoutes(route.route_id);
-              
-              if (fixedRoutes.length > 0) {
-                console.log(`\n✅ 修正されたルートが見つかりました: ${fixedRoutes.length}件`);
-                
-                const latestFixed = fixedRoutes[0]; // 最新の修正ルート
-                console.log(`📝 修正ルートを実行: ${latestFixed}`);
-                
-                // 修正ルートを読み込んで実行
-                const fixedRoutePath = path.join(__dirname, '..', 'test-results', latestFixed);
-                const fixedRoute = JSON.parse(fs.readFileSync(fixedRoutePath, 'utf-8'));
-                
-                // 修正ルートで実行
-                return await this.runSingleRoute(fixedRoute, true);
-              } else {
-                console.log(`⚠️ 修正ルートが生成されませんでした。元のルートで継続実行します。`);
-              }
-            } catch (error) {
-              console.error(`❌ 自動修正処理でエラーが発生しました: ${error.message}`);
-              console.log(`💡 手動で失敗分析を実行してください: node tests/analyzeFailures.js`);
-            }
-          } else {
-            console.log(`\n💡 自動修正を有効にするには:`);
-            console.log(`  - 環境変数: AUTO_FIX_FAILURES=true`);
-            console.log(`  - または: --auto-fix フラグを使用`);
-          }
-        }
-        
-        console.log(`\n🚀 継続する場合は、失敗の可能性があることを承知で実行します...`);
-      }
-    }
+    // 2. 重複実行チェック機能は削除（リグレッションテスト対応）
+    // QAワークフローでは同じテストを1日に何度も実行する必要があるため
 
     // 3. ルートを読み込む
     const route = JSON.parse(fs.readFileSync(routePath, 'utf-8'));
@@ -3190,49 +3121,9 @@ async function executeCategoryBatchRoutes(batchRoute) {
 })();
 
 /**
- * 重複実行をチェック（改良版：依存関係を考慮）
+ * 重複実行チェック関数は削除（リグレッションテスト対応）
+ * QAワークフローでは同じテストを1日に何度も実行する必要があるため
  */
-function checkForDuplicateExecution(testResultsDir, routeFile) {
-  try {
-    const historyPath = path.join(testResultsDir, '.execution-history.json');
-    if (!fs.existsSync(historyPath)) {
-      return { isDuplicate: false };
-    }
-
-    const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
-    const routeHistory = history[routeFile];
-
-    if (!routeHistory || routeHistory.length === 0) {
-      return { isDuplicate: false };
-    }
-
-    const lastExecution = routeHistory[routeHistory.length - 1];
-    const timeDiff = Date.now() - new Date(lastExecution.timestamp).getTime();
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-
-    // 30分以内の同じルートファイルの実行は重複とみなす（1時間から短縮）
-    if (hoursDiff < 0.5) {
-      // 🔧 改良: 部分的スキップの提案
-      const lastResult = lastExecution.result;
-      
-      // より詳細な情報を返す
-      return {
-        isDuplicate: true,
-        routeFile,
-        lastRun: lastExecution.timestamp,
-        successCount: lastResult.success_count || 0,
-        failedCount: lastResult.failed_count || 0,
-        lastResult: lastResult,
-        failedSteps: lastExecution.failedSteps || []
-      };
-    }
-
-    return { isDuplicate: false };
-  } catch (error) {
-    console.error('実行履歴チェックエラー:', error.message);
-    return { isDuplicate: false };
-  }
-}
 
 /**
  * 前回の実行結果から失敗ステップを特定

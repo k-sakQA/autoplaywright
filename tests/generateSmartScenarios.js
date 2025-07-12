@@ -13,6 +13,7 @@ import { z } from "zod";
 import { OpenAI } from "openai";
 import { parseCLIArgs, validateOptions } from './utils/cliParser.js';
 import { uploadPDFToOpenAI, createPDFPrompt } from './utils/pdfParser.js';
+// DuplicateTestDetector は削除（リグレッションテスト対応）
 
 // configのスキーマ定義
 const ConfigSchema = z.object({
@@ -1359,7 +1360,7 @@ function generatePlaywrightRouteFromNaturalCase(naturalCase, domInfo, url, userS
   }
 
   return {
-    route_id: `route_${getTimestamp()}`,
+    route_id: `route_${getTimestamp()}_${naturalCase.id.replace(/[^a-zA-Z0-9]/g, '_')}`,
     generated_from_natural_case: naturalCase.id,
     original_viewpoint: naturalCase.original_viewpoint,
     category: naturalCase.category,
@@ -1813,6 +1814,10 @@ function findSubmitButton(domInfo) {
  * 分類別一括処理モード
  */
 async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo) {
+  // 重複検出システムを初期化
+  const testResultsDir = path.resolve(__dirname, '../test-results');
+  const duplicateDetector = new DuplicateTestDetector(testResultsDir);
+  
   const batchResults = {
     batch_id: `batch_${getTimestamp()}`,
     processing_mode: 'category_batch',
@@ -1822,7 +1827,8 @@ async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo)
       total_categories: testCasesData.categoryData.length,
       total_test_cases: testCasesData.testCases.length,
       feasible_categories: 0,
-      generated_routes: 0
+      generated_routes: 0,
+      duplicate_routes: 0
     }
   };
 
@@ -1845,18 +1851,27 @@ async function processCategoryBatch(testCasesData, pageInfo, url, userStoryInfo)
       if (feasibilityAnalysis.suggestedCases.length > 0) {
         // 各分類で最大3つのテストルートを生成
         const routesToGenerate = feasibilityAnalysis.suggestedCases.slice(0, 3);
+        const generatedRoutes = [];
         
         for (const selectedCase of routesToGenerate) {
           const playwrightRoute = generatePlaywrightRouteFromNaturalCase(selectedCase, pageInfo, url, userStoryInfo);
           playwrightRoute.category = categoryData.category;
           playwrightRoute.feasibility_score = selectedCase.feasibilityScore;
           
-          categoryResult.routes.push(playwrightRoute);
+          // 重複チェック機能は削除（リグレッションテスト対応）
+          
+          generatedRoutes.push(playwrightRoute);
           batchResults.summary.generated_routes++;
         }
         
-        batchResults.summary.feasible_categories++;
-        console.log(`   ✅ ${categoryResult.routes.length}件のルートを生成`);
+        categoryResult.routes = generatedRoutes;
+        
+        if (generatedRoutes.length > 0) {
+          batchResults.summary.feasible_categories++;
+          console.log(`   ✅ ${generatedRoutes.length}件のルートを生成`);
+        } else {
+          console.log(`   ⚠️ 実行可能なルートが生成されませんでした`);
+        }
       } else {
         console.log(`   ⚠️ 実行可能なテストケースが見つかりませんでした`);
       }
@@ -1929,6 +1944,8 @@ async function processLegacyMode(testCasesData, pageInfo, url, userStoryInfo) {
 
 // スマートテストルート生成
 async function generateSmartTestRoute(url, testGoal, pageInfo, testPoints = null, pdfFileInfo = null, userStoryInfo = null, naturalTestCasesFile = null) {
+  // 重複検出システムは削除（リグレッションテスト対応）
+  
   // 🚀 包括的テストが要求された場合の処理（フェーズ4実装）
   if (testGoal.includes('包括') || testGoal.includes('バリデーション') || testGoal.includes('詳細') || testGoal.includes('comprehensive')) {
     console.log('🎯 包括的テスト生成モードを検出');
@@ -3419,7 +3436,7 @@ class ComprehensiveTestGenerator extends DOMBasedTestGenerator {
   }
 })();
 
-// ヘルパー: JSTタイムスタンプ（yymmddhhmmss）
+// ヘルパー: JSTタイムスタンプ（yymmddhhmmss + ミリ秒）
 function getTimestamp() {
   const d = new Date(Date.now() + 9 * 3600 * 1000);
   const pad = n => String(n).padStart(2, '0');
@@ -3429,7 +3446,8 @@ function getTimestamp() {
   const hh = pad(d.getHours());
   const mi = pad(d.getMinutes());
   const ss = pad(d.getSeconds());
-  return `${yy}${mm}${dd}${hh}${mi}${ss}`;
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${yy}${mm}${dd}${hh}${mi}${ss}${ms}`;
 }
 
 /**
@@ -3474,8 +3492,8 @@ async function generateAllCategoryRoutes(indexFilePath, pageInfo, url, userStory
       for (let i = 0; i < categoryData.testCases.length; i++) {
         const testCase = categoryData.testCases[i];
         
-        // 一意のタイムスタンプを生成（重複回避）
-        await new Promise(resolve => setTimeout(resolve, 10)); // 10ms待機
+        // 一意のタイムスタンプを生成（重複回避強化）
+        await new Promise(resolve => setTimeout(resolve, 5)); // 5ms待機（ミリ秒単位で十分）
         const routeData = generatePlaywrightRouteFromNaturalCase(testCase, pageInfo, url, userStoryInfo);
         
         // カテゴリ情報を追加

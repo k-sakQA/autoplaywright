@@ -690,7 +690,7 @@ app.post('/api/execute-json', express.json(), async (req, res) => {
 
 // コマンド実行API（従来のFormData用）
 app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv', maxCount: 1}]), async (req, res) => {
-  const { command, url, goal, routeId, executionEnvironment, domAnalysisSource } = req.body;
+  const { command, url, goal, routeId, executionEnvironment, domAnalysisSource, skipDuplicateCheck } = req.body;
   const files = req.files || {};
   const pdfFile = files.pdf ? files.pdf[0] : null;
   const csvFile = files.csv ? files.csv[0] : null;
@@ -756,6 +756,8 @@ app.post('/api/execute', upload.fields([{name: 'pdf', maxCount: 1}, {name: 'csv'
       // 設定ファイルを保存
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     }
+    // 重複チェック機能は削除（リグレッションテスト対応）
+    
     // コマンドの実行
     let commandName = command;
     let args = [];

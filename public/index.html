@@ -1010,6 +1010,8 @@
                                 過去のテスト情報をリセットする
                             </button>
                         </div>
+                        
+                        <!-- 重複チェックオプションは削除（リグレッションテスト対応） -->
                     </div>
                 </div>
                 
@@ -1809,6 +1811,8 @@
             // AI修正オプションの状態を取得
             const enableAIFix = document.getElementById('enableAIFix').checked;
             
+            // 重複チェック設定は削除（リグレッションテスト対応）
+            
             // 手動セレクタ設定を取得
             const manualSelectors = getManualSelectorSettings();
             
@@ -1874,6 +1878,8 @@
                         addLogAI(`🎯 要素指定設定を送信: ${Object.keys(manualSelectors).length}カテゴリ`);
                     }
                 }
+                
+                // 重複チェック機能は削除（リグレッションテスト対応）
                 
                 console.log(`🚀 [WebUI DEBUG] Sending POST to /api/execute with command: "${command}"`);
                 console.log(`🚀 [WebUI DEBUG] FormData keys:`, Array.from(formData.keys()));
