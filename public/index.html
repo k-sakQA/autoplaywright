@@ -2366,6 +2366,16 @@
                             console.log('🛠️ [Debug] Full output for parsing (New Stories):', result.output);
                             parseTestResultsNewStories(result.output);
                             showStatusNewStories(`新ストーリーテストを実行しました！`, 'success');
+                        } else if (command === 'runBatchSequential') {
+                            // バッチテスト実行の場合、バッチ結果を解析
+                            console.log('🛠️ [Debug] Batch execution output (New Stories):', result.output);
+                            parseBatchResultsNewStories(result.output);
+                            showStatusNewStories(`新ストーリーテスト実行完了！`, 'success');
+                        } else if (command === 'generateTestReport') {
+                            // レポート生成結果を解析してCSVダウンロードボタンを表示
+                            console.log('🛠️ [Debug] Processing generateTestReport result (New Stories)...');
+                            parseReportGenerationResult(result.output);
+                            showStatusNewStories(`📊 新ストーリーレポート生成完了`, 'success');
                         } else {
                             showStatusNewStories(`${getCommandName(command)} 完了`, 'success');
                         }
@@ -3387,7 +3397,7 @@
                 });
         });
 
-        // バッチ実行結果解析関数
+        // バッチ結果解析関数
         function parseBatchResults(output) {
             try {
                 console.log('🛠️ [Debug] Parsing batch results...');
@@ -4476,6 +4486,196 @@
                 addLog(`❌ HTML別タブ表示エラー: ${error.message}`);
                 console.error('HTML別タブ表示エラー:', error);
             }
+        }
+
+        // バッチ結果解析（新ストーリー用）
+        function parseBatchResultsNewStories(output) {
+            try {
+                console.log('🛠️ [Debug] Parsing batch results for new stories...');
+                console.log('🛠️ [Debug] Full output length:', output.length);
+                
+                const lines = output.split('\n');
+                let batchId = '';
+                let totalRoutes = 0;
+                let successfulRoutes = 0;
+                let partialRoutes = 0;
+                let failedRoutes = 0;
+                let totalExecutionTime = 0;
+                let csvFilePath = '';
+                let overallSuccessRate = 0;
+                let totalSteps = 0;
+                let successfulSteps = 0;
+                let totalAssertions = 0;
+                let successfulAssertions = 0;
+                
+                for (const line of lines) {
+                    console.log('🛠️ [Debug] Processing line:', line);
+                    
+                    // バッチID検出
+                    if (line.includes('📊 バッチID:') || line.includes('batch_')) {
+                        const match = line.match(/batch_(\d+)/);
+                        if (match) {
+                            batchId = match[1];
+                            console.log('🛠️ [Debug] Found batch ID:', batchId);
+                        }
+                    }
+                    
+                    // 実行ルート数
+                    if (line.includes('📊 実行ルート数:')) {
+                        const match = line.match(/(\d+)件/);
+                        if (match) {
+                            totalRoutes = parseInt(match[1]);
+                        }
+                    }
+                    
+                    // 成功率
+                    if (line.includes('📊 成功率:')) {
+                        const successMatch = line.match(/成功(\d+)件/);
+                        const partialMatch = line.match(/部分成功(\d+)件/);
+                        const failedMatch = line.match(/失敗(\d+)件/);
+                        
+                        if (successMatch) successfulRoutes = parseInt(successMatch[1]);
+                        if (partialMatch) partialRoutes = parseInt(partialMatch[1]);
+                        if (failedMatch) failedRoutes = parseInt(failedMatch[1]);
+                    }
+                    
+                    // 実行時間
+                    if (line.includes('総実行時間:')) {
+                        const match = line.match(/(\d+)秒/);
+                        if (match) {
+                            totalExecutionTime = parseInt(match[1]) * 1000;
+                        }
+                    }
+                    
+                    // ステップ・アサーション数
+                    if (line.includes('総ステップ数:')) {
+                        const stepMatch = line.match(/総ステップ数:\s*(\d+)件\s*\(成功:\s*(\d+)件\)/);
+                        if (stepMatch) {
+                            totalSteps = parseInt(stepMatch[1]);
+                            successfulSteps = parseInt(stepMatch[2]);
+                        }
+                    }
+                    
+                    if (line.includes('総アサーション数:')) {
+                        const assertionMatch = line.match(/総アサーション数:\s*(\d+)件\s*\(成功:\s*(\d+)件\)/);
+                        if (assertionMatch) {
+                            totalAssertions = parseInt(assertionMatch[1]);
+                            successfulAssertions = parseInt(assertionMatch[2]);
+                        }
+                    }
+                    
+                    // 全体成功率
+                    if (line.includes('全体成功率:')) {
+                        const match = line.match(/(\d+(?:\.\d+)?)%/);
+                        if (match) {
+                            overallSuccessRate = parseFloat(match[1]);
+                        }
+                    }
+                    
+                    // CSVファイル生成
+                    if (line.includes('✅ バッチテストレポートを生成しました:')) {
+                        const match = line.match(/✅ バッチテストレポートを生成しました:\s*(.+)/);
+                        if (match) {
+                            csvFilePath = match[1].trim();
+                        }
+                    }
+                }
+                
+                console.log('🛠️ [Debug] Final batch results (New Stories):', {
+                    batchId,
+                    totalRoutes,
+                    successfulRoutes,
+                    partialRoutes,
+                    failedRoutes,
+                    overallSuccessRate,
+                    csvFilePath
+                });
+                
+                // 新ストーリー用のテストサマリーを表示
+                displayNewStoriesTestSummary({
+                    batchId: `batch_${batchId}`,
+                    totalRoutes,
+                    successfulRoutes,
+                    partialRoutes,
+                    failedRoutes,
+                    totalExecutionTime,
+                    overallSuccessRate,
+                    totalSteps,
+                    successfulSteps,
+                    totalAssertions,
+                    successfulAssertions,
+                    csvFilePath
+                });
+                
+            } catch (error) {
+                console.error('新ストーリーバッチ結果解析エラー:', error);
+                addLogNewStories(`⚠️ バッチ結果の解析に失敗しました: ${error.message}`);
+            }
+        }
+
+        // 新ストーリー用テストサマリー表示
+        function displayNewStoriesTestSummary(results) {
+            const testSummaryNewStories = document.getElementById('testSummaryNewStories');
+            if (!testSummaryNewStories) return;
+            
+            const successRate = Math.round((results.successfulRoutes / results.totalRoutes) * 100) || 0;
+            const statusColor = successRate >= 80 ? '#28a745' : successRate >= 50 ? '#ffc107' : '#dc3545';
+            
+            testSummaryNewStories.innerHTML = `
+                <h3>📊 新ストーリーテスト実行結果</h3>
+                <div class="test-summary-grid">
+                    <div class="summary-item">
+                        <strong>🆔 バッチID:</strong> ${results.batchId}
+                    </div>
+                    <div class="summary-item">
+                        <strong>📊 実行ルート数:</strong> ${results.totalRoutes}件
+                    </div>
+                    <div class="summary-item">
+                        <strong>✅ 成功:</strong> ${results.successfulRoutes}件
+                    </div>
+                    <div class="summary-item">
+                        <strong>⚠️ 部分成功:</strong> ${results.partialRoutes}件
+                    </div>
+                    <div class="summary-item">
+                        <strong>❌ 失敗:</strong> ${results.failedRoutes}件
+                    </div>
+                    <div class="summary-item">
+                        <strong>📈 成功率:</strong> <span style="color: ${statusColor}; font-weight: bold;">${results.overallSuccessRate}%</span>
+                    </div>
+                    <div class="summary-item">
+                        <strong>⏱️ 実行時間:</strong> ${Math.round(results.totalExecutionTime / 1000)}秒
+                    </div>
+                    <div class="summary-item">
+                        <strong>📋 総ステップ:</strong> ${results.totalSteps}件 (成功: ${results.successfulSteps}件)
+                    </div>
+                    <div class="summary-item">
+                        <strong>🎯 アサーション:</strong> ${results.totalAssertions}件 (成功: ${results.successfulAssertions}件)
+                    </div>
+                </div>
+                
+                <!-- バッチ結果詳細ボタン -->
+                <div style="margin-top: 20px; text-align: center;">
+                    <button onclick="loadBatchResultDetails('${results.batchId.replace('batch_', '')}')" 
+                            style="background: #17a2b8; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+                        📋 詳細結果を表示
+                    </button>
+                    <button onclick="generateHTMLReport('${results.batchId.replace('batch_', '')}')" 
+                            style="background: #ffc107; color: black; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                        📄 HTMLレポート生成
+                    </button>
+                </div>
+                
+                ${results.csvFilePath ? `
+                <div style="margin-top: 15px; text-align: center;">
+                    <button onclick="downloadCsvFile('${results.csvFilePath.split('/').pop()}')" 
+                            style="background: #28a745; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                        📥 CSVレポートをダウンロード
+                    </button>
+                </div>
+                ` : ''}
+            `;
+            
+            testSummaryNewStories.style.display = 'block';
         }
     </script>
 

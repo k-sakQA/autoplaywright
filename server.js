@@ -1763,6 +1763,17 @@ app.get('/api/view-html/:filename', (req, res) => {
 function generateDetailedHTMLReport(batchData, reportType) {
   const currentTime = new Date().toLocaleString('ja-JP');
   
+  // HTMLエスケープ関数
+  function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+  
   let html = `
 <!DOCTYPE html>
 <html lang="ja">
@@ -1994,16 +2005,16 @@ function generateDetailedHTMLReport(batchData, reportType) {
 
         <div class="summary-grid">
             <div class="summary-card">
-                <h3>📊 総ルート数</h3>
-                <div class="value">${batchData.total_routes || batchData.results?.length || 0}</div>
+                <h3>📋 シナリオ数</h3>
+                <div class="value">${calculateScenarioCount(batchData)}</div>
             </div>
             <div class="summary-card">
                 <h3>⏱️ 実行時間</h3>
                 <div class="value">${Math.round((batchData.total_execution_time || 0) / 1000)}秒</div>
             </div>
             <div class="summary-card">
-                <h3>🎯 平均成功率</h3>
-                <div class="value">${calculateAverageSuccessRate(batchData)}%</div>
+                <h3>📈 成功率</h3>
+                <div class="value">${calculateOverallSuccessRate(batchData)}%</div>
             </div>
             <div class="summary-card">
                 <h3>📅 実行日時</h3>
@@ -2022,10 +2033,52 @@ function generateDetailedHTMLReport(batchData, reportType) {
 
         ${generateTestResultsHTML(batchData)}
 
+        <!-- ダウンロードリンクセクション -->
+        <div style="margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #007bff; text-align: center;">
+            <h3 style="color: #007bff; margin-bottom: 15px;">📁 関連ファイルダウンロード</h3>
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px;">
+                <button onclick="downloadBatchCSV('${batchData.batch_id ? batchData.batch_id.replace('batch_', '') : ''}')" 
+                        style="background: #28a745; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    📊 CSVレポートをダウンロード
+                </button>
+                <button onclick="downloadHTMLReport('${batchData.batch_id ? batchData.batch_id.replace('batch_', '') : ''}')" 
+                        style="background: #17a2b8; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    📄 このHTMLレポートをダウンロード
+                </button>
+            </div>
+            <p style="margin-top: 10px; color: #6c757d; font-size: 0.9em;">
+                💡 CSVレポートには詳細な実行データが含まれます。HTMLレポートはこのページのダウンロード版です。
+            </p>
+        </div>
+
         <div class="footer">
             <p>📋 このレポートは AutoPlaywright によって自動生成されました</p>
-            <p>🔗 プロジェクト: <a href="https://github.com/your-repo/autoplaywright" target="_blank">AutoPlaywright</a></p>
+            <p>🔗 プロジェクト: <a href="https://github.com/k-sakQA/autoplaywright" target="_blank">AutoPlaywright</a></p>
         </div>
+        
+        <script>
+            function downloadBatchCSV(batchId) {
+                const now = new Date();
+                const dateStr = now.toISOString().substring(0, 10);
+                const timeStr = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+                const csvFileName = 'AutoPlaywright バッチテスト結果 - batch_' + batchId + '_' + dateStr + '_' + timeStr + '.csv';
+                
+                const downloadUrl = '/api/download-csv/' + encodeURIComponent(csvFileName);
+                window.open(downloadUrl, '_blank');
+            }
+            
+            function downloadHTMLReport(batchId) {
+                const currentFileName = window.location.pathname.split('/').pop();
+                const downloadUrl = '/api/download-html/' + encodeURIComponent(currentFileName);
+                
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = currentFileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        </script>
     </div>
 </body>
 </html>
@@ -2040,6 +2093,17 @@ function generateTestResultsHTML(batchData) {
     return '<div class="test-result"><div class="test-content">テスト結果がありません</div></div>';
   }
 
+  // HTMLエスケープ関数
+  function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   let html = '';
 
   batchData.results.forEach((result, index) => {
@@ -2051,7 +2115,7 @@ function generateTestResultsHTML(batchData) {
     html += `
       <div class="test-result">
         <div class="test-header ${statusClass}">
-          <span>${statusIcon} テスト ${index + 1}: ${result.category} (${result.test_case_id || 'N/A'})</span>
+          <span>${statusIcon} テスト ${index + 1}: ${escapeHtml(result.category)} (${escapeHtml(result.test_case_id || 'N/A')})</span>
           <span>成功率: ${result.success_rate || 0}% | 実行時間: ${Math.round((result.execution_time || 0) / 1000)}秒</span>
         </div>
         <div class="test-content">
@@ -2072,14 +2136,15 @@ function generateTestResultsHTML(batchData) {
 
         html += `
           <div class="step-item ${stepStatusClass}">
-            <strong>${stepIcon} ステップ ${stepIndex + 1}:</strong> ${step.label || 'ラベルなし'} (${step.action || 'unknown'})
+            <strong>${stepIcon} ステップ ${stepIndex + 1}:</strong> ${escapeHtml(step.label || 'ラベルなし')} (${escapeHtml(step.action || 'unknown')})
         `;
 
         if (step.status !== 'success' && step.error) {
+          const errorMessage = step.error.length > 300 ? step.error.substring(0, 300) + '...' : step.error;
           html += `
             <div class="error-details">
               <strong>エラー詳細:</strong><br>
-              ${step.error.length > 300 ? step.error.substring(0, 300) + '...' : step.error}
+              ${escapeHtml(errorMessage)}
             </div>
           `;
         }
@@ -2109,7 +2174,7 @@ function generateTestResultsHTML(batchData) {
 
         html += `
           <div class="assertion-item ${assertionClass}">
-            ${assertionIcon} ${assertion.label || 'アサーション'} (${assertion.assertion_type || 'general'})
+            ${assertionIcon} ${escapeHtml(assertion.label || 'アサーション')} (${escapeHtml(assertion.assertion_type || 'general')})
           </div>
         `;
       });
@@ -2134,6 +2199,33 @@ function calculateAverageSuccessRate(batchData) {
   
   const totalRate = batchData.results.reduce((sum, result) => sum + (result.success_rate || 0), 0);
   return Math.round(totalRate / batchData.results.length);
+}
+
+// 全ステップ数ベースの成功率を計算
+function calculateOverallSuccessRate(batchData) {
+  if (!batchData.results || batchData.results.length === 0) return 0;
+  
+  let totalSteps = 0;
+  let successfulSteps = 0;
+  
+  batchData.results.forEach(result => {
+    if (result.step_results && Array.isArray(result.step_results)) {
+      totalSteps += result.step_results.length;
+      successfulSteps += result.step_results.filter(step => step.status === 'success').length;
+    }
+  });
+  
+  if (totalSteps === 0) return 0;
+  return Math.round((successfulSteps / totalSteps) * 100);
+}
+
+// シナリオ数を計算
+function calculateScenarioCount(batchData) {
+  if (!batchData.results || batchData.results.length === 0) return 0;
+  
+  // 各テスト結果を1つのシナリオとしてカウント
+  // 実際にはbatch_idやuser_story_idベースで重複排除することも可能
+  return batchData.results.length;
 }
 
 // Google Sheets接続テストAPI
