@@ -6,6 +6,11 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import os from 'os';
 
+// 🆕 Phase 2: OutputManagerの統合ダッシュボード機能を追加
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const OutputManager = require('./src/output-manager/index.cjs');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -2228,4 +2233,122 @@ function calculateScenarioCount(batchData) {
   return batchData.results.length;
 }
 
-// Google Sheets接続テストAPI
+// 🆕 Phase 2: 統合ダッシュボード API エンドポイント
+
+// 統合ダッシュボード表示
+app.get('/api/phase2/dashboard', async (req, res) => {
+  try {
+    console.log('📊 Phase 2 統合ダッシュボード表示リクエスト');
+    
+    const outputManager = new OutputManager({
+      baseDir: 'test-results',
+      compressionEnabled: false
+    });
+    
+    // 最新ダッシュボードが存在するかチェック
+    const latestDashboardPath = path.join(__dirname, 'test-results', 'reports', 'latest-dashboard.html');
+    
+    if (fs.existsSync(latestDashboardPath)) {
+      const htmlContent = fs.readFileSync(latestDashboardPath, 'utf-8');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(htmlContent);
+      console.log('✅ Phase 2 統合ダッシュボード表示完了 (既存)');
+    } else {
+      // ダッシュボードが存在しない場合は新しく生成
+      console.log('📊 統合ダッシュボードを新規生成中...');
+      const dashboardPath = await outputManager.generateDashboard({
+        includeSessions: 20,
+        theme: 'modern'
+      });
+      
+      const htmlContent = fs.readFileSync(dashboardPath, 'utf-8');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(htmlContent);
+      console.log('✅ Phase 2 統合ダッシュボード表示完了 (新規生成)');
+    }
+    
+  } catch (error) {
+    console.error('❌ Phase 2 ダッシュボード表示エラー:', error);
+    res.status(500).send(`
+      <h1>❌ Phase 2 ダッシュボードエラー</h1>
+      <p>エラー: ${error.message}</p>
+      <p><a href="/">ホームページに戻る</a></p>
+    `);
+  }
+});
+
+// ファイル統計レポート表示
+app.get('/api/phase2/file-stats', async (req, res) => {
+  try {
+    console.log('📊 Phase 2 ファイル統計レポート表示リクエスト');
+    
+    const outputManager = new OutputManager({
+      baseDir: 'test-results',
+      compressionEnabled: false
+    });
+    
+    const statistics = await outputManager.generateFileStatistics();
+    res.json(statistics);
+    
+    console.log('✅ Phase 2 ファイル統計レポート表示完了');
+    
+  } catch (error) {
+    console.error('❌ Phase 2 ファイル統計エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ファイル検索API
+app.get('/api/phase2/search-files', async (req, res) => {
+  try {
+    console.log('🔍 Phase 2 ファイル検索リクエスト');
+    
+    const outputManager = new OutputManager({
+      baseDir: 'test-results',
+      compressionEnabled: false
+    });
+    
+    const { fileName, fileType, extension, limit } = req.query;
+    const searchResults = await outputManager.searchFiles({
+      fileName: fileName || '',
+      fileType: fileType || '',
+      extension: extension || '',
+      limit: parseInt(limit) || 50
+    });
+    
+    res.json({
+      results: searchResults,
+      count: searchResults.length
+    });
+    
+    console.log(`✅ Phase 2 ファイル検索完了: ${searchResults.length}件`);
+    
+  } catch (error) {
+    console.error('❌ Phase 2 ファイル検索エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// セッション一覧API
+app.get('/api/phase2/sessions', async (req, res) => {
+  try {
+    console.log('📋 Phase 2 セッション一覧リクエスト');
+    
+    const outputManager = new OutputManager({
+      baseDir: 'test-results',
+      compressionEnabled: false
+    });
+    
+    const sessions = await outputManager.getAvailableSessions();
+    res.json({
+      sessions: sessions,
+      count: sessions.length
+    });
+    
+    console.log(`✅ Phase 2 セッション一覧完了: ${sessions.length}件`);
+    
+  } catch (error) {
+    console.error('❌ Phase 2 セッション一覧エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
