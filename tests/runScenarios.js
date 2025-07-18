@@ -16,6 +16,11 @@ import GoogleSheetsUploader from './utils/googleSheetsUploader.js';
 import AutoPlaywrightReporter from './utils/autoplaywrightReporter.js';
 import USISDirectoryManager from './utils/usisDirectoryManager.js';
 
+// 新しい統合OutputManager
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const LegacyIntegrationManager = require('../src/output-manager/legacy-integration.cjs');
+
 // configのスキーマ定義
 const ConfigSchema = z.object({
   openai: z.object({
@@ -84,7 +89,15 @@ export class PlaywrightRunner {
     this.browser = null;
     this.page = null;
     
-    // レポーター機能を統合
+    // 🆕 新しい統合OutputManagerを初期化
+    this.integrationManager = new LegacyIntegrationManager({
+      migrationMode: options.migrationMode || 'hybrid',
+      baseDir: options.outputDir || path.join(process.cwd(), 'test-results'),
+      enableUSISCompatibility: true,
+      enableReporterCompatibility: true
+    });
+    
+    // 既存システムとの互換性維持（段階的移行のため）
     this.reporter = new AutoPlaywrightReporter({
       outputDir: options.outputDir || path.join(process.cwd(), 'test-results'),
       enableScreenshots: options.enableScreenshots !== false,
@@ -92,13 +105,13 @@ export class PlaywrightRunner {
       enableAIAnalysis: options.enableAIAnalysis !== false
     });
     
-    // USISディレクトリマネージャーを統合
     this.directoryManager = new USISDirectoryManager({
       baseDir: options.outputDir || path.join(process.cwd(), 'test-results'),
       enableLegacyMigration: options.enableLegacyMigration !== false
     });
     
-    // ユーザーストーリー情報を初期化
+    // セッション管理
+    this.currentSession = null;
     this.userStoryInfo = null;
     this.setupUserStoryInfo();
   }
@@ -131,6 +144,18 @@ export class PlaywrightRunner {
   async initialize() {
     try {
       const config = loadConfig();
+      
+      // 🆕 統合OutputManagerを初期化
+      await this.integrationManager.initialize();
+      
+      // 🆕 新しいテストセッションを開始
+      this.currentSession = await this.integrationManager.startTestSession({
+        targetUrl: config.targetUrl,
+        testType: 'web_ui_test',
+        startTime: new Date().toISOString()
+      });
+      
+      console.log(`🚀 統合テストセッション開始: ${this.currentSession.sessionId}`);
       
       // Android実機検出
       const useAndroidDevice = process.argv.includes('--android-device');
@@ -1811,11 +1836,28 @@ export class PlaywrightRunner {
           break;
       }
       
+      // 🆕 統合システムでステップ完了ログを保存
+      if (this.currentSession) {
+        await this.integrationManager.onStepComplete(step, stepIndex, {
+          success: true,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
       // レポーターに成功を通知
       this.reporter.onStepEnd(stepIndex, { actualResult: 'success' });
       return true;
     } catch (error) {
       console.error(`ステップの実行に失敗しました:`, error);
+      
+      // 🆕 統合システムでステップ失敗ログを保存
+      if (this.currentSession) {
+        await this.integrationManager.onStepComplete(step, stepIndex, {
+          success: false,
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
       
       // レポーターに失敗を通知（詳細情報付き）
       await this.reportStepFailure(stepIndex, error, step);
@@ -1838,11 +1880,40 @@ export class PlaywrightRunner {
       // スクリーンショットを取得
       if (this.reporter.options.enableScreenshots) {
         context.screenshot = await this.page.screenshot();
+        
+        // 🆕 統合システムでもスクリーンショット保存
+        if (this.currentSession && context.screenshot) {
+          try {
+            await this.integrationManager.saveScreenshot(context.screenshot, {
+              stepName: `${step.action}_${step.target}`,
+              stepIndex: stepIndex,
+              isFailure: true,
+              timestamp: new Date().toISOString()
+            });
+          } catch (screenshotError) {
+            console.warn(`⚠️ 統合スクリーンショット保存エラー: ${screenshotError.message}`);
+          }
+        }
       }
 
       // DOM状態を取得
       if (this.reporter.options.enableDomSnapshots) {
         context.domSnapshot = await this.page.content();
+        
+        // 🆕 統合システムでもDOMスナップショット保存
+        if (this.currentSession && context.domSnapshot) {
+          try {
+            await this.integrationManager.saveDOMSnapshot({
+              html: context.domSnapshot,
+              url: context.pageUrl,
+              testId: this.currentSession.sessionId,
+              stepNumber: stepIndex,
+              timestamp: new Date().toISOString()
+            });
+          } catch (domError) {
+            console.warn(`⚠️ 統合DOM保存エラー: ${domError.message}`);
+          }
+        }
       }
 
       // 利用可能な要素情報を収集
@@ -1911,14 +1982,35 @@ export class PlaywrightRunner {
   /**
    * テスト完了時のレポート処理
    */
-  finishTest() {
+  async finishTest() {
+    // 🆕 統合システムでテスト完了処理
+    if (this.currentSession) {
+      try {
+        const testResult = {
+          sessionId: this.currentSession.sessionId,
+          completedAt: new Date().toISOString(),
+          status: 'completed'
+        };
+        
+        const integrationReport = await this.integrationManager.completeTest(testResult);
+        console.log(`🔗 統合テスト完了: ${integrationReport.sessionSummary.sessionId}`);
+        console.log(`📂 新形式結果: ${integrationReport.paths.newFormat}`);
+        if (integrationReport.paths.usisFormat) {
+          console.log(`📂 USIS結果: ${integrationReport.paths.usisFormat}`);
+        }
+      } catch (integrationError) {
+        console.warn(`⚠️ 統合システム完了処理エラー: ${integrationError.message}`);
+      }
+    }
+    
+    // 既存のレポーター処理
     this.reporter.onTestComplete();
     console.log(`📊 詳細レポートが保存されました: ${this.reporter.getUSISDirectory()}`);
   }
 
   async cleanup() {
     // レポーターのテスト完了処理
-    this.finishTest();
+    await this.finishTest();
     
     if (this.page) {
       await this.page.close();
