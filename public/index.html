@@ -1218,6 +1218,32 @@
             </div>
 
             
+            <!-- 🆕 Phase 2: 統合ダッシュボードセクション -->
+            <div class="section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin-bottom: 30px; border-radius: 12px; padding: 25px;">
+                <h2 style="color: white; margin-bottom: 15px;">🚀 Phase 2: 統合分析ダッシュボード</h2>
+                <p style="margin-bottom: 20px; opacity: 0.9;">テスト結果の統合分析、ファイル管理、履歴比較機能</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <button onclick="openPhase2Dashboard()" class="phase2-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px;">
+                        📊 統合ダッシュボード
+                    </button>
+                    <button onclick="showPhase2FileStats()" class="phase2-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px;">
+                        📋 ファイル統計
+                    </button>
+                    <button onclick="showPhase2FileSearch()" class="phase2-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px;">
+                        🔍 ファイル検索
+                    </button>
+                    <button onclick="showPhase2Sessions()" class="phase2-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px;">
+                        📈 セッション履歴
+                    </button>
+                </div>
+                
+                <!-- Phase 2 結果表示エリア -->
+                <div id="phase2ResultArea" style="margin-top: 20px; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 8px; display: none;">
+                    <div id="phase2ResultContent"></div>
+                </div>
+            </div>
+
                 <!-- 手動ガイドセクション -->
                 <div class="section">
                     <h2>📋 手動テストシナリオ作成</h2>
@@ -4676,6 +4702,167 @@
             `;
             
             testSummaryNewStories.style.display = 'block';
+        }
+
+        // 🆕 Phase 2: 統合ダッシュボード機能
+
+        // 統合ダッシュボードを新しいタブで開く
+        function openPhase2Dashboard() {
+            console.log('📊 Phase 2 統合ダッシュボードを開いています...');
+            window.open('/api/phase2/dashboard', '_blank');
+        }
+
+        // ファイル統計を表示
+        async function showPhase2FileStats() {
+            try {
+                console.log('📊 Phase 2 ファイル統計を取得中...');
+                
+                const response = await fetch('/api/phase2/file-stats');
+                const stats = await response.json();
+                
+                const resultArea = document.getElementById('phase2ResultArea');
+                const resultContent = document.getElementById('phase2ResultContent');
+                
+                resultContent.innerHTML = `
+                    <h3 style="color: white; margin-bottom: 15px;">📊 ファイル統計</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                        <div style="text-align: center; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+                            <div style="font-size: 2em; font-weight: bold;">${stats.overview.totalSessions}</div>
+                            <div style="opacity: 0.8;">セッション数</div>
+                        </div>
+                        <div style="text-align: center; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+                            <div style="font-size: 2em; font-weight: bold;">${stats.overview.totalFiles}</div>
+                            <div style="opacity: 0.8;">ファイル数</div>
+                        </div>
+                        <div style="text-align: center; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+                            <div style="font-size: 1.5em; font-weight: bold;">${stats.overview.formattedSize}</div>
+                            <div style="opacity: 0.8;">総サイズ</div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px;">
+                        <h4 style="margin-bottom: 10px;">ファイルタイプ別分布</h4>
+                        ${Object.entries(stats.typeDistribution || {}).map(([type, count]) => 
+                            `<div style="margin: 5px 0;">${type}: ${count}件</div>`
+                        ).join('')}
+                    </div>
+                `;
+                
+                resultArea.style.display = 'block';
+                
+            } catch (error) {
+                console.error('❌ ファイル統計取得エラー:', error);
+                alert('ファイル統計の取得に失敗しました: ' + error.message);
+            }
+        }
+
+        // ファイル検索を表示
+        async function showPhase2FileSearch() {
+            try {
+                const resultArea = document.getElementById('phase2ResultArea');
+                const resultContent = document.getElementById('phase2ResultContent');
+                
+                resultContent.innerHTML = `
+                    <h3 style="color: white; margin-bottom: 15px;">🔍 ファイル検索</h3>
+                    <div style="margin-bottom: 15px;">
+                        <input type="text" id="searchFileName" placeholder="ファイル名" style="padding: 8px; margin: 5px; border-radius: 4px; border: none;">
+                        <select id="searchFileType" style="padding: 8px; margin: 5px; border-radius: 4px; border: none;">
+                            <option value="">全タイプ</option>
+                            <option value="artifact">アーティファクト</option>
+                            <option value="result">結果</option>
+                            <option value="config">設定</option>
+                            <option value="report">レポート</option>
+                        </select>
+                        <input type="text" id="searchExtension" placeholder="拡張子 (.html)" style="padding: 8px; margin: 5px; border-radius: 4px; border: none;">
+                        <button onclick="performFileSearch()" style="padding: 8px 15px; margin: 5px; border-radius: 4px; border: none; background: #007bff; color: white; cursor: pointer;">検索</button>
+                    </div>
+                    <div id="searchResults" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px;">
+                        検索条件を入力して「検索」ボタンを押してください
+                    </div>
+                `;
+                
+                resultArea.style.display = 'block';
+                
+            } catch (error) {
+                console.error('❌ ファイル検索エラー:', error);
+                alert('ファイル検索の表示に失敗しました: ' + error.message);
+            }
+        }
+
+        // ファイル検索を実行
+        async function performFileSearch() {
+            try {
+                const fileName = document.getElementById('searchFileName').value;
+                const fileType = document.getElementById('searchFileType').value;
+                const extension = document.getElementById('searchExtension').value;
+                
+                const params = new URLSearchParams({
+                    fileName: fileName,
+                    fileType: fileType,
+                    extension: extension,
+                    limit: '20'
+                });
+                
+                const response = await fetch(`/api/phase2/search-files?${params}`);
+                const searchData = await response.json();
+                
+                const searchResults = document.getElementById('searchResults');
+                if (searchData.results.length > 0) {
+                    searchResults.innerHTML = `
+                        <h4 style="margin-bottom: 10px;">検索結果: ${searchData.count}件</h4>
+                        ${searchData.results.map(file => `
+                            <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+                                <div style="font-weight: bold;">${file.name}</div>
+                                <div style="font-size: 0.9em; opacity: 0.8;">
+                                    セッション: ${file.sessionId} | サイズ: ${file.formattedSize} | 作成: ${file.formattedDate}
+                                </div>
+                            </div>
+                        `).join('')}
+                    `;
+                } else {
+                    searchResults.innerHTML = '<div>検索条件に一致するファイルが見つかりませんでした</div>';
+                }
+                
+            } catch (error) {
+                console.error('❌ ファイル検索実行エラー:', error);
+                document.getElementById('searchResults').innerHTML = 'ファイル検索に失敗しました: ' + error.message;
+            }
+        }
+
+        // セッション履歴を表示
+        async function showPhase2Sessions() {
+            try {
+                console.log('📈 Phase 2 セッション履歴を取得中...');
+                
+                const response = await fetch('/api/phase2/sessions');
+                const sessionsData = await response.json();
+                
+                const resultArea = document.getElementById('phase2ResultArea');
+                const resultContent = document.getElementById('phase2ResultContent');
+                
+                resultContent.innerHTML = `
+                    <h3 style="color: white; margin-bottom: 15px;">📈 セッション履歴</h3>
+                    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px;">
+                        <div style="margin-bottom: 10px; font-weight: bold;">総セッション数: ${sessionsData.count}件</div>
+                        ${sessionsData.sessions.length > 0 ? 
+                            sessionsData.sessions.slice(0, 10).map(session => `
+                                <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+                                    <div style="font-weight: bold;">${session.sessionId}</div>
+                                    <div style="font-size: 0.9em; opacity: 0.8;">
+                                        状態: ${session.status || '不明'} | 開始: ${new Date(session.startTime).toLocaleString('ja-JP')}
+                                    </div>
+                                </div>
+                            `).join('') 
+                            : '<div>セッションが見つかりませんでした</div>'
+                        }
+                    </div>
+                `;
+                
+                resultArea.style.display = 'block';
+                
+            } catch (error) {
+                console.error('❌ セッション履歴取得エラー:', error);
+                alert('セッション履歴の取得に失敗しました: ' + error.message);
+            }
         }
     </script>
 
