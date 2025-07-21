@@ -2352,3 +2352,91 @@ app.get('/api/phase2/sessions', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// 🆕 最新バッチ結果取得API
+app.get('/api/latest-batch-result', (req, res) => {
+  try {
+    console.log('📊 最新バッチ結果取得リクエスト');
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    
+    if (!fs.existsSync(testResultsDir)) {
+      return res.json({
+        success: false,
+        error: 'test-resultsディレクトリが見つかりません'
+      });
+    }
+    
+    // バッチ結果ファイルを検索（最新順）
+    const files = fs.readdirSync(testResultsDir);
+    const batchResultFiles = files
+      .filter(f => f.startsWith('batch_result_') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    
+    if (batchResultFiles.length === 0) {
+      return res.json({
+        success: false,
+        error: 'バッチ実行結果が見つかりません'
+      });
+    }
+    
+    // 最新のバッチ結果を読み込み
+    const latestBatchFile = batchResultFiles[0];
+    const batchFilePath = path.join(testResultsDir, latestBatchFile);
+    const batchData = JSON.parse(fs.readFileSync(batchFilePath, 'utf-8'));
+    
+    console.log(`📋 最新バッチ結果: ${latestBatchFile} (${batchData.total_routes}件のルート)`);
+    
+    // WebUI用にデータを整形
+    const summary = {
+      batchId: batchData.batch_id,
+      executedAt: batchData.executed_at,
+      totalRoutes: batchData.total_routes,
+      successfulRoutes: batchData.successful_routes,
+      partialRoutes: batchData.partial_routes,
+      failedRoutes: batchData.failed_routes,
+      executionTime: batchData.total_execution_time,
+      categorySum: batchData.category_summary,
+      
+      // 成功率を正しく計算
+      successRate: batchData.total_routes > 0 
+        ? Math.round(((batchData.successful_routes + batchData.partial_routes) / batchData.total_routes) * 100)
+        : 0,
+      
+      // ステップ統計を集計
+      totalSteps: 0,
+      successfulSteps: 0,
+      totalAssertions: 0,
+      successfulAssertions: 0
+    };
+    
+    // 各ルートの詳細統計を集計
+    if (batchData.results && Array.isArray(batchData.results)) {
+      batchData.results.forEach(result => {
+        if (result.step_results && Array.isArray(result.step_results)) {
+          summary.totalSteps += result.step_results.length;
+          summary.successfulSteps += result.step_results.filter(step => step.status === 'success').length;
+        }
+        
+        if (result.assertion_results && Array.isArray(result.assertion_results)) {
+          summary.totalAssertions += result.assertion_results.length;
+          summary.successfulAssertions += result.assertion_results.filter(assertion => assertion.status === 'success').length;
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: summary,
+      fileName: latestBatchFile
+    });
+    
+  } catch (error) {
+    console.error('❌ 最新バッチ結果取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: `バッチ結果取得エラー: ${error.message}`
+    });
+  }
+});
