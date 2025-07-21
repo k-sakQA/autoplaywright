@@ -2440,3 +2440,191 @@ app.get('/api/latest-batch-result', (req, res) => {
     });
   }
 });
+
+// 🚀 拡張テストレポート機能のAPIエンドポイント
+
+// 拡張レポート生成API
+app.post('/api/enhanced-reports/generate', async (req, res) => {
+  try {
+    console.log('🚀 拡張レポート生成リクエスト');
+    
+    const { TestReportIntegrator } = await import('./tests/utils/testReportIntegrator.js');
+    
+    // オプション設定
+    const options = {
+      enableMapping: req.body.enableMapping !== false,
+      enableAIAnalysis: req.body.enableAI === true,
+      enableEnhancedReporting: req.body.enableEnhancedReporting !== false,
+      outputDir: path.join(__dirname, 'test-results')
+    };
+    
+    console.log('📊 設定:', options);
+    
+    // 統合システム初期化
+    const integrator = new TestReportIntegrator(options);
+    await integrator.initializeComponents();
+    
+    // 最新のテストデータを検索
+    const testResultsDir = path.join(__dirname, 'test-results');
+    const files = fs.readdirSync(testResultsDir);
+    
+    // 最新ルートファイル
+    const routeFiles = files.filter(f => f.startsWith('route_') && f.endsWith('.json')).sort().reverse();
+    const demoRouteFiles = files.filter(f => f.startsWith('demo_route_') && f.endsWith('.json')).sort().reverse();
+    const latestRouteFile = routeFiles.length > 0 ? routeFiles[0] : 
+                          (demoRouteFiles.length > 0 ? demoRouteFiles[0] : null);
+    
+    // 最新結果ファイル
+    const resultFiles = files.filter(f => f.startsWith('result_') && f.endsWith('.json')).sort().reverse();
+    const demoResultFiles = files.filter(f => f.startsWith('demo_result_') && f.endsWith('.json')).sort().reverse();
+    const latestResultFile = resultFiles.length > 0 ? resultFiles[0] : 
+                           (demoResultFiles.length > 0 ? demoResultFiles[0] : null);
+    
+    if (!latestRouteFile || !latestResultFile) {
+      return res.status(400).json({
+        success: false,
+        error: 'テスト実行結果が見つかりません。先にテストを実行してください。'
+      });
+    }
+    
+    console.log(`📁 使用ファイル: route=${latestRouteFile}, result=${latestResultFile}`);
+    
+    // ファイル読み込み
+    const route = JSON.parse(fs.readFileSync(path.join(testResultsDir, latestRouteFile), 'utf8'));
+    const result = JSON.parse(fs.readFileSync(path.join(testResultsDir, latestResultFile), 'utf8'));
+    
+    // テスト観点ファイル検索
+    let testPoints = [];
+    const testPointFiles = files.filter(f => 
+      (f.startsWith('naturalLanguageTestCases_') || f.startsWith('testPoints_') || f.startsWith('demo_testPoints_'))
+      && f.endsWith('.json')
+    ).sort().reverse();
+    
+    if (testPointFiles.length > 0) {
+      const testPointsData = JSON.parse(fs.readFileSync(path.join(testResultsDir, testPointFiles[0]), 'utf8'));
+      if (Array.isArray(testPointsData)) {
+        testPoints = testPointsData;
+        console.log(`📋 テスト観点: ${testPointFiles[0]} (${testPoints.length}件)`);
+      }
+    }
+    
+    // ユーザーストーリー情報取得
+    let userStoryInfo = null;
+    try {
+      const configPath = path.join(__dirname, 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        userStoryInfo = config.userStory;
+      }
+    } catch (error) {
+      console.warn('⚠️ ユーザーストーリー情報取得失敗:', error.message);
+    }
+    
+    // 拡張レポート生成
+    const reportResult = await integrator.createEnhancedTestReport(
+      testPoints,
+      route,
+      result,
+      userStoryInfo
+    );
+    
+    if (reportResult.success) {
+      console.log('✅ 拡張レポート生成完了');
+      res.json(reportResult);
+    } else {
+      console.error('❌ 拡張レポート生成失敗:', reportResult.error);
+      res.status(500).json(reportResult);
+    }
+    
+  } catch (error) {
+    console.error('❌ 拡張レポート生成API エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: `拡張レポート生成エラー: ${error.message}`
+    });
+  }
+});
+
+// 拡張レポート履歴API
+app.get('/api/enhanced-reports/history', (req, res) => {
+  try {
+    console.log('📈 拡張レポート履歴リクエスト');
+    
+    const testResultsDir = path.join(__dirname, 'test-results');
+    if (!fs.existsSync(testResultsDir)) {
+      return res.json({ reports: [] });
+    }
+    
+    const files = fs.readdirSync(testResultsDir);
+    
+    // 拡張レポートファイルを検索
+    const htmlReports = files
+      .filter(f => f.startsWith('AutoPlaywright_Enhanced_Report_') && f.endsWith('.html'))
+      .sort()
+      .reverse();
+    
+    const csvReports = files
+      .filter(f => f.startsWith('AutoPlaywright 拡張テスト結果') && f.endsWith('.csv'))
+      .sort()
+      .reverse();
+    
+    const metadataFiles = files
+      .filter(f => f.startsWith('enhanced_report_metadata_') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    
+    // レポート情報を収集
+    const reports = htmlReports.map(htmlFile => {
+      const timestamp = htmlFile.match(/(\d{4}-\d{2}-\d{2}_\d{4})/)?.[1];
+      const csvFile = csvReports.find(f => f.includes(timestamp));
+      const metadataFile = metadataFiles.find(f => f.includes(timestamp));
+      
+      let metadata = {};
+      if (metadataFile) {
+        try {
+          metadata = JSON.parse(fs.readFileSync(path.join(testResultsDir, metadataFile), 'utf8'));
+        } catch (error) {
+          console.warn('メタデータ読み込み失敗:', error.message);
+        }
+      }
+      
+      return {
+        htmlFile: htmlFile,
+        csvFile: csvFile,
+        createdAt: timestamp ? 
+          new Date(timestamp.replace('_', 'T').replace(/(\d{2})(\d{2})$/, '$1:$2')).toISOString() : 
+          new Date().toISOString(),
+        successRate: metadata.testSummary?.successRate,
+        totalSteps: metadata.testSummary?.totalSteps,
+        aiEnabled: metadata.aiAnalysisEnabled,
+        totalMappings: metadata.mappingSummary?.totalMappings
+      };
+    });
+    
+    console.log(`📋 拡張レポート履歴: ${reports.length}件`);
+    
+    res.json({ reports });
+    
+  } catch (error) {
+    console.error('❌ 拡張レポート履歴取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: `履歴取得エラー: ${error.message}`
+    });
+  }
+});
+
+// 静的ファイル配信
+app.use('/test-results', express.static(path.join(__dirname, 'test-results')));
+
+console.log(`🌐 サーバーが http://localhost:${port} で起動しました`);
+console.log('📊 利用可能な機能:');
+console.log('  - 基本設定とテスト実行');
+console.log('  - 🚀 Phase 2: 統合分析ダッシュボード');
+console.log('  - 🚀 拡張テストレポート機能 (NEW!)');
+console.log('  - AI失敗分析と自動修正');
+console.log('  - Google Sheets連携');
+
+app.listen(port, () => {
+  console.log(`✅ AutoPlaywright WebUI ready on port ${port}`);
+});

@@ -17,6 +17,11 @@ COPY public/ ./public/
 COPY tests/ ./tests/
 COPY test_point/ ./test_point/
 COPY specs/ ./specs/
+COPY src/ ./src/
+COPY docs/ ./docs/
+
+# デモスクリプト（オプション）
+COPY demo_enhanced_reports.js* ./
 
 # Google Cloud認証ファイル（オプション）
 COPY airy-cycle-451111-s0-32fbfd2f1e9f.json* ./
