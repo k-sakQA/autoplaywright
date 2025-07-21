@@ -4739,6 +4739,305 @@
                 alert('セッション履歴の取得に失敗しました: ' + error.message);
             }
         }
+
+        // 🚀 拡張テストレポート機能のJavaScript関数
+
+        // 拡張レポート生成（AI無効）
+        async function generateEnhancedReport() {
+            try {
+                showEnhancedReportProgress('拡張レポート生成中...', 0);
+                
+                const response = await fetch('/api/enhanced-reports/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        enableAI: false,
+                        enableMapping: true,
+                        enableEnhancedReporting: true
+                    })
+                });
+                
+                updateEnhancedReportProgress('レポート処理中...', 50);
+                
+                const result = await response.json();
+                
+                updateEnhancedReportProgress('完了', 100);
+                
+                if (result.success) {
+                    showEnhancedReportResult(result, false);
+                } else {
+                    throw new Error(result.error || '拡張レポート生成に失敗しました');
+                }
+                
+            } catch (error) {
+                console.error('❌ 拡張レポート生成エラー:', error);
+                showEnhancedReportError('拡張レポート生成に失敗しました: ' + error.message);
+            } finally {
+                hideEnhancedReportProgress();
+            }
+        }
+
+        // AI分析付き拡張レポート生成
+        async function generateEnhancedReportWithAI() {
+            try {
+                showEnhancedReportProgress('AI分析付きレポート生成中...', 0);
+                
+                const response = await fetch('/api/enhanced-reports/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        enableAI: true,
+                        enableMapping: true,
+                        enableEnhancedReporting: true
+                    })
+                });
+                
+                updateEnhancedReportProgress('AI分析実行中...', 30);
+                
+                const result = await response.json();
+                
+                updateEnhancedReportProgress('完了', 100);
+                
+                if (result.success) {
+                    showEnhancedReportResult(result, true);
+                } else {
+                    throw new Error(result.error || 'AI分析付きレポート生成に失敗しました');
+                }
+                
+            } catch (error) {
+                console.error('❌ AI分析付きレポート生成エラー:', error);
+                showEnhancedReportError('AI分析付きレポート生成に失敗しました: ' + error.message);
+            } finally {
+                hideEnhancedReportProgress();
+            }
+        }
+
+        // 拡張レポート履歴表示
+        async function showEnhancedReportHistory() {
+            try {
+                const response = await fetch('/api/enhanced-reports/history');
+                const historyData = await response.json();
+                
+                const resultArea = document.getElementById('enhancedReportArea');
+                const resultContent = document.getElementById('enhancedReportContent');
+                
+                resultContent.innerHTML = `
+                    <h3 style="color: white; margin-bottom: 15px;">📈 拡張レポート履歴</h3>
+                    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px;">
+                        ${historyData.reports && historyData.reports.length > 0 ? 
+                            historyData.reports.slice(0, 10).map(report => `
+                                <div style="margin: 10px 0; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                        <div style="font-weight: bold;">
+                                            ${report.htmlFile ? 
+                                                `<a href="${report.htmlFile}" target="_blank" style="color: white; text-decoration: underline;">
+                                                    ${report.htmlFile.split('/').pop()}
+                                                </a>` : 
+                                                'レポートファイル不明'
+                                            }
+                                        </div>
+                                        <div style="font-size: 0.9em; opacity: 0.8;">
+                                            ${new Date(report.createdAt).toLocaleString('ja-JP')}
+                                        </div>
+                                    </div>
+                                    <div style="font-size: 0.9em; opacity: 0.8;">
+                                        成功率: ${report.successRate || 'N/A'}% | 
+                                        総ステップ: ${report.totalSteps || 'N/A'}件 |
+                                        AI分析: ${report.aiEnabled ? '有効' : '無効'}
+                                    </div>
+                                    ${report.csvFile ? 
+                                        `<div style="margin-top: 8px;">
+                                            <a href="${report.csvFile}" style="color: white; text-decoration: underline; font-size: 0.9em;">
+                                                📊 CSVダウンロード
+                                            </a>
+                                        </div>` : ''
+                                    }
+                                </div>
+                            `).join('') 
+                            : '<div>レポート履歴が見つかりませんでした</div>'
+                        }
+                    </div>
+                `;
+                
+                resultArea.style.display = 'block';
+                
+            } catch (error) {
+                console.error('❌ レポート履歴取得エラー:', error);
+                showEnhancedReportError('レポート履歴の取得に失敗しました: ' + error.message);
+            }
+        }
+
+        // 機能説明表示
+        function showEnhancedReportHelp() {
+            const resultArea = document.getElementById('enhancedReportArea');
+            const resultContent = document.getElementById('enhancedReportContent');
+            
+            resultContent.innerHTML = `
+                <h3 style="color: white; margin-bottom: 15px;">❓ 拡張テストレポート機能説明</h3>
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; line-height: 1.6;">
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: white; margin-bottom: 10px;">🎯 主な機能</h4>
+                        <ul style="margin-left: 20px;">
+                            <li style="margin-bottom: 8px;"><strong>📊 観点-機能マッピング</strong>: テスト観点と実行機能の自動関連付け</li>
+                            <li style="margin-bottom: 8px;"><strong>✅ 成功ステップ明示</strong>: アサーション成功状況の詳細表示</li>
+                            <li style="margin-bottom: 8px;"><strong>❌ 失敗ステップ明示</strong>: エラー原因の詳細分析</li>
+                            <li style="margin-bottom: 8px;"><strong>🤖 AI不具合分析</strong>: 潜在的不具合の予測と対策提案</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: white; margin-bottom: 10px;">🚀 生成されるレポート</h4>
+                        <ul style="margin-left: 20px;">
+                            <li style="margin-bottom: 8px;"><strong>HTML</strong>: インタラクティブな詳細レポート</li>
+                            <li style="margin-bottom: 8px;"><strong>CSV</strong>: 表計算ソフトで利用可能な構造化データ</li>
+                            <li style="margin-bottom: 8px;"><strong>メタデータ</strong>: 分析統計と実行情報</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: white; margin-bottom: 10px;">⚙️ 使用方法</h4>
+                        <ul style="margin-left: 20px;">
+                            <li style="margin-bottom: 8px;"><strong>📊 拡張レポート生成</strong>: 高速な基本レポート</li>
+                            <li style="margin-bottom: 8px;"><strong>🤖 AI分析付きレポート</strong>: 詳細なAI分析を含む包括的レポート</li>
+                            <li style="margin-bottom: 8px;"><strong>📈 レポート履歴</strong>: 過去に生成されたレポートの一覧</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px;">
+                        <strong>💡 ヒント</strong>: AI分析は詳細な洞察を提供しますが、処理時間が長くなります。高速な結果が必要な場合は基本レポートをお使いください。
+                    </div>
+                </div>
+            `;
+            
+            resultArea.style.display = 'block';
+        }
+
+        // プログレス表示
+        function showEnhancedReportProgress(message, progress) {
+            const progressArea = document.getElementById('enhancedReportProgress');
+            const progressText = document.getElementById('enhancedReportProgressText');
+            const progressBar = document.getElementById('enhancedReportProgressBar');
+            
+            progressText.textContent = message;
+            progressBar.style.width = progress + '%';
+            progressArea.style.display = 'block';
+        }
+
+        // プログレス更新
+        function updateEnhancedReportProgress(message, progress) {
+            const progressText = document.getElementById('enhancedReportProgressText');
+            const progressBar = document.getElementById('enhancedReportProgressBar');
+            
+            progressText.textContent = message;
+            progressBar.style.width = progress + '%';
+        }
+
+        // プログレス非表示
+        function hideEnhancedReportProgress() {
+            setTimeout(() => {
+                document.getElementById('enhancedReportProgress').style.display = 'none';
+            }, 1000);
+        }
+
+        // 結果表示
+        function showEnhancedReportResult(result, withAI) {
+            const resultArea = document.getElementById('enhancedReportArea');
+            const resultContent = document.getElementById('enhancedReportContent');
+            
+            resultContent.innerHTML = `
+                <h3 style="color: white; margin-bottom: 15px;">
+                    🎉 ${withAI ? 'AI分析付き' : '基本'}拡張レポート生成完了
+                </h3>
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: white; margin-bottom: 10px;">📊 実行統計</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                            <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 1.5em; font-weight: bold;">${result.metadata?.testSummary?.totalSteps || 0}</div>
+                                <div style="font-size: 0.9em; opacity: 0.8;">総ステップ</div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 1.5em; font-weight: bold;">${result.metadata?.testSummary?.successRate || '0.0'}%</div>
+                                <div style="font-size: 0.9em; opacity: 0.8;">成功率</div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 1.5em; font-weight: bold;">${result.mappingStats?.totalMappings || 0}</div>
+                                <div style="font-size: 0.9em; opacity: 0.8;">マッピング数</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="color: white; margin-bottom: 10px;">📁 生成されたファイル</h4>
+                        ${result.files?.html ? `
+                            <div style="margin: 8px 0;">
+                                <a href="${result.files.html.filename}" target="_blank" 
+                                   style="color: white; text-decoration: underline; font-weight: bold;">
+                                    🎨 ${result.files.html.filename}
+                                </a>
+                                <span style="margin-left: 10px; opacity: 0.8;">- インタラクティブHTMLレポート</span>
+                            </div>
+                        ` : ''}
+                        ${result.files?.csv ? `
+                            <div style="margin: 8px 0;">
+                                <a href="${result.files.csv.filename}" 
+                                   style="color: white; text-decoration: underline; font-weight: bold;">
+                                    📊 ${result.files.csv.filename}
+                                </a>
+                                <span style="margin-left: 10px; opacity: 0.8;">- 構造化CSVデータ</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    ${withAI && result.metadata?.aiAnalysisEnabled ? `
+                        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px;">
+                            <strong>🤖 AI分析完了</strong>: 潜在的不具合の予測、パフォーマンス分析、カバレッジ評価を含む詳細レポートが生成されました。
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            resultArea.style.display = 'block';
+        }
+
+        // エラー表示
+        function showEnhancedReportError(message) {
+            const resultArea = document.getElementById('enhancedReportArea');
+            const resultContent = document.getElementById('enhancedReportContent');
+            
+            resultContent.innerHTML = `
+                <h3 style="color: white; margin-bottom: 15px;">❌ エラーが発生しました</h3>
+                <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+                    <div style="color: #ffcccb; margin-bottom: 15px;">${message}</div>
+                    <div style="font-size: 0.9em; opacity: 0.8;">
+                        問題が解決しない場合は、基本レポート生成をお試しください。
+                    </div>
+                </div>
+            `;
+            
+            resultArea.style.display = 'block';
+        }
+
+        // CSS追加（スピナーアニメーション）
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .enhanced-btn:hover {
+                background: rgba(45,80,22,0.25) !important;
+                color: #1f3d0f !important;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(45,80,22,0.3);
+                border-color: rgba(45,80,22,0.5) !important;
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 
     <!-- バッチ結果詳細表示エリア -->
@@ -4769,5 +5068,43 @@
         </div>
     </div>
 
+                <!-- 🚀 拡張テストレポート機能セクション -->
+            <div class="section" style="background: linear-gradient(135deg, rgb(195,255,184) 0%, rgb(175,235,164) 100%); color: #2d5016; margin-bottom: 30px; border-radius: 12px; padding: 25px;">
+                <h2 style="color: #2d5016; margin-bottom: 15px;">🚀 拡張テストレポート機能</h2>
+                <p style="margin-bottom: 20px; opacity: 0.8; color: #3d6b20;">AI駆動の詳細分析、観点-機能マッピング、インタラクティブHTMLレポート生成</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                    <button onclick="generateEnhancedReport()" class="enhanced-btn" style="background: rgba(45,80,22,0.15); color: #2d5016; border: 1px solid rgba(45,80,22,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px; font-weight: 500;">
+                        📊 拡張レポート生成
+                    </button>
+                    <button onclick="generateEnhancedReportWithAI()" class="enhanced-btn" style="background: rgba(45,80,22,0.15); color: #2d5016; border: 1px solid rgba(45,80,22,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px; font-weight: 500;">
+                        🤖 AI分析付きレポート
+                    </button>
+                    <button onclick="showEnhancedReportHistory()" class="enhanced-btn" style="background: rgba(45,80,22,0.15); color: #2d5016; border: 1px solid rgba(45,80,22,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px; font-weight: 500;">
+                        📈 レポート履歴
+                    </button>
+                    <button onclick="showEnhancedReportHelp()" class="enhanced-btn" style="background: rgba(45,80,22,0.15); color: #2d5016; border: 1px solid rgba(45,80,22,0.3); padding: 12px 20px; border-radius: 8px; cursor: pointer; transition: all 0.3s ease; font-size: 14px; font-weight: 500;">
+                        ❓ 機能説明
+                    </button>
+                </div>
+                
+                <!-- 拡張レポート結果表示エリア -->
+                <div id="enhancedReportArea" style="margin-top: 20px; padding: 20px; background: rgba(45,80,22,0.1); border-radius: 8px; display: none;">
+                    <div id="enhancedReportContent"></div>
+                </div>
+                
+                <!-- 進行状況表示 -->
+                <div id="enhancedReportProgress" style="margin-top: 15px; display: none;">
+                    <div style="background: rgba(45,80,22,0.15); border-radius: 10px; padding: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid rgba(45,80,22,0.3); border-top: 2px solid #2d5016; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <span id="enhancedReportProgressText" style="color: #2d5016;">レポート生成中...</span>
+                        </div>
+                        <div style="width: 100%; background: rgba(45,80,22,0.2); border-radius: 5px; margin-top: 10px; height: 6px;">
+                            <div id="enhancedReportProgressBar" style="width: 0%; background: #2d5016; height: 100%; border-radius: 5px; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 </body>
 </html>

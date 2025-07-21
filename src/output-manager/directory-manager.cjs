@@ -46,6 +46,30 @@ class DirectoryManager {
   }
 
   /**
+   * 完全なセッション構造を作成（アーティファクト、結果、設定ディレクトリを含む）
+   * @param {string} sessionId セッションID
+   * @returns {Promise<string>} 作成されたセッションパス
+   */
+  async createSessionStructure(sessionId) {
+    try {
+      // メインセッションディレクトリを作成
+      const sessionPath = await this.createSessionDirectory(sessionId);
+      
+      // サブディレクトリ群を作成
+      await Promise.all([
+        this.createArtifactDirectories(sessionPath),
+        this.createResultDirectories(sessionPath),
+        this.createConfigDirectories(sessionPath)
+      ]);
+      
+      console.log(`📁 セッション構造作成完了: ${sessionPath}`);
+      return sessionPath;
+    } catch (error) {
+      throw new Error(`Failed to create session structure: ${error.message}`);
+    }
+  }
+
+  /**
    * アーティファクト用ディレクトリ群を作成
    * @param {string} sessionPath セッションパス
    * @returns {Promise<DirectoryStructure>} 作成されたディレクトリ構造
@@ -140,6 +164,18 @@ class DirectoryManager {
     const sessionPath = this.sessionPaths.get(sessionId) || 
                        path.join(this.baseDir, 'runs', sessionId);
     return path.join(sessionPath, subDir, filename);
+  }
+
+  /**
+   * メタデータファイルのパスを解決
+   * @param {string} sessionId セッションID
+   * @param {string} filename ファイル名
+   * @returns {string} 解決されたファイルパス
+   */
+  resolveMetadataPath(sessionId, filename) {
+    const sessionPath = this.sessionPaths.get(sessionId) || 
+                       path.join(this.baseDir, 'runs', sessionId);
+    return path.join(sessionPath, 'metadata', filename);
   }
 
   /**
