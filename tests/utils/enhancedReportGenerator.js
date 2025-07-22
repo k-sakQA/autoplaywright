@@ -153,7 +153,8 @@ export class EnhancedReportGenerator {
           failedAssertions: enhancedAssertions.filter(a => a.status === 'failed').length
         },
         executionTime: step.duration || step.executionTime || 0,
-        screenshot: step.screenshot || null,
+        // スクリーンショットパス情報の正確な設定
+        screenshot: this.resolveScreenshotPath(step.screenshot, step.id || `step_${index + 1}`),
         domSnapshot: step.domSnapshot || null
       };
     });
@@ -226,10 +227,28 @@ export class EnhancedReportGenerator {
     const evidence = [];
     
     if (step.screenshot) {
+      // screenshotがオブジェクトの場合は適切なパスを使用
+      let screenshotPath;
+      let absolutePath = null;
+      let metadata = null;
+      
+      if (typeof step.screenshot === 'object') {
+        // 新形式のスクリーンショット情報
+        screenshotPath = step.screenshot.webPath || step.screenshot.relativePath || step.screenshot.path;
+        absolutePath = step.screenshot.absolutePath;
+        metadata = step.screenshot;
+      } else {
+        // 従来形式（文字列）
+        screenshotPath = step.screenshot;
+      }
+      
       evidence.push({
         type: 'screenshot',
-        path: step.screenshot,
-        description: 'ステップ実行時のスクリーンショット'
+        path: screenshotPath,
+        absolutePath: absolutePath,
+        description: 'ステップ実行時のスクリーンショット',
+        metadata: metadata,
+        resolved: metadata ? metadata.resolved : null
       });
     }
     
@@ -250,6 +269,38 @@ export class EnhancedReportGenerator {
     }
     
     return evidence;
+  }
+
+  /**
+   * スクリーンショットパス解決
+   * @param {string|Object} screenshotInfo スクリーンショット情報
+   * @param {string} stepId ステップID
+   * @returns {string|null} 解決されたパス
+   */
+  resolveScreenshotPath(screenshotInfo, stepId) {
+    if (!screenshotInfo) return null;
+    
+    // 新形式（オブジェクト）の場合
+    if (typeof screenshotInfo === 'object') {
+      if (screenshotInfo.webPath) {
+        return screenshotInfo.webPath;
+      }
+      if (screenshotInfo.relativePath) {
+        return screenshotInfo.relativePath.replace(/\\/g, '/');
+      }
+      if (screenshotInfo.path) {
+        return screenshotInfo.path.replace(/\\/g, '/');
+      }
+      // オブジェクトだが適切なパスが見つからない場合
+      return screenshotInfo;
+    }
+    
+    // 従来形式（文字列）の場合
+    if (typeof screenshotInfo === 'string') {
+      return screenshotInfo.replace(/\\/g, '/');
+    }
+    
+    return null;
   }
   
   /**

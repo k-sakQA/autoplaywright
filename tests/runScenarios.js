@@ -1921,7 +1921,15 @@ export class PlaywrightRunner {
         context.availableElements = await this.collectAvailableElements(step.target);
       }
 
-      this.reporter.onStepFailure(stepIndex, error, context);
+      // レポーターで失敗処理を実行し、結果を取得
+      const failureResult = this.reporter.onStepFailure(stepIndex, error, context);
+      
+      // 新しいスクリーンショット情報をステップに保存
+      if (failureResult && failureResult.screenshotPath && typeof failureResult.screenshotPath === 'object') {
+        step.screenshotInfo = failureResult.screenshotPath;
+        step.screenshot = failureResult.screenshotPath.webPath;
+        console.log(`📸 スクリーンショット情報をステップに保存: ${step.screenshot}`);
+      }
     } catch (reportError) {
       console.error('⚠️ 失敗レポート生成エラー:', reportError.message);
     }

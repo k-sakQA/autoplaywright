@@ -378,9 +378,23 @@ class AutoPlaywrightReporter {
     const filename = `${stepId}_failure.png`;
     const filepath = path.join(screenshotsDir, filename);
     
+    // 絶対パスと相対パスの両方を記録
+    const absolutePath = path.resolve(filepath);
+    const relativePath = path.relative(process.cwd(), filepath);
+    
     fs.writeFileSync(filepath, screenshot);
     console.log(`📸 スクリーンショット保存: ${filepath}`);
-    return filepath;
+    
+    return {
+      absolutePath,
+      relativePath,
+      filename,
+      sessionId: this.sessionId,
+      userStoryId: this.currentUserStoryId,
+      stepId,
+      webPath: relativePath.replace(/\\/g, '/'), // Web用のパス
+      timestamp: new Date().toISOString()
+    };
   }
 
   /**

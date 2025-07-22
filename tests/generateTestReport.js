@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { ScreenshotPathManager } from './utils/screenshotPathManager.js';
+import { ScreenshotResolver } from './utils/screenshotResolver.js';
 
 dotenv.config();
 
@@ -627,6 +629,10 @@ function generateTraceableCSVReport(reportData) {
  */
 function generateCategoryBatchReport(batchResult, executionResult, userStoryInfo = null) {
   const executionTime = new Date().toISOString();
+  
+  // スクリーンショット解決システムを初期化
+  const screenshotPathManager = new ScreenshotPathManager();
+  const screenshotResolver = new ScreenshotResolver(screenshotPathManager);
   
   // ユーザーストーリー情報の取得
   let userStory, userStoryId;
@@ -2956,8 +2962,35 @@ function generateCoverageHTML(coverage, outputPath) {
             }
         }
         
+        // 動的スクリーンショットパス生成関数
+        function generateDynamicScreenshotPaths(routeId, stepIndex, userStoryId, sessionId) {
+            const basePaths = [];
+            
+            // 新しいファイル構造（優先度高）
+            if (userStoryId && sessionId) {
+                basePaths.push('test-results/USIS-' + userStoryId + '/screenshots/' + sessionId + '/step_' + stepIndex + '_failure.png');
+                basePaths.push('test-results/USIS-' + userStoryId + '/screenshots/' + sessionId + '/step_' + stepIndex + '.png');
+            }
+            
+            // ユーザーストーリーIDのみ判明している場合
+            if (userStoryId) {
+                basePaths.push('test-results/USIS-' + userStoryId + '/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png');
+                basePaths.push('test-results/USIS-' + userStoryId + '/screenshots/' + routeId + '/step_' + stepIndex + '.png');
+            }
+            
+            // 従来構造（後方互換性）
+            basePaths.push('test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png');
+            basePaths.push('test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '.png');
+            basePaths.push('test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png');
+            basePaths.push('test-results/failure_' + routeId + '.png');
+            basePaths.push('test-results/screenshots/step_' + stepIndex + '.png');
+            basePaths.push('test-results/' + routeId + '/screenshot.png');
+            
+            return basePaths;
+        }
+        
                  // スクリーンショット表示機能
-         function openScreenshot(routeId, stepIndex) {
+         function openScreenshot(routeId, stepIndex, userStoryId, sessionId) {
              const modal = document.getElementById('screenshotModal');
              const title = document.getElementById('screenshotTitle');
              const container = document.getElementById('screenshotContainer');
@@ -2971,17 +3004,8 @@ function generateCoverageHTML(coverage, outputPath) {
                              '<strong>ステップ:</strong> ' + stepIndex + '<br>' +
                              '<strong>キャプチャ時刻:</strong> ' + new Date().toLocaleString();
              
-             // スクリーンショットを探す
-             const possiblePaths = [
-                 // AutoPlaywright 実際のファイル構造
-                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png',
-                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '.png',
-                 // 従来の構造（後方互換性）
-                 'test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png',
-                 'test-results/failure_' + routeId + '.png',
-                 'test-results/screenshots/step_' + stepIndex + '.png',
-                 'test-results/' + routeId + '/screenshot.png'
-             ];
+             // スクリーンショットを探す（動的パス生成）
+             const possiblePaths = generateDynamicScreenshotPaths(routeId, stepIndex, userStoryId, sessionId);
              
              // まず基本パスで検索を試行
              let imageFound = false;
@@ -3124,20 +3148,13 @@ function generateCoverageHTML(coverage, outputPath) {
              document.body.removeChild(link);
          }
          
-         function downloadScreenshot(routeId, stepIndex) {
-             const possiblePaths = [
-                 // AutoPlaywright 実際のファイル構造
-                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '_failure.png',
-                 'test-results/USIS-1/screenshots/' + routeId + '/step_' + stepIndex + '.png',
-                              // タイムスタンプベースのディレクトリ構造での検索
-             'test-results/USIS-1/screenshots/2025-07-04T07-36-54_uysvac/step_' + stepIndex + '_failure.png',
-             'test-results/USIS-1/screenshots/2025-07-04T07-36-22_2zau41/step_' + stepIndex + '_failure.png',
-                 // 従来の構造（後方互換性）
-                 'test-results/screenshot_' + routeId + '_step_' + stepIndex + '.png',
-                 'test-results/failure_' + routeId + '.png',
-                 'test-results/screenshots/step_' + stepIndex + '.png',
-                 'test-results/' + routeId + '/screenshot.png'
-             ];
+         function downloadScreenshot(routeId, stepIndex, userStoryId, sessionId) {
+             // 動的パス生成を使用
+             const possiblePaths = generateDynamicScreenshotPaths(routeId, stepIndex, userStoryId, sessionId);
+             
+             // タイムスタンプベースのディレクトリ構造も追加
+             possiblePaths.push('test-results/USIS-1/screenshots/2025-07-04T07-36-54_uysvac/step_' + stepIndex + '_failure.png');
+             possiblePaths.push('test-results/USIS-1/screenshots/2025-07-04T07-36-22_2zau41/step_' + stepIndex + '_failure.png');
              
              // 最初に見つかったスクリーンショットをダウンロード
              let found = false;
